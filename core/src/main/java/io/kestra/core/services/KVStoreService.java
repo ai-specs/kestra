@@ -192,6 +192,6 @@ public class KVStoreService {
     }
 
     private static boolean isNotParentNamespace(final String parentNamespace, final String childNamespace) {
-        return !childNamespace.startsWith(parentNamespace);
+        return !childNamespace.equals(parentNamespace) && !childNamespace.startsWith(parentNamespace + ".");
     }
 }
