@@ -8,13 +8,13 @@
         :pageSize="urlSize"
         :defaultSort="{prop: 'key', order: 'ascending'}"
         @page-changed="({page, size}: {page: number; size: number}) => router.push({query: {...route.query, page: String(page), size: String(size)}})"
-        @sort-change="({prop, order}: {column: any; prop: string; order: string | null}) => router.push({query: {...route.query, sort: `${prop}:${order === 'ascending' ? 'asc' : 'desc'}`}})"
+        @sort-change="({prop, order}: {column: any; prop: string | null; order: string | null}) => router.push({query: {...route.query, sort: `${prop}:${order === 'ascending' ? 'asc' : 'desc'}`}})"
         :no-data-text="$t('no_results.kv_pairs')"
-        class="fill-height"
+        :fitHeight="!paneView"
         :showSelection="!paneView"
         :rowKey="(row: any) => `${row.namespace}-${row.key}`"
     >
-        <template #top>
+        <template #top v-if="!paneView">
             <KSFilter
                 :configuration="kvFilter"
                 :tableOptions="{
@@ -47,7 +47,16 @@
                 sortable="custom"
                 :sortOrders="['ascending', 'descending']"
                 :label="$t('namespace')"
-            />
+            >
+                <template #default="scope">
+                    <KsEntityLink
+                        v-if="scope.row.namespace"
+                        entity="namespace"
+                        :value="scope.row.namespace"
+                        :to="{name: 'namespaces/update', params: {id: scope.row.namespace}}"
+                    />
+                </template>
+            </KsTableColumn>
             <KsTableColumn
                 v-else-if="colProp === 'key'"
                 prop="key"
@@ -94,11 +103,24 @@
             <template #default="scope">
                 <KsIconButton
                     v-if="scope.row.key !== undefined"
-                    :tooltip="$t('copy_to_clipboard')"
+                    :tooltip="$t('copy_pebble_expression')"
                     placement="left"
-                    @click="Utils.copy(`\{\{ kv('${scope.row.key}') \}\}`)"
+                    @click="copyKey(scope.row.key)"
                 >
                     <ContentCopy />
+                </KsIconButton>
+            </template>
+        </KsTableColumn>
+
+        <KsTableColumn v-if="!paneView" columnKey="view" className="row-action">
+            <template #default="scope">
+                <KsIconButton
+                    v-if="!canUpdate(scope.row) && canRead(scope.row)"
+                    :tooltip="$t('show')"
+                    placement="left"
+                    @click="viewKvModal(scope.row)"
+                >
+                    <Eye />
                 </KsIconButton>
             </template>
         </KsTableColumn>
@@ -107,7 +129,8 @@
             <template #default="scope">
                 <KsIconButton
                     v-if="canUpdate(scope.row)"
-                    :tooltip="$t('update')"
+                    data-test="kv-edit"
+                    :tooltip="$t('edit')"
                     placement="left"
                     @click="updateKvModal(scope.row)"
                 >
@@ -134,9 +157,10 @@
         v-if="addKvDrawerVisible"
         v-model="addKvDrawerVisible"
         :title="kvModalTitle"
+        :beforeClose="beforeKvClose"
     >
         <KsForm class="ks-horizontal" :model="kv" :rules="rules" ref="formRef">
-            <KsFormItem v-if="namespace === undefined" :label="$t('namespace')" prop="namespace" required>
+            <KsFormItem v-if="namespace === undefined" :label="$t('namespace')" prop="namespace" required data-test="kv-namespace">
                 <NamespaceSelect
                     v-model="kv.namespace"
                     :readOnly="kv.update"
@@ -145,13 +169,14 @@
                 />
             </KsFormItem>
 
-            <KsFormItem :label="$t('key')" prop="key" required>
+            <KsFormItem :label="$t('key')" prop="key" required data-test="kv-key">
                 <KsInput v-model="kv.key" :disabled="kv.update" />
             </KsFormItem>
 
             <KsFormItem :label="$t('kv.type')" prop="type" required>
                 <KsSelect
                     v-model="kv.type"
+                    data-test="kv-type"
                     :disabled="kv.update"
                     @change="kv.value = undefined"
                 >
@@ -165,7 +190,7 @@
                 </KsSelect>
             </KsFormItem>
 
-            <KsFormItem :label="$t('value')" prop="value" :required="kv.type !== 'BOOLEAN'">
+            <KsFormItem :label="$t('value')" prop="value" :required="kv.type !== 'BOOLEAN'" data-test="kv-value">
                 <KsInput v-if="kv.type === 'STRING'" type="textarea" :rows="5" v-model="kv.value" />
                 <KsInput v-else-if="kv.type === 'NUMBER'" type="number" v-model="kv.value" />
                 <KsSwitch
@@ -173,7 +198,6 @@
                     :activeText="$t('true')"
                     v-model="kv.value"
                     class="switch-text"
-                    :activeActionIcon="Check"
                 />
                 <KsDatePicker
                     v-else-if="kv.type === 'DATETIME'"
@@ -204,11 +228,11 @@
                 />
             </KsFormItem>
 
-            <KsFormItem :label="$t('description')" prop="description">
+            <KsFormItem :label="$t('description')" prop="description" data-test="kv-description">
                 <KsInput v-model="kv.description" />
             </KsFormItem>
 
-            <KsFormItem :label="$t('expiration')" prop="ttl">
+            <KsFormItem :label="$t('expiration')" prop="ttl" data-test="kv-ttl">
                 <TimeSelect
                     :fromNow="false"
                     allowInfinite
@@ -223,10 +247,34 @@
         </KsForm>
 
         <template #footer>
-            <KsButton :icon="ContentSave" @click="saveKv(formRef)" type="primary">
+            <KsButton :icon="ContentSave" data-test="kv-save" @click="saveKv(formRef)" type="primary">
                 {{ $t('save') }}
             </KsButton>
         </template>
+    </KsDrawer>
+
+    <KsDrawer
+        v-if="viewKvDrawerVisible"
+        v-model="viewKvDrawerVisible"
+        :title="$t('show')"
+    >
+        <KsForm class="ks-horizontal">
+            <KsFormItem v-if="viewKv.namespace" :label="$t('namespace')">
+                <KsInput :modelValue="viewKv.namespace" disabled />
+            </KsFormItem>
+            <KsFormItem :label="$t('key')">
+                <KsInput :modelValue="viewKv.key" disabled />
+            </KsFormItem>
+            <KsFormItem :label="$t('kv.type')">
+                <KsInput :modelValue="viewKv.type" disabled />
+            </KsFormItem>
+            <KsFormItem :label="$t('value')">
+                <KsInput type="textarea" :rows="5" :modelValue="viewKv.value" readonly />
+            </KsFormItem>
+            <KsFormItem v-if="viewKv.description" :label="$t('description')">
+                <KsInput :modelValue="viewKv.description" disabled />
+            </KsFormItem>
+        </KsForm>
     </KsDrawer>
 
     <KsDrawer
@@ -244,15 +292,18 @@
     import _groupBy from "lodash/groupBy"
     import {computed, nextTick, ref, useTemplateRef, watch} from "vue"
 
-    import Check from "vue-material-design-icons/Check.vue"
     import Delete from "vue-material-design-icons/Delete.vue"
     import ContentCopy from "vue-material-design-icons/ContentCopy.vue"
     import ContentSave from "vue-material-design-icons/ContentSave.vue"
     import FileDocumentEdit from "vue-material-design-icons/FileDocumentEdit.vue"
+    import Eye from "vue-material-design-icons/Eye.vue"
 
     import {KsId, KsIconButton, KsEditor, KsFilter as KSFilter} from "@kestra-io/design-system"
+    import {routeQueryToQueryFilters} from "../../utils/queryFilters"
     import {useEditorBindings} from "../../composables/useEditorBindings"
+    import {useDiscardGuard} from "../../composables/useDiscardGuard"
     import InheritedKVs from "./InheritedKVs.vue"
+    import {formatKvValueForDisplay, hydrateKvValueForForm, serializeKvValueForSave} from "./kvValue"
     import TimeSelect from "../executions/date-select/TimeSelect.vue"
     import NamespaceSelect from "../namespaces/components/NamespaceSelect.vue"
     import useRestoreUrl from "../../composables/useRestoreUrl"
@@ -272,7 +323,8 @@
 
     import {useAuthStore} from "override/stores/auth"
     import {useNamespacesStore} from "override/stores/namespaces"
-    import {useKvStore} from "../../stores/kvs.ts"
+    import {useApiStore} from "../../stores/api"
+    import * as KvAPI from "@kestra-io/kestra-sdk/kv"
 
     import _merge from "lodash/merge"
     const dataTable = useTemplateRef("dataTable")
@@ -294,23 +346,24 @@
 
     const authStore = useAuthStore()
     const namespacesStore = useNamespacesStore()
-    const kvStore = useKvStore()
+    const apiStore = useApiStore()
 
     const editorBindings = useEditorBindings()
 
+    const namespaceFilter = (namespace: string) =>
+        [{field: "namespace" as const, operation: "EQUALS" as const, value: namespace}]
+
     const loadData = async ({page, size, sort}: {page: number; size: number; sort?: string}) => {
         if (!loadInit.value) return
-        const kvsResponse = await kvStore.find(loadQuery({
+        const activeFilters = routeQueryToQueryFilters(route.query)
+        const kvsResponse = await KvAPI.listAllKeys(loadQuery({
             size,
             page,
             sort: sort ?? String(route.query.sort ?? "name:asc"),
-            ...(props.namespace === undefined ? {} : {
-                filters: {
-                    namespace: {
-                        EQUALS: props.namespace,
-                    },
-                },
-            }),
+            filters: [
+                ...activeFilters,
+                ...(props.namespace === undefined ? [] : namespaceFilter(props.namespace)),
+            ],
         }))
 
         let allKvs = kvsResponse.results ?? []
@@ -319,12 +372,8 @@
             const parentNamespaces = Utils.getParentNamespaces(props.namespace).slice(0, -1)
 
             for (const parentNs of parentNamespaces) {
-                const parentKvsResponse = await kvStore.find(loadQuery({
-                    filters: {
-                        namespace: {
-                            EQUALS: parentNs,
-                        },
-                    },
+                const parentKvsResponse = await KvAPI.listAllKeys(loadQuery({
+                    filters: [...activeFilters, ...namespaceFilter(parentNs)],
                 }))
 
                 const parentKvs = parentKvsResponse?.results ?? []
@@ -343,8 +392,11 @@
     }
 
     const loadQuery = (base: any) => {
-        const {page: _p, size: _s, sort: _so, ...filters} = route.query
-        return _merge(base, filters)
+        const {page: _p, size: _s, sort: _so, ...rest} = route.query
+        const nonFilterRest = Object.fromEntries(
+            Object.entries(rest).filter(([key]) => !key.startsWith("filters[")),
+        )
+        return _merge(base, nonFilterRest)
     }
 
     const urlPage = computed(() => Number(route.query.page) || 1)
@@ -378,6 +430,10 @@
         update: undefined,
         description: undefined,
     })
+
+    const kvBaseline = ref("")
+    const {guardedClose: guardKvClose} = useDiscardGuard(() => JSON.stringify(kv.value) !== kvBaseline.value)
+    const beforeKvClose = (done: () => void) => guardKvClose(() => done())
 
     const {t} = useI18n()
 
@@ -489,6 +545,10 @@
         return kvItem.namespace !== undefined && authStore.user?.isAllowed(resource.KVSTORE, action.DELETE, kvItem.namespace)
     }
 
+    function canRead(kvItem: {namespace: string}) {
+        return kvItem.namespace !== undefined && authStore.user?.isAllowed(resource.KVSTORE, action.VIEW, kvItem.namespace)
+    }
+
     function jsonValidator(_rule: any, value: string, callback: (error?: Error) => void) {
         try {
             const parsed = JSON.parse(value)
@@ -504,7 +564,7 @@
 
     function durationValidator(_rule: any, value: string, callback: (error?: Error) => void) {
         if (value !== undefined && !value.match(/^P(?=[^T]|T.)(?:\d*D)?(?:T(?=.)(?:\d*H)?(?:\d*M)?(?:\d*S)?)?$/)) {
-            callback(new Error("datepicker.error"))
+            callback(new Error(t("invalid duration")))
         } else {
             callback()
         }
@@ -514,7 +574,7 @@
 
     function kvKeyDuplicate(_rule: any, value: string, callback: (error?: Error) => void) {
         if (kv.value.update === undefined && kvs.value && kvs.value.find(r => r.namespace === kv.value.namespace && r.key === value)) {
-            return callback(new Error("kv.duplicate"))
+            return callback(new Error(t("kv.duplicate")))
         } else {
             callback()
         }
@@ -523,25 +583,50 @@
     async function updateKvModal(entry: any) {
         kv.value.namespace = entry.namespace
         kv.value.key = entry.key
-        const {type, value} = await namespacesStore.kv({namespace: entry.namespace, key: entry.key})
+        const {type, value} = await namespacesStore.kv({namespace: entry.namespace, key: entry.key}) as {type: string, value: any}
         kv.value.type = type
         // Force the type reset before setting the value
         await nextTick()
-        if (type === "JSON") {
-            kv.value.value = JSON.stringify(value)
-        } else if (type === "BOOLEAN") {
-            kv.value.value = value
-        } else if (type === "DATETIME") {
-            // Follow Timezone from Settings to display KV of type DATETIME (issue #9428)
-            // Convert the datetime value to the user's timezone for proper display in the date picker
-            const userTimezone = localStorage.getItem(storageKeys.TIMEZONE_STORAGE_KEY) || moment.tz.guess()
-            kv.value.value = moment(value).tz(userTimezone).toDate()
-        } else {
-            kv.value.value = value.toString()
-        }
+        kv.value.value = hydrateKvValueForForm(type, value, localStorage.getItem(storageKeys.TIMEZONE_STORAGE_KEY) ?? undefined)
         kv.value.update = true
         kv.value.description = entry.description
+
+        if (entry.expirationDate) {
+            const expirationMoment = moment(entry.expirationDate)
+            const now = moment()
+
+            if (expirationMoment.isValid() && expirationMoment.isAfter(now)) {
+                const remainingMilliseconds = Math.round(expirationMoment.diff(now) / 1000) * 1000
+                kv.value.ttl = moment.duration(remainingMilliseconds).toISOString()
+            } else {
+                kv.value.ttl = undefined
+            }
+        } else {
+            kv.value.ttl = undefined
+        }
+
         addKvDrawerVisible.value = true
+    }
+
+    const viewKvDrawerVisible = ref(false)
+    const viewKv = ref<{namespace?: string; key?: string; type?: string; value?: string; description?: string}>({})
+
+    async function viewKvModal(entry: any) {
+        const {type, value} = await namespacesStore.kv({namespace: entry.namespace, key: entry.key}) as {type: string, value: any}
+        const userTimezone = localStorage.getItem(storageKeys.TIMEZONE_STORAGE_KEY) || moment.tz.guess()
+        viewKv.value = {
+            namespace: entry.namespace,
+            key: entry.key,
+            type,
+            value: formatKvValueForDisplay(type, value, userTimezone),
+            description: entry.description,
+        }
+        viewKvDrawerVisible.value = true
+    }
+
+    async function copyKey(key: string) {
+        await Utils.copy(`{{ kv('${key}') }}`)
+        toast.success(t("copied"))
     }
 
     function removeKv(namespace: string, key: string) {
@@ -583,19 +668,7 @@
             }
 
             const type = kv.value.type
-            let value: any = kv.value.value
-
-            if (type === "STRING") {
-                value = JSON.stringify(value)
-            } else if (["DURATION", "JSON"].includes(type)) {
-                value = value || ""
-            } else if (type === "DATETIME") {
-                value = new Date(value!).toISOString()
-            } else if (type === "DATE") {
-                value = new Date(value!).toISOString().split("T")[0]
-            } else {
-                value = String(value)
-            }
+            const value = serializeKvValueForSave(type, kv.value.value)
 
             const contentType =  "text/plain"
 
@@ -616,9 +689,20 @@
                 (payload as any).ttl = ttl
             }
 
+            // update flag is set by updateKvModal(); setKeyValue() is an upsert and can't tell them apart.
+            const wasUpdate = kv.value.update === true
+
             return namespacesStore
                 .createKv(payload)
                 .then(() => {
+                    apiStore.posthogEvents({
+                        type: wasUpdate ? "SECRET_UPDATED" : "SECRET_CREATED",
+                        secret_type: "kv",
+                        namespace,
+                        value_type: type,
+                        has_ttl: Boolean(ttl),
+                    })
+
                     toast.saved(key)
                     addKvDrawerVisible.value = false
                     dataTable.value?.reload()
@@ -638,7 +722,11 @@
     }
 
     watch(addKvDrawerVisible, (newValue) => {
-        if (!newValue) {
+        if (newValue) {
+            nextTick(() => {
+                kvBaseline.value = JSON.stringify(kv.value)
+            })
+        } else {
             resetKv()
         }
     })

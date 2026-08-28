@@ -9,7 +9,7 @@
         </template>
     </Navbar>
 
-    <KsRow class="p-5">
+    <KsRow class="row-padding">
         <KSFilter
             :configuration="namespacesFilter"
             :prefix="'namespaces-list'"
@@ -43,10 +43,9 @@
                 <template #default="{data}">
                     <router-link
                         :to="{
-                            name: 'namespaces/update',
+                            name: `namespaces/update/${data.system ? 'blueprints' : 'overview'}`,
                             params: {
                                 id: data.id,
-                                tab: data.system ? 'blueprints' : 'overview',
                             },
                         }"
                         tag="div"
@@ -80,10 +79,12 @@
     import useNamespaces from "../../../composables/useNamespaces"
     import {useI18n} from "vue-i18n"
     import {useMiscStore} from "override/stores/misc"
+    import {useSystemNamespace} from "../../../composables/useSystemNamespace"
 
     import Navbar from "../../../components/layout/TopNavBar.vue"
     import Action from "../../../components/namespaces/components/buttons/Action.vue"
     import {KsFilter as KSFilter} from "@kestra-io/design-system"
+    import {routeQueryToQueryFilters} from "../../../utils/queryFilters"
     import {useNamespacesFilter} from "../../../components/filter/configurations"
     import resource from "../../../models/resource"
     import action from "../../../models/action"
@@ -118,10 +119,7 @@
 
     const namespaces = ref([]) as Ref<Namespace[]>
     const loadData = async () => {
-        const filterParams = Object.fromEntries(
-            Object.entries(route.query).filter(([key]) => key.startsWith("filters[")),
-        )
-        namespaces.value = await useNamespaces(1000, filterParams).all()
+        namespaces.value = await useNamespaces(1000, {filters: routeQueryToQueryFilters(route.query)}).all()
     }
 
     watch(
@@ -130,10 +128,7 @@
         {immediate: true, deep: true},
     )
 
-    const miscStore = useMiscStore()
-    const systemNamespace = computed(
-        () => miscStore.configs?.systemNamespace || "system",
-    )
+    const systemNamespace = useSystemNamespace()
 
     const isOSS = computed(() => useMiscStore().configs?.edition === "OSS")
 
@@ -196,6 +191,10 @@
 </script>
 
 <style scoped lang="scss">
+
+.row-padding {
+    padding: var(--ks-spacing-6);
+}
 
 .namespaces {
     margin: 0.25rem 0;

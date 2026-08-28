@@ -55,16 +55,18 @@ export function useTableColumns({columns, storageKey, initialVisibleColumns = []
 
     const initializeVisibleColumns = () => {
         const stored = localStorage.getItem(visibilityStorageKey)
-        if (stored) {
-            try {
-                const parsed = stored.split(",")
-                const valid = parsed.filter(p => columns.some(c => c.prop === p))
-                if (valid.length) {
-                    visibleColumns.value = valid
-                    return
-                }
-            } catch { // ignore
-            } 
+        if (stored !== null) {
+            // An empty entry means the user deliberately hid every column; only a missing
+            // entry (or one whose columns no longer exist) may fall back to the defaults.
+            if (stored === "") {
+                visibleColumns.value = []
+                return
+            }
+            const valid = stored.split(",").filter(p => columns.some(c => c.prop === p))
+            if (valid.length) {
+                visibleColumns.value = valid
+                return
+            }
         }
         visibleColumns.value = initialVisibleColumns.length
             ? initialVisibleColumns
@@ -93,12 +95,8 @@ export function useTableColumns({columns, storageKey, initialVisibleColumns = []
         localStorage.setItem(visibilityStorageKey, visibleColumns.value.join(","))
     }
 
-    const reorderColumns = (fromIndex: number, toIndex: number) => {
-        if (fromIndex === toIndex) return
-        const newOrder = [...columnOrder.value]
-        const [dragged] = newOrder.splice(fromIndex, 1)
-        newOrder.splice(toIndex, 0, dragged)
-        columnOrder.value = newOrder
+    const setColumnOrder = (order: string[]) => {
+        columnOrder.value = order
         visibleColumns.value = orderedVisibleColumns.value
         localStorage.setItem(visibilityStorageKey, visibleColumns.value.join(","))
     }
@@ -118,7 +116,7 @@ export function useTableColumns({columns, storageKey, initialVisibleColumns = []
         totalCount,
         isVisible,
         toggleColumn,
-        reorderColumns,
+        setColumnOrder,
         updateVisibleColumns,
         initializeVisibleColumns,
     }

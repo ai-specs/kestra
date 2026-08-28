@@ -30,6 +30,7 @@ import io.kestra.core.utils.DateUtils;
 import io.kestra.core.utils.Either;
 import io.kestra.core.utils.Enums;
 import io.kestra.core.utils.ListUtils;
+import io.kestra.core.utils.TypeConverter;
 import io.kestra.jdbc.services.JdbcFilterService;
 
 import io.micronaut.core.annotation.Nullable;
@@ -45,9 +46,18 @@ public abstract class AbstractJdbcRepository {
 
     protected static final int FETCH_SIZE = 100;
 
+    /**
+     * Operations valid on the {@link QueryFilter.Field#LABELS} field when its value is a plain
+     * string, i.e. {@code filters[labels][OP]=value} with no label key. Every other operation
+     * requires a keyed map value ({@code filters[labels][OP][key]=value}).
+     */
+    private static final Set<Op> SCALAR_LABEL_OPS = EnumSet.of(Op.CONTAINS, Op.NOT_CONTAINS, Op.IS_NULL, Op.IS_NOT_NULL);
+
     @Getter
     @Inject
-    private SystemFlowsConfiguration systemFlowsConfiguration;
+    // Micronaut field-injects this for bean-managed repositories; log-store plugins (deserialized,
+    // not bean-managed) set it in AbstractJdbcLogDataStore.initFrom — hence protected, not private.
+    protected SystemFlowsConfiguration systemFlowsConfiguration;
 
     protected Condition defaultFilter() {
         return DELETED_FIELD.eq(false);
@@ -83,6 +93,16 @@ public abstract class AbstractJdbcRepository {
         return tenantId == null ? TENANT_ID_FIELD.isNull() : TENANT_ID_FIELD.eq(tenantId);
     }
 
+    /**
+     * Null-safe equality condition: {@code field = value} in SQL never matches a NULL value, so a
+     * plain {@code field.eq(value)} silently drops rows when {@code value} is null. Use this whenever
+     * {@code value} models an optional scope that is genuinely persisted as {@code NULL}.
+     */
+    // Used in EE
+    protected <T> Condition eqOrIsNull(Field<T> field, T value) {
+        return value == null ? field.isNull() : field.eq(value);
+    }
+
     public static Field<Object> field(String name) {
         return DSL.field(DSL.quotedName(name));
     }
@@ -103,18 +123,32 @@ public abstract class AbstractJdbcRepository {
         return DSL.week(timestampField);
     }
 
+    /**
+     * The timestamp expression that {@link #groupByFields} extracts date parts from.
+     * <p>
+     * It must yield <em>UTC</em> wall-clock parts, because
+     * {@link io.kestra.jdbc.AbstractJdbcRepository#getDate} reassembles them in UTC. The default is
+     * correct for H2 and MySQL, whose date columns already hold UTC wall-clock values. Postgres
+     * stores {@code TIMESTAMPTZ}, for which a plain cast to {@code timestamp} resolves in the
+     * session timezone, so it overrides this.
+     */
+    protected Field<Timestamp> groupByTimestampField(String dateField) {
+        return DSL.timestamp(field(dateField, Date.class));
+    }
+
     protected List<Field<?>> groupByFields(Duration duration, @Nullable String dateField, @Nullable DateUtils.GroupType groupBy) {
         return groupByFields(duration, dateField, groupBy, true);
     }
 
     protected List<Field<?>> groupByFields(Duration duration, @Nullable String dateField, @Nullable DateUtils.GroupType groupBy, boolean withAs) {
         String field = dateField != null ? dateField : "timestamp";
-        Field<Integer> month = withAs ? DSL.month(DSL.timestamp(field(field, Date.class))).as("month") : DSL.month(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> year = withAs ? DSL.year(DSL.timestamp(field(field, Date.class))).as("year") : DSL.year(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> day = withAs ? DSL.day(DSL.timestamp(field(field, Date.class))).as("day") : DSL.day(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> week = withAs ? weekFromTimestamp(DSL.timestamp(field(field, Date.class))).as("week") : weekFromTimestamp(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> hour = withAs ? DSL.hour(DSL.timestamp(field(field, Date.class))).as("hour") : DSL.hour(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> minute = withAs ? DSL.minute(DSL.timestamp(field(field, Date.class))).as("minute") : DSL.minute(DSL.timestamp(field(field, Date.class)));
+        Field<Timestamp> timestamp = groupByTimestampField(field);
+        Field<Integer> month = withAs ? DSL.month(timestamp).as("month") : DSL.month(timestamp);
+        Field<Integer> year = withAs ? DSL.year(timestamp).as("year") : DSL.year(timestamp);
+        Field<Integer> day = withAs ? DSL.day(timestamp).as("day") : DSL.day(timestamp);
+        Field<Integer> week = withAs ? weekFromTimestamp(timestamp).as("week") : weekFromTimestamp(timestamp);
+        Field<Integer> hour = withAs ? DSL.hour(timestamp).as("hour") : DSL.hour(timestamp);
+        Field<Integer> minute = withAs ? DSL.minute(timestamp).as("minute") : DSL.minute(timestamp);
 
         if (groupBy == DateUtils.GroupType.MONTH || duration.toDays() > DateUtils.GroupValue.MONTH.getValue()) {
             return List.of(year, month);
@@ -142,7 +176,8 @@ public abstract class AbstractJdbcRepository {
             .select(
                 Stream.concat(
                     descriptors.entrySet().stream()
-                        .map(entry -> {
+                        .map(entry ->
+                        {
                             ColumnDescriptor<F> col = entry.getValue();
                             String key = entry.getKey();
                             Field<?> field = columnToField(col, fieldsMapping);
@@ -211,7 +246,8 @@ public abstract class AbstractJdbcRepository {
      */
     protected <F extends Enum<F>> SelectSeekStepN<Record> orderBy(SelectHavingStep<Record> selectHavingStep, DataFilter<F, ? extends ColumnDescriptor<F>> descriptors) {
         List<SortField<?>> orderFields = ListUtils.emptyOnNull(descriptors.getOrderBy()).stream()
-            .map(orderBy -> {
+            .map(orderBy ->
+            {
                 Field<?> field = field(orderBy.getColumn());
                 return orderBy.getOrder() == Order.ASC ? field.asc() : field.desc();
             })
@@ -322,8 +358,8 @@ public abstract class AbstractJdbcRepository {
             return getEnabledCondition(value, operation);
         }
 
-        if (field == QueryFilter.Field.SUPER_ADMIN) {
-            return getSuperAdminCondition(value, operation);
+        if (field == QueryFilter.Field.INSTANCE_OWNER) {
+            return getInstanceOwnerCondition(value, operation);
         }
 
         if (field == QueryFilter.Field.STATUS) {
@@ -341,6 +377,10 @@ public abstract class AbstractJdbcRepository {
             return tagsCondition(value, operation);
         }
 
+        if (field == QueryFilter.Field.ASSIGNEE) {
+            return assigneeCondition(value, operation);
+        }
+
         if (field == QueryFilter.Field.EXPIRATION_DATE) {
             return getDateCondition(value, operation, QueryFilter.Field.EXPIRATION_DATE.name().toLowerCase());
         }
@@ -353,6 +393,13 @@ public abstract class AbstractJdbcRepository {
             if (value instanceof Map<?, ?> map) {
                 return findLabelCondition(Either.left(map), operation);
             } else if (value instanceof String string) {
+                if (!SCALAR_LABEL_OPS.contains(operation)) {
+                    throw new InvalidQueryFiltersException(
+                        "Operation %s on the labels field requires a label key, as in filters[labels][%s][<key>]=<value>. Operations supported without a key are %s.".formatted(
+                            operation, operation, SCALAR_LABEL_OPS
+                        )
+                    );
+                }
                 return findLabelCondition(Either.right(string), operation);
             } else {
                 throw new InvalidQueryFiltersException("Label field value must be instance of Map or String");
@@ -415,23 +462,49 @@ public abstract class AbstractJdbcRepository {
 
         // Default handling for other fields
         return switch (operation) {
-            case EQUALS -> DSL.field(columnName).eq(primitiveOrToString(value));
-            case NOT_EQUALS -> DSL.field(columnName).ne(primitiveOrToString(value));
-            case GREATER_THAN -> DSL.field(columnName).greaterThan(value);
-            case LESS_THAN -> DSL.field(columnName).lessThan(value);
-            case IN -> DSL.field(columnName).in(ListUtils.convertToListString(value));
-            case NOT_IN -> DSL.field(columnName).notIn(ListUtils.convertToListString(value));
+            case EQUALS -> {
+                Object v = primitiveOrToString(value);
+                yield v == null ? DSL.field(columnName).isNull() : DSL.field(columnName).eq(v);
+            }
+            case NOT_EQUALS -> {
+                Object v = primitiveOrToString(value);
+                yield v == null ? DSL.field(columnName).isNotNull() : DSL.field(columnName).ne(v);
+            }
+            case GREATER_THAN -> {
+                if (value == null) {
+                    throw new InvalidQueryFiltersException("GREATER_THAN operation requires a non-null value");
+                }
+                yield DSL.field(columnName).greaterThan(value);
+            }
+            case LESS_THAN -> {
+                if (value == null) {
+                    throw new InvalidQueryFiltersException("LESS_THAN operation requires a non-null value");
+                }
+                yield DSL.field(columnName).lessThan(value);
+            }
+            case IN -> {
+                if (value == null) {
+                    throw new InvalidQueryFiltersException("IN operation requires a non-null value");
+                }
+                yield DSL.field(columnName).in(ListUtils.convertToListString(value));
+            }
+            case NOT_IN -> {
+                if (value == null) {
+                    throw new InvalidQueryFiltersException("NOT_IN operation requires a non-null value");
+                }
+                yield DSL.field(columnName).notIn(ListUtils.convertToListString(value));
+            }
             case STARTS_WITH -> {
                 String s = requireStringValue(value, "STARTS_WITH");
-                yield DSL.field(columnName).like(s + "%");
+                yield DSL.field(columnName).startsWith(s);
             }
             case ENDS_WITH -> {
                 String s = requireStringValue(value, "ENDS_WITH");
-                yield DSL.field(columnName).like("%" + s);
+                yield DSL.field(columnName).endsWith(s);
             }
             case CONTAINS -> {
                 String s = requireStringValue(value, "CONTAINS");
-                yield DSL.field(columnName).like("%" + s + "%");
+                yield DSL.field(columnName).contains(s);
             }
             case REGEX -> {
                 String s = requireStringValue(value, "REGEX");
@@ -453,14 +526,11 @@ public abstract class AbstractJdbcRepository {
         if (value instanceof List<?>) {
             throw new InvalidQueryFiltersException(operationName + " operation requires a string value, got a List");
         }
-        Object converted = primitiveOrToString(value);
-        return converted == null ? null : converted.toString();
+        return primitiveOrToString(value).toString();
     }
 
     private Condition getDateCondition(Object value, Op operation, String dateColumn) {
-        OffsetDateTime dateTime = (value instanceof ZonedDateTime)
-            ? ((ZonedDateTime) value).toOffsetDateTime()
-            : ZonedDateTime.parse(value.toString()).toOffsetDateTime();
+        OffsetDateTime dateTime = TypeConverter.toZonedDateTime(value).toOffsetDateTime();
         return applyDateCondition(dateTime, operation, dateColumn);
     }
 
@@ -500,12 +570,16 @@ public abstract class AbstractJdbcRepository {
         return defaultHandlers(QueryFilter.Field.ENABLED, value, operation);
     }
 
-    protected Condition getSuperAdminCondition(Object value, Op operation) {
-        throw new InvalidQueryFiltersException("getSuperAdminCondition must be overridden for JSONB-backed superAdmin field");
+    protected Condition getInstanceOwnerCondition(Object value, Op operation) {
+        throw new InvalidQueryFiltersException("getInstanceOwnerCondition must be overridden for JSONB-backed instanceOwner field");
     }
 
     protected Condition tagsCondition(Object value, QueryFilter.Op operation) {
         return defaultHandlers(QueryFilter.Field.TAGS, value, operation);
+    }
+
+    protected Condition assigneeCondition(Object value, QueryFilter.Op operation) {
+        return defaultHandlers(QueryFilter.Field.ASSIGNEE, value, operation);
     }
 
     // Generate the condition for Field.STATE
@@ -601,26 +675,41 @@ public abstract class AbstractJdbcRepository {
     }
 
     private Condition handleLevelField(Object value, QueryFilter.Op operation) {
-        Level level = value instanceof Level ? (Level) value : Level.valueOf((String) value);
-
         return switch (operation) {
-            case GREATER_THAN_OR_EQUAL_TO -> levelsCondition(LogEntry.findLevelsByMin(level));
-            case LESS_THAN_OR_EQUAL_TO -> levelsCondition(LogEntry.findLevelsByMax(level));
+            case GREATER_THAN_OR_EQUAL_TO -> levelsCondition(LogEntry.findLevelsByMin(toLevel(value)));
+            case LESS_THAN_OR_EQUAL_TO -> levelsCondition(LogEntry.findLevelsByMax(toLevel(value)));
+            case IN -> levelsCondition(toLevelList(value));
+            case NOT_IN -> notLevelsCondition(toLevelList(value));
             default -> throw new InvalidQueryFiltersException(
                 "Unsupported operation for LEVEL: " + operation
             );
         };
     }
 
+    private static Level toLevel(Object value) {
+        return value instanceof Level level ? level : Level.valueOf((String) value);
+    }
+
+    private static List<Level> toLevelList(Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream().map(AbstractJdbcRepository::toLevel).toList();
+        }
+        return List.of(toLevel(value));
+    }
+
     protected Condition levelsCondition(List<Level> levels) {
         return field("level").in(levels.stream().map(level -> level.name()).toList());
+    }
+
+    protected Condition notLevelsCondition(List<Level> levels) {
+        return field("level").notIn(levels.stream().map(level -> level.name()).toList());
     }
 
     protected Condition handleAttemptNumberField(Object value, QueryFilter.Op operation) {
         Name columnName = getColumnName(QueryFilter.Field.ATTEMPT_NUMBER);
         return switch (operation) {
-            case EQUALS -> DSL.field(columnName).eq(toInteger(value));
-            case NOT_EQUALS -> DSL.field(columnName).ne(toInteger(value));
+            case EQUALS -> DSL.field(columnName).eq(TypeConverter.toInteger(value));
+            case NOT_EQUALS -> DSL.field(columnName).ne(TypeConverter.toInteger(value));
             case IN -> DSL.field(columnName).in(toIntegerList(value));
             case NOT_IN -> DSL.field(columnName).notIn(toIntegerList(value));
             default -> throw new InvalidQueryFiltersException(
@@ -629,22 +718,11 @@ public abstract class AbstractJdbcRepository {
         };
     }
 
-    // ToDo: We should create reusable classes for type conversion
-    private static Integer toInteger(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.intValue();
-        }
-        return Integer.parseInt(value.toString());
-    }
-
     private static List<Integer> toIntegerList(Object value) {
         if (value instanceof List<?> list) {
-            return list.stream().map(AbstractJdbcRepository::toInteger).toList();
+            return list.stream().map(TypeConverter::toInteger).toList();
         }
-        return List.of(toInteger(value));
+        return List.of(TypeConverter.toInteger(value));
     }
 
     Condition applyDateCondition(OffsetDateTime dateTime, QueryFilter.Op operation, String fieldName) {
@@ -679,16 +757,22 @@ public abstract class AbstractJdbcRepository {
             case IN -> {
                 boolean includesUser = flowScopes.contains(FlowScope.USER);
                 boolean includesSystem = flowScopes.contains(FlowScope.SYSTEM);
-                if (includesUser && includesSystem) yield DSL.noCondition();
-                else if (includesUser) yield field("namespace").ne(systemNamespace);
-                else yield field("namespace").eq(systemNamespace);
+                if (includesUser && includesSystem)
+                    yield DSL.noCondition();
+                else if (includesUser)
+                    yield field("namespace").ne(systemNamespace);
+                else
+                    yield field("namespace").eq(systemNamespace);
             }
             case NOT_IN -> {
                 boolean excludesUser = flowScopes.contains(FlowScope.USER);
                 boolean excludesSystem = flowScopes.contains(FlowScope.SYSTEM);
-                if (excludesUser && excludesSystem) yield DSL.falseCondition();
-                else if (excludesUser) yield field("namespace").eq(systemNamespace);
-                else yield field("namespace").ne(systemNamespace);
+                if (excludesUser && excludesSystem)
+                    yield DSL.falseCondition();
+                else if (excludesUser)
+                    yield field("namespace").eq(systemNamespace);
+                else
+                    yield field("namespace").ne(systemNamespace);
             }
             default -> throw new InvalidQueryFiltersException("Unsupported operation for SCOPE: " + operation);
         };
@@ -724,7 +808,8 @@ public abstract class AbstractJdbcRepository {
         @Nullable DateUtils.GroupType groupType) {
         return descriptors.getColumns().entrySet().stream()
             .filter(entry -> entry.getValue().getAgg() == null && dateFields.contains(entry.getValue().getField()))
-            .map(entry -> {
+            .map(entry ->
+            {
                 Duration duration = Duration.between(startDate, endDate == null ? ZonedDateTime.now() : endDate);
                 DateUtils.GroupType effectiveGroupType = groupType != null ? groupType : DateUtils.groupByType(duration);
                 return formatDateField(fieldsMapping.get(entry.getValue().getField()), effectiveGroupType).as(entry.getKey());

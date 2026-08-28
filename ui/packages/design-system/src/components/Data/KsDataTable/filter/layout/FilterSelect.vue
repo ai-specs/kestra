@@ -45,6 +45,7 @@
                 <KsDatePicker
                     v-model="local.endDateValue"
                     type="datetime"
+                    :defaultTime="endDateDefaultTime"
                     :placeholder="$t('filter.select_end_date')"
                 />
             </div>
@@ -94,6 +95,9 @@
     }>()
 
     const {modelValue, timeRangeMode, startDateValue, endDateValue, dateFilterMode} = toRefs(props)
+
+    // Without a default time, picking a day in the end date panel pre-fills 00:00:00, which excludes the whole selected day; default the time part to now so picking today covers up to the current time.
+    const endDateDefaultTime = new Date()
 
     const local = reactive({
         value: modelValue.value,
@@ -148,7 +152,7 @@
 
         .form-label {
             display: block;
-            color: var(--ks-content-secondary);
+            color: var(--ks-text-secondary);
             font-size: var(--ks-font-size-xs);
             font-weight: 500;
             margin-bottom: 0.5rem;
@@ -164,7 +168,7 @@
             background: var(--ks-background-body);
             border: 1px solid var(--ks-border-primary);
             border-radius: var(--ks-border-radius-sm);
-            color: var(--ks-content-primary);
+            color: var(--ks-text-primary);
             cursor: pointer;
             font-size: var(--ks-font-size-xs);
             font-weight: 500;
@@ -185,11 +189,6 @@
 }
 
 :deep(.kel-date-editor) {
-    .kel-input__inner::placeholder {
-        color: var(--ks-text-dim);
-        font-size: var(--ks-font-size-sm);
-    }
-
     .kel-input__prefix .kel-input__icon {
         color: var(--ks-text-dim);
         font-size: var(--ks-font-size-base);

@@ -11,10 +11,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import io.kestra.core.models.triggers.TriggerEvaluationResult;
-import io.kestra.core.utils.TruthUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,12 +21,12 @@ import org.slf4j.event.Level;
 
 import com.google.common.base.Throwables;
 
+import io.kestra.core.exceptions.FlowBlockedException;
 import io.kestra.core.exceptions.InvalidTriggerConfigurationException;
 import io.kestra.core.metrics.MetricRegistry;
+import io.kestra.core.models.Label;
 import io.kestra.core.models.conditions.ConditionContext;
-import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.flows.FlowId;
-import io.kestra.core.models.flows.FlowInterface;
 import io.kestra.core.models.flows.FlowWithSource;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.models.triggers.AbstractTrigger;
@@ -36,6 +35,7 @@ import io.kestra.core.models.triggers.RealtimeTriggerInterface;
 import io.kestra.core.models.triggers.RecoverMissedSchedules;
 import io.kestra.core.models.triggers.Schedulable;
 import io.kestra.core.models.triggers.TriggerContext;
+import io.kestra.core.models.triggers.TriggerEvaluationResult;
 import io.kestra.core.models.triggers.TriggerId;
 import io.kestra.core.models.triggers.WorkerTriggerInterface;
 import io.kestra.core.runners.RunContext;
@@ -46,13 +46,16 @@ import io.kestra.core.scheduler.service.TriggerExecutionPublisher;
 import io.kestra.core.scheduler.store.TriggerStateStore;
 import io.kestra.core.scheduler.vnodes.VNodes;
 import io.kestra.core.services.ConditionService;
-import io.kestra.core.services.LabelService;
-import io.kestra.core.services.PluginDefaultService;
+import io.kestra.core.services.FlowParsingService;
 import io.kestra.core.utils.IdUtils;
+import io.kestra.core.utils.ListUtils;
 import io.kestra.core.utils.Logs;
+import io.kestra.core.utils.TruthUtils;
+import io.kestra.core.utils.TypeConverter;
 import io.kestra.scheduler.internals.DefaultSchedulableTriggerFetcher;
 import io.kestra.scheduler.internals.NextEvaluationDate;
 import io.kestra.scheduler.internals.SchedulableEvaluator;
+import io.kestra.scheduler.internals.TriggerFlowParser;
 import io.kestra.scheduler.models.TriggerEvaluationContext;
 import io.kestra.scheduler.pubsub.TriggerWorkerJobPublisher;
 import io.kestra.scheduler.stores.FlowMetaStore;
@@ -80,7 +83,7 @@ public class TriggerScheduler {
     private final TriggerWorkerJobPublisher triggerWorkerJobPublisher;
     private final SchedulableEvaluator schedulableEvaluator;
     private final TriggerExecutionPublisher triggerExecutionSender;
-    private final PluginDefaultService pluginDefaultService;
+    private final FlowParsingService flowParsingService;
     private final DefaultSchedulableTriggerFetcher schedulableTriggerFetcher;
 
     // Stores
@@ -99,7 +102,7 @@ public class TriggerScheduler {
         MetricRegistry metricRegistry,
         RunContextFactory runContextFactory,
         ConditionService conditionService,
-        PluginDefaultService pluginDefaultService,
+        FlowParsingService flowParsingService,
         SchedulableEvaluator schedulableEvaluator,
         DefaultSchedulableTriggerFetcher schedulableTriggerFetcher,
         TriggerWorkerJobPublisher triggerWorkerJobPublisher,
@@ -108,7 +111,7 @@ public class TriggerScheduler {
         this.triggerStateStore = triggerStateStore;
         this.flowMetaStore = flowMetaStore;
         this.runContextFactory = runContextFactory;
-        this.pluginDefaultService = pluginDefaultService;
+        this.flowParsingService = flowParsingService;
         this.metricRegistry = metricRegistry;
         this.conditionService = conditionService;
         this.triggerWorkerJobPublisher = triggerWorkerJobPublisher;
@@ -152,7 +155,7 @@ public class TriggerScheduler {
 
         flowMetaStore.findAllForVNodes(vNodesAssignments)
             .stream()
-            .map(flow -> pluginDefaultService.injectAllDefaults(flow, log))
+            .map(this::parseForTriggerOrSkip)
             .filter(Objects::nonNull)
             .filter(flow -> flow.getTriggers() != null && !flow.getTriggers().isEmpty())
             .flatMap(
@@ -268,6 +271,44 @@ public class TriggerScheduler {
     }
 
     /**
+     * Parses a flow for trigger initialization, skipping ({@code null}) one governance blocks.
+     */
+    private FlowWithSource parseForTriggerOrSkip(final FlowWithSource flow) {
+        try {
+            return TriggerFlowParser.parseForTrigger(flowParsingService, flow, log);
+        } catch (FlowBlockedException e) {
+            log.warn(
+                "Flow on tenant {}, namespace '{}', flow '{}' is blocked by governance, skipping its triggers: {}",
+                flow.getTenantId(),
+                flow.getNamespace(),
+                flow.getId(),
+                e.getMessage()
+            );
+            logBlockedByGovernance(flow, e);
+            return null;
+        }
+    }
+
+    /**
+     * Reports a governance block in the logs of every trigger the blocked flow declares. No trigger state is
+     * initialized for such a flow, so this is the only report those triggers ever get.
+     */
+    private void logBlockedByGovernance(final FlowWithSource flow, final FlowBlockedException e) {
+        ListUtils.emptyOnNull(flow.getTriggers()).stream()
+            .filter(Predicate.not(AbstractTrigger::isDisabled))
+            .forEach(trigger ->
+                Logs.logExecution(
+                    flow,
+                    runContextFactory.of(flow, trigger).logger(),
+                    Level.WARN,
+                    "[trigger: {}] Skipped: {}",
+                    trigger.getId(),
+                    e.getMessage()
+                )
+            );
+    }
+
+    /**
      * Evaluates the given trigger context.
      *
      * @param clock the scheduler's clock.
@@ -310,22 +351,17 @@ public class TriggerScheduler {
             triggerStateStore.save(triggerState);
 
             // Send the FAILED execution
-            final TriggerContext triggerContext = triggerState.context();
-            final FlowInterface flow = context.flow();
+            TriggerEvaluationResult failed = new TriggerEvaluationResult(
+                IdUtils.create(),
+                State.Type.FAILED,
+                null,
+                null,
+                context.flow().getRevision(),
+                scheduledTime.toInstant(),
+                null
+            );
 
-            Execution execution = Execution.builder()
-                .id(IdUtils.create())
-                .tenantId(triggerContext.getTenantId())
-                .namespace(triggerContext.getNamespace())
-                .flowId(triggerContext.getFlowId())
-                .flowRevision(flow.getRevision())
-                .labels(LabelService.labelsExcludingSystem(flow.getLabels()))
-                .state(new State().withState(State.Type.FAILED))
-                .build()
-                .withScheduleDate(scheduledTime.toInstant())
-                .withTenantId(triggerState.getTenantId());
-
-            triggerExecutionSender.send(execution);
+            triggerExecutionSender.send(triggerState, failed);
         }
     }
 
@@ -338,7 +374,7 @@ public class TriggerScheduler {
         // Evaluate Schedulable
         Optional<TriggerEvaluationResult> evaluationResult = schedulableEvaluator.evaluate(trigger, triggerContext, triggerEvaluationContext.conditionContext());
         if (evaluationResult.isPresent()) {
-            log(clock, triggerContext, evaluationResult.get());
+            log(clock, triggerContext, evaluationResult.get(), triggerEvaluationContext.flow().getLabels());
             boolean allowConcurrent = ((AbstractTrigger) trigger).isAllowConcurrent();
             triggerState = triggerState
                 .updateOnExecutionCreated(clock, evaluationResult.get().stateType())
@@ -349,14 +385,9 @@ public class TriggerScheduler {
         triggerStateStore.save(triggerState);
 
         // May send a new execution - if Schedulable trigger or on error
-        final String tenantId = triggerState.getTenantId();
         evaluationResult.ifPresent(res ->
-        {
-            var execution = res.toExecution(triggerContext)
-                .withScheduleDate(scheduleTime.toInstant())
-                .withTenantId(tenantId);
-            triggerExecutionSender.send(execution);
-        });
+            triggerExecutionSender.send(triggerContext, res.withScheduleDate(scheduleTime.toInstant()))
+        );
     }
 
     private void processPollingTrigger(Clock clock, TriggerState triggerState, TriggerEvaluationContext triggerEvaluationContext, PollingTriggerInterface trigger) {
@@ -377,11 +408,18 @@ public class TriggerScheduler {
         updateNextEvaluationDateAndGetOnSuccess(clock, triggerState, triggerEvaluationContext).ifPresent(state ->
         {
             try {
-                this.triggerWorkerJobPublisher.send(state, triggerEvaluationContext.trigger(), triggerEvaluationContext.flow(), triggerEvaluationContext.conditionContext());
-                state = state
-                    .lastTriggeredDate(clock)
-                    .locked(clock, mustBeLocked);
-                triggerStateStore.save(state);
+                TriggerState dispatched = state.nextDispatchEpoch(clock);
+                if (this.triggerWorkerJobPublisher.send(dispatched, triggerEvaluationContext.trigger(), triggerEvaluationContext.flow(), triggerEvaluationContext.conditionContext())) {
+                    triggerStateStore.save(
+                        dispatched
+                            .lastTriggeredDate(clock)
+                            .locked(clock, mustBeLocked)
+                    );
+                } else {
+                    // When the job was not dispatched, save without taking the lock so the
+                    // trigger is retried at its next evaluation date.
+                    triggerStateStore.save(state);
+                }
             } catch (Exception e) {
                 Logs.logTrigger(
                     triggerState,
@@ -424,9 +462,11 @@ public class TriggerScheduler {
         return Optional.empty();
     }
 
-    private void log(Clock clock, TriggerContext triggerContext, TriggerEvaluationResult evaluationResult) {
+    private void log(Clock clock, TriggerContext triggerContext, TriggerEvaluationResult evaluationResult, List<Label> flowLabels) {
         metricRegistry
-            .counter(MetricRegistry.METRIC_SCHEDULER_TRIGGER_COUNT, MetricRegistry.METRIC_SCHEDULER_TRIGGER_COUNT_DESCRIPTION, metricRegistry.tags(evaluationResult, triggerContext))
+            .counter(
+                MetricRegistry.METRIC_SCHEDULER_TRIGGER_COUNT, MetricRegistry.METRIC_SCHEDULER_TRIGGER_COUNT_DESCRIPTION, metricRegistry.tags(evaluationResult, triggerContext, flowLabels)
+            )
             .increment();
 
         ZonedDateTime now = ZonedDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
@@ -438,13 +478,16 @@ public class TriggerScheduler {
         ) {
             Object nextVariable = evaluationResult.trigger().getVariables().get("next");
 
-            ZonedDateTime next = (nextVariable != null) ? ZonedDateTime.parse((CharSequence) nextVariable) : null;
+            ZonedDateTime next = TypeConverter.toZonedDateTime(nextVariable);
 
             // Exclude backfills
             // FIXME : "late" are not excluded and can increase delay value (false positive)
             if (next != null && now.isBefore(next)) {
                 metricRegistry
-                    .timer(MetricRegistry.METRIC_SCHEDULER_TRIGGER_DELAY_DURATION, MetricRegistry.METRIC_SCHEDULER_TRIGGER_DELAY_DURATION_DESCRIPTION, metricRegistry.tags(evaluationResult, triggerContext))
+                    .timer(
+                        MetricRegistry.METRIC_SCHEDULER_TRIGGER_DELAY_DURATION, MetricRegistry.METRIC_SCHEDULER_TRIGGER_DELAY_DURATION_DESCRIPTION,
+                        metricRegistry.tags(evaluationResult, triggerContext, flowLabels)
+                    )
                     .record(Duration.between(triggerContext.getDate(), now));
             }
         }
@@ -473,4 +516,5 @@ public class TriggerScheduler {
             e
         );
     }
+
 }

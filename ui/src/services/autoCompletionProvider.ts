@@ -1,4 +1,4 @@
-import {YamlElement} from "@kestra-io/topology"
+import type {YamlElement} from "@kestra-io/topology/flow-yaml-utils"
 import {apiUrlWithoutTenants} from "../override/utils/route"
 import {useClient} from "@kestra-io/kestra-sdk"
 
@@ -67,8 +67,13 @@ export function functionToSnippet(fn: PebbleFunctionDef): string {
     return `${fn.name}(${params})`
 }
 
+export interface RootCompletionContext {
+    source: string
+    offset: number
+}
+
 export class PebbleAutoCompletion {
-    rootFieldAutoCompletion(): Promise<string[]> {
+    rootFieldAutoCompletion(_context?: RootCompletionContext): Promise<string[]> {
         return Promise.resolve([])
     }
 

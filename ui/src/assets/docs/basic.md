@@ -60,6 +60,7 @@ Inputs in Kestra are strongly typed. Each type defines how values are entered, v
 | `INT`              | Integer without decimals. Supports `min` and `max` validation to enforce numeric ranges. Example: `42`.                                                                                                                                      |
 | `FLOAT`            | Floating-point number with decimals. Supports `min` and `max` validation. Example: `3.14`.                                                                                                                                                   |
 | `BOOL` | Boolean flag, must be `true` or `false`. Avoid scalar equivalents such as `yes`/`no`, as the API and UI expect `true` or `false`.                                                                                        |
+| `FORM`             | Groups related inputs under a shared `displayName` in the UI. Child inputs are defined in `inputs` and resolved as nested paths — e.g. a `region` child of an `environment` form is accessed as `{{ inputs.environment.region }}`. Use full dotted paths in `dependsOn` conditions. Forms cannot be nested and cannot declare `defaults` or `prefill`. |
 | `SELECT`           | Single value chosen from a predefined list, either static `values` or a dynamic list defined via an `expression`, which can render values using `kv()` or `http()` functions. Supports `allowCustomValue` to let user enter a custom value and `autoSelectFirst` to preselect the first item. |
 | `MULTISELECT`      | One or more values chosen from a predefined list, either static `values` or a dynamic list defined via an `expression`, which can render values using `kv()` or `http()` functions. Supports `allowCustomValue` to let user enter a custom value and `autoSelectFirst` to preselect the first item.                                                                                     |
 | `DATE`             | ISO-8601 date (`YYYY-MM-DD`). Supports `after` and `before` validation to enforce valid ranges. Example: `2042-12-28`.                                                                                                                       |
@@ -138,6 +139,7 @@ inputs:
   - id: bird
     type: SELECT
     displayName: Choose your favorite Falco bird
+    autoSelectFirst: true
     values:
       - Kestrel
       - Merlin
@@ -163,7 +165,7 @@ tasks:
   - id: run_if_true
     type: io.kestra.plugin.core.debug.Return
     format: Hello World!
-    when: "{{ inputs.run_task }}"
+    runIf: "{{ inputs.run_task }}"
 
   - id: fallback
     type: io.kestra.plugin.core.debug.Return
@@ -184,15 +186,13 @@ outputs:
     type: STRING
     value: "{{ tasks.run_if_true.state != 'SKIPPED' ? outputs.run_if_true.value : outputs.fallback.value }}"
 
-pluginDefaults:
-  - type: io.kestra.plugin.core.log.Log
-    values:
-      level: TRACE
-
 triggers:
   - id: monthly
     type: io.kestra.plugin.core.trigger.Schedule
     cron: "0 9 1 * *" # 1st of each month at 9am
+    inputs:
+      pokemon: Psyduck
+      user: Kestrel
 ```
 
 You can document flows, tasks, inputs, or triggers with the `description` property. These descriptions are rendered in the UI using [Markdown](https://en.wikipedia.org/wiki/Markdown).
@@ -230,6 +230,7 @@ Kestra has a [Pebble templating engine](https://kestra.io/docs/concepts/pebble?u
 | `default`             | `{{ myVar \| default("default value") }}` — Returns "default value" if `myVar` is null or empty.                                                                                                                                                                                                                                                                                           |
 | `distinct`            | `{{ ['1', '1', '2', '3'] \| distinct }}` — Returns a list of unique elements, resulting in [1, 2, 3].                                                                                                                                                                                                                                                                                      |
 | `escapeChar`          | `{{ "Can't be here" \| escapeChar('single') }}` — Escapes special characters in a string.                                                                                                                                                                                                                                                                                                  |
+| `env`                 | `{{ env('ENV_NAME', 'default') }}` — Returns an environment variable exposed in the execution context, or the optional default value when it is missing or empty.                                                                                                                                                                                                                           |
 | `errorLogs`           | `{{ errorLogs() }}` — Prints all error logs from the current execution.                                                                                                                                                                                                                                                                                                                    |
 | `fileExists`          | `{{ fileExists(output.download.uri) }}` — Returns true if file is present at the given uri location.                                                                                                                                                                                                                                                                                       |
 | `fileSize`            | `{{ fileSize(output.download.uri) }}` — Returns the size of the file present at the given uri location.                                                                                                                                                                                                                                                                                    |
@@ -284,7 +285,7 @@ Kestra has a [Pebble templating engine](https://kestra.io/docs/concepts/pebble?u
 | `replace`             | `{{ "Hello world!" \| replace({'world': 'Kestra'}) }}` — Replaces "world" with "Kestra", resulting in "Hello, Kestra!".                                                                                                                                                                                                                                                                    |
 | `reverse`             | `{{ [1, 2, 3] \| reverse }}` — Reverses the list, resulting in [3, 2, 1].                                                                                                                                                                                                                                                                                                                  |
 | `rsort`               | `{{ [3, 1, 2] \| rsort }}` — Sorts the list in reverse order, resulting in [3, 2, 1].                                                                                                                                                                                                                                                                                                      |
-| `secret`              | `{{ secret('MY_SECRET') }}` — Retrieves secret `MY_SECRET`.                                                                                                                                                                                                                                                                                                                                |
+| `secret`              | `{{ secret('MY_SECRET') }}` — Retrieves secret `MY_SECRET`. Pass `namespace=` to read a secret from another namespace, e.g. `{{ secret('MY_SECRET', namespace='other.namespace') }}`.                                                                                                                                                                                                       |
 | `sha1`                | `{{ "hello" \| sha1 }}` — Computes the SHA-1 hash of the string.                                                                                                                                                                                                                                                                                                                           |
 | `sha256`              | `{{ "hello" \| sha256 }}` — Computes the SHA-256 hash of the string.                                                                                                                                                                                                                                                                                                                       |
 | `sha512`              | `{{ "hello" \| sha512 }}` — Computes the SHA-512 hash of the string.                                                                                                                                                                                                                                                                                                                       |
@@ -294,6 +295,7 @@ Kestra has a [Pebble templating engine](https://kestra.io/docs/concepts/pebble?u
 | `split`               | `{{ "a,b,c" \| split(",") }}` — Splits the string into a list, resulting in ["a", "b", "c"].                                                                                                                                                                                                                                                                                               |
 | `startsWith`          | `{{ "hello world" \| startsWith("hello") }}` — Checks if a string starts with a given prefix.                                                                                                                                                                                                                                                                                              |
 | `string`              | `{{ 123 \| string }}` — Converts 123 into a string.                                                                                                                                                                                                                                                                                                                                        |
+| `subflow`             | `{{ subflow(namespace='company.team', id='my_subflow', inputs={'k': 'v'}).outputs.my_output }}` — Synchronously runs a subflow and returns its terminal execution, so you can read its outputs (e.g. to populate a SELECT input's `values`).                                                                                                                                                 |
 | `substringAfter`      | `{{ "a.b.c" \| substringAfter(".") }}` — Extracts the substring after the first occurrence of a separator.                                                                                                                                                                                                                                                                                 |
 | `substringAfterLast`  | `{{ "a.b.c" \| substringAfterLast(".") }}` — Extracts the substring after the last occurrence of a separator.                                                                                                                                                                                                                                                                              |
 | `substringBefore`     | `{{ "a.b.c" \| substringBefore(".") }}` — Extracts the substring before the first occurrence of a separator.                                                                                                                                                                                                                                                                               |
@@ -338,7 +340,7 @@ Kestra has a [Pebble templating engine](https://kestra.io/docs/concepts/pebble?u
 | `{{ flow.revision }}`               | The revision of the flow.                                                                                                                                                |
 | `{{ execution.id }}`                | The execution ID, a generated unique id for each execution.                                                                                                              |
 | `{{ execution.startDate }}`         | The start date of the current execution, can be formatted with `{{ execution.startDate \| date('yyyy-MM-dd HH:mm:ss.SSSSSS') }}`.                                        |
-| `{{ execution.endDate }}`            | The end date of the current execution, can be formatted with `{{ execution.endDate \| date('yyyy-MM-dd HH:mm:ss.SSSSSS') }}`.                                            |
+| `{{ execution.endDate }}`           | The end date of the current execution, can be formatted with `{{ execution.endDate \| date('yyyy-MM-dd HH:mm:ss.SSSSSS') }}`.                                            |
 | `{{ execution.originalId }}`        | The original execution ID, this id will never change even in case of replay and keep the first execution ID.                                                             |
 | `{{ execution.outputs }}`           | The outputs of the execution as defined in the flow outputs, only populated when the execution is terminated (`finally` or `afterExecution` block).                      |
 | `{{ execution.state }}`             | The current execution state (e.g. `RUNNING`, `SUCCESS`, `FAILED`, `KILLED`).                                                                                             |
@@ -370,6 +372,8 @@ Kestra has a [Pebble templating engine](https://kestra.io/docs/concepts/pebble?u
 | `{{ trigger.namespace }}`           | The namespace of the flow that triggers the current flow.                                                                                                                |
 | `{{ trigger.flowId }}`              | The ID of the flow that triggers the current flow.                                                                                                                       |
 | `{{ trigger.flowRevision }}`        | The revision of the flow that triggers the current flow.                                                                                                                 |
+| `{{ trigger._context.id }}`         | The ID of the trigger that executes the current flow.                                                                                                                    |
+| `{{ trigger._context.type }}`       | The type of the trigger that executes the current flow.                                                                                                                  |
 | `{{ envs.foo }}`                    | Accesses environment variable `ENV_FOO` (by default prefixed with `ENV_`).                                                                                               |
 | `{{ kestra.environment }}`          | Accesses Environment variables such as `kestra.environment.name.` Must be set in your [configuration](https://kestra.io/docs/configuration#kestra-url) to be accessible. |
 | `{{ kestra.url }}`                  | Accesses Environment URL variable. Must be set in your [configuration](https://kestra.io/docs/configuration#kestra-url) to be accessible.                                |
@@ -390,9 +394,9 @@ Kestra has a [Pebble templating engine](https://kestra.io/docs/concepts/pebble?u
 
 ### Links to learn more
 
-* Follow the step-by-step [tutorial](https://kestra.io/docs/tutorial?utm_source=app&utm_medium=referral&utm_campaign=editor-flow-doc)
-* Check the [documentation](https://kestra.io/docs?utm_source=app&utm_medium=referral&utm_campaign=editor-flow-doc)
+* Follow the step-by-step [Tutorial](https://kestra.io/docs/tutorial?utm_source=app&utm_medium=referral&utm_campaign=editor-flow-doc)
+* Check the [Documentation](https://kestra.io/docs?utm_source=app&utm_medium=referral&utm_campaign=editor-flow-doc)
 * Watch a 15-minute video explanation of key concepts on the [Kestra's YouTube channel](https://go.kestra.io/youtube-get-started)
-* Submit a feature request or a bug report on [GitHub](https://github.com/kestra-io/kestra/issues/new/choose)
+* [Report an issue](https://github.com/kestra-io/kestra/issues/new/choose) or submit a feature request on GitHub
 * Need help? [Join the community](https://kestra.io/slack?utm_source=app&utm_medium=referral&utm_campaign=editor-flow-doc)
-* Do you like the project? Give us a ⭐️ on [GitHub](https://github.com/kestra-io/kestra).
+* Do you like the project? [Star us on GitHub](https://github.com/kestra-io/kestra)

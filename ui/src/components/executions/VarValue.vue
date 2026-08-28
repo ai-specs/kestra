@@ -11,7 +11,18 @@
         >
             {{ $t('download') }}
         </KsButton>
-        <FilePreview v-if="Utils.isFile(value)" :value="value.toString()" :executionId="execution.id" />
+        <KsButton
+            v-if="Utils.isIon(value)"
+            type="primary"
+            tag="a"
+            :href="jsonlUrl(value.toString())"
+            target="_blank"
+            size="small"
+            rel="noopener noreferrer"
+        >
+            {{ $t('jsonl') }}
+        </KsButton>
+        <FilePreviewDrawer v-if="Utils.isFile(value)" :value="value.toString()" :executionId="execution.id" />
         <KsButton disabled size="small" type="primary" v-if="humanSize">
             ({{ humanSize }})
         </KsButton>
@@ -42,6 +53,9 @@
     <span v-else-if="value === null">
         <em>null</em>
     </span>
+    <span v-else-if="emptyContainer">
+        <em>{{ emptyContainer }}</em>
+    </span>
     <div v-else-if="isComplexValue(value)">
         <KsEditor
             v-bind="editorBindings"
@@ -64,23 +78,20 @@
 </template>
 
 <script setup lang="ts">
-    import {ref, watch, onMounted} from "vue"
+    import {computed, ref, watch, onMounted} from "vue"
     import Download from "vue-material-design-icons/Download.vue"
     import OpenInNew from "vue-material-design-icons/OpenInNew.vue"
     import FileAlertOutline from "vue-material-design-icons/FileAlertOutline.vue"
-    import FilePreview from "./FilePreview.vue"
+    import FilePreviewDrawer from "./FilePreviewDrawer.vue"
     import {KsEditor} from "@kestra-io/design-system"
     import {useEditorBindings} from "../../composables/useEditorBindings"
     import {apiUrl} from "override/utils/route"
-    import {useClient} from "@kestra-io/kestra-sdk"
+    import * as ExecutionsAPI from "@kestra-io/kestra-sdk/executions"
+
     import * as Utils from "../../utils/utils"
 
     interface Execution {
         id: string;
-    }
-
-    interface FileMetadata {
-        size: number;
     }
 
     const props = withDefaults(defineProps<{
@@ -153,26 +164,45 @@
         return value
     }
 
+    // Empty containers are complex enough to reach the editor branch, one Monaco mount per row.
+    const emptyContainer = computed(() => {
+        const displayed = getDisplayValue(props.value)
+
+        if (Array.isArray(displayed)) {
+            return displayed.length === 0 ? "[]" : undefined
+        }
+        if (typeof displayed === "object" && displayed !== null) {
+            return Object.keys(displayed).length === 0 ? "{}" : undefined
+        }
+
+        return undefined
+    })
+
     const itemUrl = (value: string): string => {
         return `${apiUrl()}/executions/${props.execution?.id}/file?path=${encodeURI(value)}`
     }
 
-    const axios = useClient()
+    const jsonlUrl = (value: string): string => {
+        return `${itemUrl(value)}&format=JSONL`
+    }
 
     const getFileSize = async (): Promise<void> => {
         if (Utils.isFile(props.value) && props.execution?.id) {
             humanSize.value = ""
             fileStatus.value = "loading"
-            const response = await axios.get<FileMetadata>(
-                `${apiUrl()}/executions/${props.execution.id}/file/metas?path=${props.value}`,
-                {validateStatus: (status: number) => status === 200 || status === 404 || status === 422},
-            )
-            if (response.status === 200) {
-                humanSize.value = Utils.humanFileSize(response.data.size)
-                fileStatus.value = "available"
-            } else {
+
+            const data = await ExecutionsAPI.fileMetadatasFromExecution({
+                executionId: props.execution.id, 
+                path: props.value.toString(),
+            }, {
+                validateStatus: (status: number) => status === 200 || status === 404 || status === 422,
+            })
+            if(!data){
                 fileStatus.value = "missing"
-            }
+                return
+            }    
+            humanSize.value = Utils.humanFileSize(data.size)
+            fileStatus.value = "available"
         }
     }
 

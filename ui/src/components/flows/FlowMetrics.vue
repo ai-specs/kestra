@@ -26,13 +26,6 @@
             </div>
         </template>
     </KSFilter>
-    <QuickFilters
-        :intervals="quickIntervals"
-        :timeRange="selectedTimeRange"
-        :intervalLabel="t('filter.timeRange_metric.label')"
-        :showLevel="false"
-        @update:timeRange="onQuickFilterTimeRange"
-    />
 
     <div v-bind="$attrs">
         <KsRow v-if="displayedMetrics.length > 0" :gutter="16">
@@ -78,12 +71,11 @@
     import {useI18n} from "vue-i18n"
     import {useFlowStore} from "../../stores/flow"
     import {getFormat} from "../dashboard/composables/charts"
+    import {date as dateFilter} from "../../utils/filters"
     import {cssVar, KsBar, KsLine, KsSegmented} from "@kestra-io/design-system"
     import type {KsChartSeriesItem} from "@kestra-io/design-system"
     import {KsFilter as KSFilter} from "@kestra-io/design-system"
     import {useFlowMetricFilter} from "../filter/configurations"
-    import QuickFilters from "../filter/QuickFilters.vue"
-    import {useQuickIntervalFilter} from "../filter/composables/useQuickIntervalFilter"
 
     defineOptions({
         name: "FlowMetrics",
@@ -96,7 +88,6 @@
 
     const flowMetricFilter = useFlowMetricFilter()
     const flowStore = useFlowStore()
-    const {quickIntervals, selectedTimeRange, onQuickFilterTimeRange} = useQuickIntervalFilter()
 
     const isLoading = ref(false)
     const metricsData = ref<Record<string, any>>({})
@@ -171,7 +162,7 @@
         const data = metricsData.value[metric]
         if (!data) return []
         const aggregations = (data.aggregations ?? []) as MetricAggregation[]
-        return aggregations.map((e) => moment(e.date).format(getFormat(data.groupBy)))
+        return aggregations.map((e) => dateFilter(e.date, getFormat(data.groupBy)))
     }
 
     function getSeriesData(metric: string): KsChartSeriesItem[] {

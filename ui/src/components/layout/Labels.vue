@@ -6,10 +6,10 @@
             :disabled="readOnly"
             :checked="isChecked(label)"
             @change="updateLabel(label)"
-            class="me-0 el-tag label"
+            class="me-0 label"
         >
-            <template v-if="!label.key">{{ label.value }}</template>
-            <template v-else>{{ label.key }}:{{ label.value }}</template>
+            <template v-if="!label.key">{{ label.display ?? label.value }}</template>
+            <template v-else>{{ label.key }}:{{ label.display ?? label.value }}</template>
         </KsCheckTag>
     </span>
 </template>
@@ -24,6 +24,7 @@
     interface Label {
         key?: string;
         value: string;
+        display?: string;
     }
 
     const props = withDefaults(
@@ -105,6 +106,8 @@
     border-radius: 6px;
     font-weight: 400;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
 }
 
 .labels-container {
