@@ -3,6 +3,7 @@ import {
     type FilterKeyConfig,
     COMPARATOR_LABELS,
     Comparators,
+    KV_COMPARATORS,
     RANGE_COMPARATORS,
     TEXT_COMPARATORS,
 } from "./filterTypes"
@@ -96,8 +97,8 @@ export const processFieldValue = (
     // Other comparators (IN/NOT_IN) are multi-value.
     const isSingleValueOp = isTextOp || RANGE_COMPARATORS.includes(comparator)
 
-    if (config?.valueType === "key-value") {
-        const combinedValue = params.map(p => p?.value as string)
+    if (config?.valueType === "key-value" && KV_COMPARATORS.includes(comparator)) {
+        const combinedValue = params.flatMap(p => Array.isArray(p?.value) ? p.value : [p?.value as string])
         return {
             value: combinedValue,
             valueLabel: combinedValue.length > 1

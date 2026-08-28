@@ -1,4 +1,4 @@
-import {describe, it, expect, vi, beforeEach} from "vitest"
+import {describe, it, expect, vi, afterAll, beforeEach} from "vitest"
 import type {AiSseFrame} from "../../../../../src/components/ai/copilot/types"
 
 // Mock the axios client (thread create/get) and the SSE reader so we can drive
@@ -43,6 +43,10 @@ describe("useAiChat", () => {
         post.mockResolvedValue(idleThread())
     })
 
+    afterAll(() => {
+        localStorage.clear()
+    })
+
     it("creates the thread once and reuses its uid", async () => {
         const chat = useAiChat()
         nextFrames = [{event: "done", data: {status: "IDLE"}}]
@@ -51,6 +55,19 @@ describe("useAiChat", () => {
         // One create call total, despite two turns.
         expect(post).toHaveBeenCalledTimes(1)
         expect(post.mock.calls[0][0]).toContain("/ai/threads")
+    })
+
+    it("creates the thread with nextThreadTitle and consumes it, so a later thread is untitled", async () => {
+        const chat = useAiChat()
+        nextFrames = [{event: "done", data: {status: "IDLE"}}]
+        chat.nextThreadTitle.value = "Fix task extract"
+        await chat.sendChat({prompt: "fix it"})
+        expect(post.mock.calls[0][1]).toMatchObject({title: "Fix task extract"})
+        expect(chat.nextThreadTitle.value).toBeNull()
+
+        chat.reset()
+        await chat.sendChat({prompt: "hi"})
+        expect(post.mock.calls[1][1].title).toBeUndefined()
     })
 
     it("appends streamed tokens into a single assistant message", async () => {
@@ -392,5 +409,20 @@ describe("useAiChat", () => {
         expect(localStorage.getItem("kestra.copilot.activeThread")).toBe("t1")
         chat.reset()
         expect(localStorage.getItem("kestra.copilot.activeThread")).toBeNull()
+    })
+
+    it("noteContext appends a display-only CONTEXT line, but only once a conversation has started", async () => {
+        const chat = useAiChat()
+        // Suppressed while the transcript is empty — the context pills already convey the focus there.
+        chat.noteContext({action: "added", noun: "ai.copilot.contextNoun.flow", id: "my-flow"})
+        expect(chat.messages.value).toHaveLength(0)
+
+        // After a turn the transcript exists → the notice is appended as a SYSTEM / CONTEXT line.
+        nextFrames = [{event: "token", data: {text: "hi"}}, {event: "done", data: {status: "IDLE"}}]
+        await chat.sendChat({prompt: "hello"})
+        chat.noteContext({action: "removed", noun: "ai.copilot.contextNoun.namespace", id: "company.team"})
+        const notices = chat.messages.value.filter((m) => m.type === "CONTEXT")
+        expect(notices).toHaveLength(1)
+        expect(notices[0]).toMatchObject({role: "SYSTEM", type: "CONTEXT", context: {action: "removed", noun: "ai.copilot.contextNoun.namespace", id: "company.team"}})
     })
 })

@@ -43,10 +43,9 @@
                 <template #default="{data}">
                     <router-link
                         :to="{
-                            name: 'namespaces/update',
+                            name: `namespaces/update/${data.system ? 'blueprints' : 'overview'}`,
                             params: {
                                 id: data.id,
-                                tab: data.system ? 'blueprints' : 'overview',
                             },
                         }"
                         tag="div"
@@ -80,10 +79,12 @@
     import useNamespaces from "../../../composables/useNamespaces"
     import {useI18n} from "vue-i18n"
     import {useMiscStore} from "override/stores/misc"
+    import {useSystemNamespace} from "../../../composables/useSystemNamespace"
 
     import Navbar from "../../../components/layout/TopNavBar.vue"
     import Action from "../../../components/namespaces/components/buttons/Action.vue"
-    import {KsFilter as KSFilter, routeQueryToQueryFilters} from "@kestra-io/design-system"
+    import {KsFilter as KSFilter} from "@kestra-io/design-system"
+    import {routeQueryToQueryFilters} from "../../../utils/queryFilters"
     import {useNamespacesFilter} from "../../../components/filter/configurations"
     import resource from "../../../models/resource"
     import action from "../../../models/action"
@@ -127,10 +128,7 @@
         {immediate: true, deep: true},
     )
 
-    const miscStore = useMiscStore()
-    const systemNamespace = computed(
-        () => miscStore.configs?.systemNamespace || "system",
-    )
+    const systemNamespace = useSystemNamespace()
 
     const isOSS = computed(() => useMiscStore().configs?.edition === "OSS")
 

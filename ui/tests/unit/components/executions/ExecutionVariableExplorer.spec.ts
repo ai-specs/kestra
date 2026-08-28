@@ -6,9 +6,16 @@ import {createI18n} from "vue-i18n"
 import ExecutionVariableExplorer from "../../../../src/components/executions/outputs/ExecutionVariableExplorer.vue"
 import {useExecutionsStore} from "../../../../src/stores/executions"
 
+vi.mock("vue-router", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("vue-router")>()),
+    useRoute: () => ({query: {}}),
+    useRouter: () => ({push: vi.fn()}),
+}))
+
 vi.mock("@kestra-io/kestra-sdk/outputs", () => ({
     taskOutputsInformation: vi.fn().mockResolvedValue([]),
     taskRunOutputs: vi.fn().mockResolvedValue({}),
+    executionOutputs: vi.fn().mockResolvedValue({}),
 }))
 
 vi.mock("../../../../src/components/executions/FilePreview.vue", () => ({

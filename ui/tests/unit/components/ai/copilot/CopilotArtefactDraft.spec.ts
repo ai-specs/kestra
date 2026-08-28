@@ -1,4 +1,4 @@
-import {describe, it, expect, vi} from "vitest"
+import {describe, it, expect, beforeEach, vi} from "vitest"
 import {mount} from "@vue/test-utils"
 import {ref} from "vue"
 
@@ -8,7 +8,7 @@ const apply = vi.fn()
 // Mutable so a test can simulate the EE app path being present (apps are unsupported in OSS).
 const appSupported = {value: false}
 vi.mock("../../../../../src/components/ai/copilot/useApplyDraft", () => ({
-    useApplyDraft: () => ({applying: ref(false), appSupported: appSupported.value, openInEditor, apply}),
+    useApplyDraft: () => ({applying: ref(false), appSupported: appSupported.value, dashboardSupported: ref(true), openInEditor, apply}),
 }))
 
 import CopilotArtefactDraft from "../../../../../src/components/ai/copilot/CopilotArtefactDraft.vue"
@@ -19,6 +19,12 @@ const mountDraft = (draft: ArtefactDraftEvent) =>
     mount(CopilotArtefactDraft, {props: {draft}, global: mountGlobal})
 
 describe("CopilotArtefactDraft", () => {
+    // The stubs are module-level, so without this several tests assert
+    // toHaveBeenCalled() against a click an earlier test made.
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
     it("renders the kind title, a valid badge and the YAML", () => {
         const w = mountDraft({draftId: "d1", kind: "FLOW", yaml: "id: demo", valid: true, constraints: null})
         expect(w.text()).toContain("Proposed flow")

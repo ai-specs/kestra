@@ -273,7 +273,14 @@
             <Vars :data="detailsData" />
         </KsDrawer>
 
-        <KsDialog v-model="isBackfillOpen" destroyOnClose :appendToBody="true" :beforeClose="beforeBackfillClose">
+        <KsDialog
+            v-model="isBackfillOpen"
+            destroyOnClose
+            :appendToBody="true"
+            :beforeClose="beforeBackfillClose"
+            scrollable
+            large
+        >
             <template #header>
                 <span v-html="$t('backfill executions')" />
             </template>
@@ -337,7 +344,8 @@
     import {ref, computed, watch, useTemplateRef} from "vue"
     import {useI18n} from "vue-i18n"
     import {useRoute, useRouter} from "vue-router"
-    import {KsMessage, KsDrawer, KsMarkdown, KsTag, KsDropdown, KsDropdownMenu, KsDropdownItem, routeQueryToQueryFilters} from "@kestra-io/design-system"
+    import {KsMessage, KsDrawer, KsMarkdown, KsTag, KsDropdown, KsDropdownMenu, KsDropdownItem} from "@kestra-io/design-system"
+    import {routeQueryToQueryFilters} from "../../../utils/queryFilters"
     import {useToast} from "../../../utils/toast"
     import {useFlowStore} from "../../../stores/flow"
     import {useAuthStore} from "override/stores/auth"
@@ -391,8 +399,8 @@
     const detailsTriggerId = ref<string | undefined>()
     const selectedTrigger = ref<SelectedTrigger | undefined>()
 
-    const DATE_COLUMNS: readonly string[] = ["lastTriggeredDate", "nextEvaluationDate", "evaluatedAt", "updatedAt"]
-    const SORTABLE_COLUMNS: readonly string[] = ["flowId", "namespace", ...DATE_COLUMNS]
+    // evaluatedAt/updatedAt are TriggerState JSON fields with no backing column on the triggers table, so they're excluded here.
+    const SORTABLE_COLUMNS: readonly string[] = ["flowId", "namespace", "lastTriggeredDate", "nextEvaluationDate"]
     const DATE_TOOLTIP_KEYS: Record<string, string> = {
         lastTriggeredDate: "last trigger date tooltip",
         updatedAt: "context updated date tooltip",

@@ -6,6 +6,8 @@ import java.io.File;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -18,7 +20,9 @@ import com.google.common.collect.ImmutableMap;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.junit.annotations.LoadFlows;
+import io.kestra.core.models.Label;
 import io.kestra.core.models.executions.Execution;
+import io.kestra.core.models.executions.statistics.ExecutionStatistic;
 import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.flows.FlowForExecution;
 import io.kestra.core.models.flows.State;
@@ -26,6 +30,7 @@ import io.kestra.core.models.flows.check.Check;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.TaskForExecution;
 import io.kestra.core.repositories.ExecutionRepositoryInterface;
+import io.kestra.core.repositories.ExecutionStatisticsRepositoryInterface;
 import io.kestra.core.serializers.FileSerde;
 import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.utils.IdUtils;
@@ -53,6 +58,9 @@ class ExecutionControllerTest {
     private ExecutionRepositoryInterface executionRepository;
 
     @Inject
+    private ExecutionStatisticsRepositoryInterface executionStatisticsRepository;
+
+    @Inject
     private StorageInterface storageInterface;
 
     @Inject
@@ -60,6 +68,8 @@ class ExecutionControllerTest {
     private ReactorHttpClient client;
 
     public static final String TESTS_FLOW_NS = "io.kestra.tests";
+
+    private static final String AVERAGE_DURATION_NS = "io.kestra.tests.progress";
 
     @Test
     void getExecutionNotFound() {
@@ -166,6 +176,24 @@ class ExecutionControllerTest {
         );
         assertThat(exception.getStatus().getCode()).isEqualTo(HttpStatus.NOT_FOUND.getCode());
         assertThat(exception.getMessage()).contains("Not Found: Flow not found");
+    }
+
+    @Test
+    @LoadFlows(value = {"flows/valids/webhook-disabled.yaml"})
+    void webhookDisabled() {
+        HttpClientResponseException exception = assertThrows(
+            HttpClientResponseException.class,
+            () -> client.toBlocking().retrieve(
+                HttpRequest
+                    .POST(
+                        "/api/v1/main/executions/webhook/" + TESTS_FLOW_NS +"/webhook-disabled/webhook-disabled-key",
+                        null
+                    ),
+                Execution.class
+            )
+        );
+        assertThat(exception.getStatus().getCode()).isEqualTo(HttpStatus.CONFLICT.getCode());
+        assertThat(exception.getMessage()).contains("the trigger 'webhook' is disabled");
     }
 
     @Test
@@ -376,6 +404,29 @@ class ExecutionControllerTest {
         );
         assertThat(exception.getStatus().getCode()).isEqualTo(422);
         assertThat(exception.getMessage()).isEqualTo("Illegal argument: Start date must be before End Date");
+
+        // A syntactically invalid REGEX filter must be rejected with a 400 that carries no SQL detail,
+        // instead of reaching the DB engine and leaking the rendered query (kestra-ee#10266)
+        exception = assertThrows(
+            HttpClientResponseException.class, () -> client.toBlocking().retrieve(
+                GET(
+                    "/api/v1/main/executions/search?filters[namespace][REGEX]=%5Ba-"
+                ), PagedResults.class
+            )
+        );
+        assertThat(exception.getStatus().getCode()).isEqualTo(HttpStatus.BAD_REQUEST.getCode());
+        assertThat(exception.getMessage()).doesNotContainIgnoringCase("select");
+        assertThat(exception.getMessage()).doesNotContain("SQL [");
+        assertThat(exception.getMessage()).contains("[a-");
+
+        exception = assertThrows(
+            HttpClientResponseException.class, () -> client.toBlocking().retrieve(
+                GET(
+                    "/api/v1/main/executions/search?filters[namespace][BOGUS_OP]=test"
+                ), PagedResults.class
+            )
+        );
+        assertThat(exception.getStatus().getCode()).isEqualTo(HttpStatus.BAD_REQUEST.getCode());
     }
 
     @Test
@@ -417,6 +468,110 @@ class ExecutionControllerTest {
         );
 
         assertThat(error.getStatus().getCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.getCode());
+    }
+
+    @Test
+    @LoadFlows(value = { "flows/valids/minimal.yaml" })
+    void shouldRejectInvalidLabelKeyWhenCreatingAnExecution() {
+        var error = assertThrows(
+            HttpClientResponseException.class, () -> client.toBlocking().retrieve(
+                HttpRequest
+                    .POST("/api/v1/main/executions/io.kestra.tests/minimal?labels=Team:x", null)
+                    .contentType(MediaType.MULTIPART_FORM_DATA_TYPE),
+                Execution.class
+            )
+        );
+
+        assertThat(error.getStatus().getCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.getCode());
+    }
+
+    @Test
+    void shouldRejectMissingExecutionsIdWhenSetLabelsOnTerminatedByIdsCalled() {
+        var exception = assertThrows(
+            HttpClientResponseException.class,
+            () -> client.toBlocking().exchange(
+                HttpRequest.POST(
+                    "/api/v1/main/executions/labels/by-ids",
+                    Map.of("executionLabels", List.of(new Label("team", "data")))
+                )
+            )
+        );
+        assertThat(exception.getStatus().getCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.getCode());
+    }
+
+    @Test
+    void shouldRejectMissingExecutionLabelsWhenSetLabelsOnTerminatedByIdsCalled() {
+        Execution execution = terminatedExecution();
+
+        var exception = assertThrows(
+            HttpClientResponseException.class,
+            () -> client.toBlocking().exchange(
+                HttpRequest.POST(
+                    "/api/v1/main/executions/labels/by-ids",
+                    Map.of("executionsId", List.of(execution.getId()))
+                )
+            )
+        );
+        assertThat(exception.getStatus().getCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.getCode());
+
+        // the label must not have been silently dropped: the execution keeps its labels unchanged
+        Execution reloaded = client.toBlocking().retrieve(GET("/api/v1/main/executions/" + execution.getId()), Execution.class);
+        assertThat(reloaded.getLabels()).isEqualTo(execution.getLabels());
+    }
+
+    @Test
+    void shouldRejectInvalidLabelKeyWhenSetLabelsOnTerminatedByIdsCalled() {
+        Execution execution = terminatedExecution();
+
+        var exception = assertThrows(
+            HttpClientResponseException.class,
+            () -> client.toBlocking().exchange(
+                HttpRequest.POST(
+                    "/api/v1/main/executions/labels/by-ids",
+                    new ExecutionController.SetLabelsByIdsRequest(List.of(execution.getId()), List.of(new Label("Team", "x")))
+                )
+            )
+        );
+        assertThat(exception.getStatus().getCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.getCode());
+    }
+
+    @Test
+    void shouldNotPartiallyApplyLabelsWhenSetLabelsOnTerminatedByIdsRejectsASystemLabel() {
+        Execution execution1 = terminatedExecution();
+        Execution execution2 = terminatedExecution();
+
+        var exception = assertThrows(
+            HttpClientResponseException.class,
+            () -> client.toBlocking().exchange(
+                HttpRequest.POST(
+                    "/api/v1/main/executions/labels/by-ids",
+                    new ExecutionController.SetLabelsByIdsRequest(
+                        List.of(execution1.getId(), execution2.getId()),
+                        List.of(new Label(Label.CORRELATION_ID, "spoofed"))
+                    )
+                )
+            )
+        );
+        assertThat(exception.getStatus().getCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.getCode());
+
+        // the batch is all-or-nothing: neither execution gained the spoofed label
+        for (Execution execution : List.of(execution1, execution2)) {
+            Execution reloaded = client.toBlocking().retrieve(GET("/api/v1/main/executions/" + execution.getId()), Execution.class);
+            assertThat(reloaded.getLabels()).doesNotContain(new Label(Label.CORRELATION_ID, "spoofed"));
+        }
+    }
+
+    private Execution terminatedExecution() {
+        Execution execution = Execution.builder()
+            .id(IdUtils.create())
+            .tenantId(MAIN_TENANT)
+            .namespace(TESTS_FLOW_NS)
+            .flowId("minimal")
+            .flowRevision(1)
+            .state(new State().withState(State.Type.SUCCESS))
+            .build();
+        executionRepository.save(execution);
+        return execution;
     }
 
     @Test
@@ -545,4 +700,67 @@ class ExecutionControllerTest {
         assertThat(exception.getStatus().getCode()).isEqualTo(HttpStatus.NOT_FOUND.getCode());
     }
 
+    @Test
+    void shouldReturnNullAverageDurationWhenFlowHasNoStatistics() {
+        // Given a flow that never ran
+        String flowId = IdUtils.create();
+
+        // When
+        ExecutionController.ExecutionAverageDuration result = averageDuration(flowId);
+
+        // Then
+        assertThat(result.avgDurationMs()).isNull();
+        assertThat(result.count()).isZero();
+    }
+
+    @Test
+    void shouldWeightAverageDurationByExecutionCountWhenBucketsSpanSeveralDays() {
+        // Given one execution today (5_000ms) and three much shorter ones a week ago (2_000ms in
+        // total), the count-weighted average is 7_000/4 = 1_750ms. Averaging the two daily buckets'
+        // own averages instead would skew the result toward the single slow execution.
+        String flowId = IdUtils.create();
+        Instant today = Instant.now().truncatedTo(ChronoUnit.MINUTES);
+        Instant lastWeek = today.minus(7, ChronoUnit.DAYS);
+        executionStatisticsRepository.saveBatch(
+            List.of(
+                executionStatistic(flowId, today, 5_000),
+                executionStatistic(flowId, lastWeek, 1_000),
+                executionStatistic(flowId, lastWeek, 500),
+                executionStatistic(flowId, lastWeek, 500)
+            )
+        );
+
+        // When
+        ExecutionController.ExecutionAverageDuration result = averageDuration(flowId);
+
+        // Then
+        assertThat(result.avgDurationMs()).isEqualTo(1_750L);
+        assertThat(result.count()).isEqualTo(4L);
+    }
+
+    private ExecutionController.ExecutionAverageDuration averageDuration(String flowId) {
+        return client.toBlocking().retrieve(
+            GET("/api/v1/main/executions/namespaces/" + AVERAGE_DURATION_NS + "/flows/" + flowId + "/average-duration"),
+            ExecutionController.ExecutionAverageDuration.class
+        );
+    }
+
+    private ExecutionStatistic executionStatistic(String flowId, Instant bucket, long durationMs) {
+        return new ExecutionStatistic(
+            MAIN_TENANT,
+            AVERAGE_DURATION_NS,
+            flowId,
+            bucket,
+            State.Type.SUCCESS,
+            1,
+            durationMs,
+            durationMs,
+            durationMs,
+            1,
+            durationMs,
+            durationMs,
+            durationMs,
+            IdUtils.create()
+        );
+    }
 }

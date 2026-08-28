@@ -127,10 +127,10 @@
     import ChatQuestionOutline from "vue-material-design-icons/ChatQuestionOutline.vue"
     import Wrench from "vue-material-design-icons/Wrench.vue"
     import MapOutline from "vue-material-design-icons/MapOutline.vue"
-    import type {Mode} from "./types"
+    import type {AgentMode, AiControllerAiProviderResponse} from "@kestra-io/kestra-sdk"
 
     const props = defineProps<{
-        mode: Mode
+        mode: AgentMode
         /** Disables input while a turn is streaming or awaiting confirmation. */
         disabled?: boolean
         /** Overrides the placeholder (e.g. the descriptive helper text in the empty state). */
@@ -138,14 +138,14 @@
         /** Initial visible rows (empty state uses more so the helper text wraps); collapses on input. */
         rows?: number
         /** Available AI providers; the selector is hidden when none are known. */
-        providers?: {id?: string; displayName?: string}[]
+        providers?: AiControllerAiProviderResponse[]
         /** Currently selected provider id (v-model:provider). */
         provider?: string
     }>()
 
     const emit = defineEmits<{
         (e: "submit", prompt: string): void
-        (e: "update:mode", mode: Mode): void
+        (e: "update:mode", mode: AgentMode): void
         (e: "update:provider", provider: string): void
     }>()
 
@@ -157,7 +157,7 @@
 
     // Values are the backend Mode enum; icons match the Figma mode pills. Ordered by increasing
     // capability, matching the backend's cumulative tool families (Ask ⊂ Plan ⊂ Edit).
-    const modeOptions = computed<{label: string; value: Mode; icon: Component}[]>(() => [
+    const modeOptions = computed<{label: string; value: AgentMode; icon: Component}[]>(() => [
         {label: t("ai.copilot.mode.ask"), value: "ASK", icon: ChatQuestionOutline},
         {label: t("ai.copilot.mode.plan"), value: "PLAN", icon: MapOutline},
         {label: t("ai.copilot.mode.edit"), value: "EDIT", icon: Wrench},
@@ -379,6 +379,8 @@
         border: none;
         outline: none;
         resize: none;
+        /* Safari renders a horizontal scrollbar track on auto-overflow textareas even though wrapped text never overflows. */
+        overflow-x: hidden;
         padding: 0;
         background: transparent;
         color: var(--ks-text-primary);
@@ -387,7 +389,9 @@
     }
 
     .copilot-textarea::placeholder {
-        color: var(--ks-text-secondary);
+        color: var(--ks-placeholder-color);
+        font-size: var(--ks-placeholder-font-size);
+        font-weight: var(--ks-placeholder-font-weight);
     }
 
     /* Live dictation waveform — occupies the textarea's slot. */

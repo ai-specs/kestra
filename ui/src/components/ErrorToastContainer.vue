@@ -21,6 +21,7 @@
 <script setup lang="ts">
     import {ref, computed, onMounted, watch} from "vue"
     import {useRoute} from "vue-router"
+    import {useI18n} from "vue-i18n"
     import AiIcon from "vue-material-design-icons/Creation.vue"
     import {useMiscStore} from "override/stores/misc"
 
@@ -50,13 +51,14 @@
         onClose: null,
     })
 
+    const {t} = useI18n()
     const route = useRoute()
     const miscStore = useMiscStore()
     const markdownRenderer = ref<string | undefined>(undefined)
 
     const isFlowContext = computed(() => {
-        const routeName = route?.name
-        return routeName === "flows/update" || routeName === "flows/create"
+        const routeName = String(route?.name ?? "")
+        return routeName.startsWith("flows/update") || routeName === "flows/create"
     })
 
     const renderMarkdown = (): string => {
@@ -82,7 +84,9 @@
             props.onClose()
         }
 
-        miscStore.promptCopilot(prompt)
+        const flowId = route.params?.id
+        const title = flowId ? t("ai.copilot.fixThread.flow", {id: flowId}) : t("ai.copilot.fixThread.generic")
+        miscStore.promptCopilot(prompt, {title, newThread: true})
     }
 
     // Watch for changes in message

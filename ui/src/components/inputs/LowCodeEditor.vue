@@ -15,6 +15,7 @@
             :namespace="namespace"
             :expandedSubflows="props.expandedSubflows"
             :icons="pluginsStore.icons"
+            :loadIcon="pluginsStore.loadIcon"
             :execution="executionsStore.execution"
             :subflowsExecutions="executionsStore.subflowsExecutions"
             :playgroundEnabled="playgroundStore.enabled"
@@ -22,7 +23,7 @@
             :replayEnabled="replayEnabled"
             :getNodeDimensions="getNodeDimensions"
             :customActions="customActions"
-            :showDetailsToggle="hasExtraDetails"
+            :showDetailsToggle="props.showDetailsToggle && hasExtraDetails"
             :taskDetailsVersion="taskDetailsVersion"
             @toggle-orientation="toggleOrientation"
             @edit="onEditTask"
@@ -61,6 +62,7 @@
             :title="taskModalCtx.title ?? taskModalCtx.task?.id ?? 'Task details'"
             :destroyOnClose="true"
             :appendToBody="true"
+            scrollable
         >
             <TopologyTaskModalRemote v-bind="(taskModalCtx as any)" />
         </KsDialog>
@@ -226,7 +228,7 @@
     import {Topology} from "@kestra-io/topology"
     import {SECTIONS, State, KsMarkdown, KsEditor, KsDialog, vKsLoading} from "@kestra-io/design-system"
     import {Execution} from "@kestra-io/kestra-sdk"
-    import {flowYamlUtils as YAML_UTILS} from "@kestra-io/topology"
+    import * as YAML_UTILS from "@kestra-io/topology/flow-yaml-utils"
     import {useEditorBindings} from "../../composables/useEditorBindings"
     import {loadTaskRunOutputs} from "../../composables/useTaskRunOutputs"
 
@@ -427,6 +429,7 @@
             isAllowedEdit?: boolean;
             horizontalDefault?: boolean;
             toggleOrientationButton?: boolean;
+            showDetailsToggle?: boolean;
             expandedSubflows?: string[];
         }>(),
         {
@@ -438,6 +441,7 @@
             isAllowedEdit: false,
             horizontalDefault: undefined,
             toggleOrientationButton: true,
+            showDetailsToggle: true,
             expandedSubflows: () => [],
         })
 

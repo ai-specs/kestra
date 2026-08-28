@@ -13,7 +13,6 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -32,6 +31,7 @@ import io.kestra.core.models.assets.AssetsDeclaration;
 import io.kestra.core.models.assets.AssetsInOut;
 import io.kestra.core.models.executions.*;
 import io.kestra.core.models.flows.State;
+import io.kestra.core.models.tasks.AssetFailureBehavior;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.*;
@@ -289,6 +289,34 @@ public class WorkerTaskProcessor extends AbstractWorkerJobProcessor<WorkerTask> 
                 state = WARNING;
             }
 
+            if (taskRunWithOutput.assetEmissionFailed()) {
+                AssetsDeclaration assetsDeclaration = workerTask.getTask().getAssets();
+                AssetFailureBehavior assetFailureBehavior = AssetFailureBehavior.WARN;
+                if (assetsDeclaration != null) {
+                    try {
+                        assetFailureBehavior = runContext.render(assetsDeclaration.getAssetFailureBehavior()).as(AssetFailureBehavior.class).orElse(AssetFailureBehavior.WARN);
+                    } catch (IllegalVariableEvaluationException e) {
+                        runContext.logger().warn("Unable to render assetFailureBehavior, defaulting to WARN", e);
+                    }
+                }
+                State.Type newState = assetFailureBehavior.apply(state);
+                if (newState != state) {
+                    runContext.logger().warn(
+                        "Task state changed from {} to {} because an asset failed to be emitted (assetFailureBehavior: {})",
+                        state, newState, assetFailureBehavior
+                    );
+                } else {
+                    runContext.logger().warn(
+                        "An asset failed to be emitted but the task state was not changed (assetFailureBehavior: {})",
+                        assetFailureBehavior
+                    );
+                }
+                state = newState;
+            }
+
+            // allowFailure has final say over any FAILED state reaching this point, whether the task's own
+            // genuine failure or one escalated by assetFailureBehavior; gated on shouldBeRetried so a pending retry
+            // is not prematurely softened
             if (workerTask.getTask().isAllowFailure() && !taskRunWithOutput.taskRun().shouldBeRetried(workerTask.getTask().getRetry()) && state.isFailed()) {
                 state = WARNING;
             }
@@ -423,32 +451,34 @@ public class WorkerTaskProcessor extends AbstractWorkerJobProcessor<WorkerTask> 
 
         Map<String, Object> outputs = Optional.ofNullable(workerTaskCallable.getTaskOutput()).map(it -> it.toMap()).orElse(null);
 
+        boolean assetEmissionFailed = false;
         try {
             if (workerTask.getTask().getAssets() != null) {
                 // We need to have the task outputs injected before rendering the assets
                 Map<String, Object> formattedOutputsMap = RunVariables.executionFormattedOutputMap(taskRun, outputs);
 
-                List<AssetEmit> assetEmits = runContext.assets().emitted();
                 AssetsDeclaration assetsDeclaration = workerTask.getTask().getAssets();
 
-                taskRun = taskRun.withAssets(
-                    new AssetsInOut(
-                        Stream.concat(
-                            runContext.render(assetsDeclaration.getInputs()).asList(AssetIdentifier.class, formattedOutputsMap).stream(),
-                            assetEmits.stream().map(AssetEmit::inputs).flatMap(Collection::stream)
-                        ).toList(),
-                        Stream.concat(
-                            runContext.render(assetsDeclaration.getOutputs()).asList(Asset.class, formattedOutputsMap).stream(),
-                            assetEmits.stream().map(AssetEmit::outputs).flatMap(Collection::stream)
-                        ).toList()
-                    )
-                );
+                // One bundle per lineage pair (the manual `assets:` declaration plus each auto-emitted pair),
+                // kept unmerged so persistence writes one event per pair instead of a cartesian graph.
+                List<AssetsInOut> bundles = new ArrayList<>();
+                List<AssetIdentifier> declaredInputs = runContext.render(assetsDeclaration.getInputs()).asList(AssetIdentifier.class, formattedOutputsMap);
+                List<Asset> declaredOutputs = runContext.render(assetsDeclaration.getOutputs()).asList(Asset.class, formattedOutputsMap);
+                if (!declaredInputs.isEmpty() || !declaredOutputs.isEmpty()) {
+                    bundles.add(new AssetsInOut(declaredInputs, declaredOutputs));
+                }
+                runContext.assets().emitted().forEach(emit -> bundles.add(new AssetsInOut(emit.inputs(), emit.outputs())));
+
+                if (!bundles.isEmpty()) {
+                    taskRun = taskRun.withAssetEmits(bundles);
+                }
             }
         } catch (Exception e) {
-            logger.warn("Unable to save output on taskRun '{}'", taskRun, e);
+            logger.warn("Unable to render asset declaration for taskRun '{}'", taskRun, e);
+            assetEmissionFailed = true;
         }
 
-        return new TaskRunWithOutput(taskRun, outputs);
+        return new TaskRunWithOutput(taskRun, outputs, assetEmissionFailed);
     }
 
     private List<TaskRunAttempt> addAttempt(WorkerTask workerTask, TaskRunAttempt taskRunAttempt) {

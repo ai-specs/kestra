@@ -19,20 +19,28 @@ export const storageKeys = {
     DISPLAY_FLOW_EXECUTIONS_COLUMNS: "displayFlowExecutionsColumns",
     DISPLAY_KV_COLUMNS: "displayKvColumns",
     DISPLAY_SECRETS_COLUMNS: "displaySecretsColumns",
+    DISPLAY_NAMESPACE_SECRETS_COLUMNS: "displayNamespaceSecretsColumns",
     DISPLAY_TRIGGERS_COLUMNS: "displayTriggersColumns",
     DISPLAY_MCP_TOOLS_COLUMNS: "displayMcpToolsColumns",
     DISPLAY_ASSETS_COLUMNS: "displayAssetsColumns",
     DISPLAY_ASSET_EXECUTIONS_COLUMNS: "displayAssetExecutionsColumns",
+    DISPLAY_CASES_COLUMNS: "displayCasesColumns",
+    CASES_VIEW_MODE: "casesViewMode",
+    CASES_BOARD_GROUP_BY: "casesBoardGroupBy",
     SELECTED_TENANT: "selectedTenant",
     EXECUTE_FLOW_BEHAVIOUR: "executeFlowBehaviour",
     SHOW_CHART: "showChart",
     SHOW_FLOWS_CHART: "showFlowsChart",
     SHOW_LOGS_CHART: "showLogsChart",
     DEFAULT_NAMESPACE: "defaultNamespace",
+    FLOW_TEMPLATE: "flowTemplate",
     LATEST_NAMESPACE: "latestNamespace",
     PAGINATION_SIZE: "paginationSize",
     IMPERSONATE: "impersonate",
     EDITOR_VIEW_TYPE: "editorViewType",
+    NOCODE_ENGINE: "nocodeEngine",
+    TASK_EDIT_DEFAULT_MODE: "taskEditDefaultMode",
+    TASK_EDIT_MODE_HINT_DISMISSED: "taskEditModeHintDismissed",
     AUTO_REFRESH_INTERVAL: "autoRefreshInterval",
     AUTO_REFRESH_ENABLED: "autoRefreshEnabled",
     DATE_FORMAT_STORAGE_KEY: "dateFormat",
@@ -48,6 +56,11 @@ export const storageKeys = {
 export const executeFlowBehaviours = {
     SAME_TAB: "same tab",
     NEW_TAB: "new tab",
+} as const
+
+export const taskEditDefaultModes = {
+    MODAL: "MODAL",
+    TAB: "TAB",
 } as const
 
 export const stateDisplayValues = {

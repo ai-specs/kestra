@@ -77,6 +77,7 @@ public class DefaultExecutor extends AbstractService implements Executor {
     private final DispatchQueueInterface<MultipleConditionEvent> multipleConditionEventQueue;
     private final DispatchQueueInterface<LoopExecutionEvent> loopExecutionEventQueue;
     private final DispatchQueueInterface<ExecutionStatistic> executionStatisticQueue;
+    private final ExecutionTerminatedNotifier executionTerminatedNotifier;
 
     private final ExecutorService executorService;
     private final ExecutionService executionService;
@@ -145,6 +146,7 @@ public class DefaultExecutor extends AbstractService implements Executor {
         DispatchQueueInterface<MultipleConditionEvent> multipleConditionEventQueue,
         DispatchQueueInterface<LoopExecutionEvent> loopExecutionEventQueue,
         DispatchQueueInterface<ExecutionStatistic> executionStatisticQueue,
+        ExecutionTerminatedNotifier executionTerminatedNotifier,
         ExecutorService executorService,
         ExecutionService executionService,
         FlowTriggerService flowTriggerService,
@@ -182,6 +184,7 @@ public class DefaultExecutor extends AbstractService implements Executor {
         this.multipleConditionEventQueue = multipleConditionEventQueue;
         this.loopExecutionEventQueue = loopExecutionEventQueue;
         this.executionStatisticQueue = executionStatisticQueue;
+        this.executionTerminatedNotifier = executionTerminatedNotifier;
         this.executorService = executorService;
         this.executionService = executionService;
         this.flowTriggerService = flowTriggerService;
@@ -288,10 +291,26 @@ public class DefaultExecutor extends AbstractService implements Executor {
         );
         this.queueSubscribers.addFirst(this.workerTaskResultQueue.subscriber().subscribeBatch(workerTaskResults ->
         {
-            List<CompletableFuture<Void>> futures = workerTaskResults.stream()
-                .map(workerTaskResult -> CompletableFuture.runAsync(() -> workerTaskResultQueue(workerTaskResult), workerTaskResultExecutorService))
+            // process worker task results grouped by executionId, to avoid concurrency at the execution level:
+            // joining a later sibling's result (e.g. a failing task) before an earlier one can terminate a flowable,
+            // and silently drop the earlier task's outputs, which are never joined afterward.
+            List<CompletableFuture<Void>> perExecutionFutures = workerTaskResults.stream()
+                .filter(Either::isLeft)
+                .collect(Collectors.groupingBy(either -> either.getLeft().getTaskRun().getExecutionId()))
+                .values()
+                .stream()
+                .map(eithers -> CompletableFuture.runAsync(() ->
+                {
+                    eithers.forEach(this::workerTaskResultQueue);
+                }, workerTaskResultExecutorService))
                 .toList();
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            // directly process deserialization issues as most of the time there will be none
+            workerTaskResults.stream()
+                .filter(Either::isRight)
+                .forEach(either -> workerTaskResultQueue(either));
+
+            CompletableFuture.allOf(perExecutionFutures.toArray(CompletableFuture[]::new)).join();
         }
         ));
         this.queueSubscribers.addFirst(this.executionCommandQueue.subscriber().subscribe(this::executionCommandQueue));
@@ -546,7 +565,7 @@ public class DefaultExecutor extends AbstractService implements Executor {
                             executionDelay.getDelayType().equals(ExecutionDelay.DelayType.RESTART_FAILED_TASK)
                                 && execution.getState().getCurrent() != State.Type.KILLING
                         ) {
-                            FlowWithSource flow = flowMetaStore.findByExecutionThenInjectDefaults(execution).orElseThrow(() -> new FlowNotFoundException(execution));
+                            FlowWithSource flow = flowMetaStore.findByExecutionForRuntime(execution).orElseThrow(() -> new FlowNotFoundException(execution));
                             Execution newAttempt = executionService.retryTask(
                                 execution,
                                 flow,
@@ -559,7 +578,7 @@ public class DefaultExecutor extends AbstractService implements Executor {
                             executionDelay.getDelayType().equals(ExecutionDelay.DelayType.RESTART_FAILED_FLOW)
                                 && execution.getState().getCurrent() != State.Type.KILLING
                         ) {
-                            FlowWithSource flow = flowMetaStore.findByExecutionThenInjectDefaults(execution).orElseThrow(() -> new FlowNotFoundException(execution));
+                            FlowWithSource flow = flowMetaStore.findByExecutionForRuntime(execution).orElseThrow(() -> new FlowNotFoundException(execution));
                             Execution newExecution = executionService.replay(executor.getExecution(), flow, null, null, Optional.empty());
                             executor = executor.withExecution(newExecution, "retryFailedFlow");
                         }
@@ -595,7 +614,7 @@ public class DefaultExecutor extends AbstractService implements Executor {
             {
                 Optional<ExecutorContext> maybeExecutor = executionStateStore.lock(slaMonitor.getExecutionId(), execution ->
                 {
-                    FlowWithSource flow = flowMetaStore.findByExecutionThenInjectDefaults(execution).orElseThrow(() -> new FlowNotFoundException(execution));
+                    FlowWithSource flow = flowMetaStore.findByExecutionForRuntime(execution).orElseThrow(() -> new FlowNotFoundException(execution));
                     Optional<SLA> sla = flow.getSla().stream().filter(s -> s.getId().equals(slaMonitor.getSlaId())).findFirst();
                     if (sla.isEmpty()) {
                         // this can happen in case the flow has been updated and the SLA removed
@@ -675,10 +694,15 @@ public class DefaultExecutor extends AbstractService implements Executor {
                 // purge the trigger: reset scheduler trigger at end
                 // IMPORTANT: this is to cover an edge case, execution created for failed trigger didn't have any taskrun so they will arrive directly here.
                 // We need to detect that and reset them as they will never reach the reset code later on this method.
-                if (execution.getTrigger() != null && execution.getState().isFailed() && ListUtils.isEmpty(execution.getTaskRunList())) {
+                if (
+                    execution.getTrigger() != null &&
+                        (execution.getState().isFailed() || execution.getState().getCurrent().isKilled() || execution.getState().getCurrent().isCancelled()) &&
+                        ListUtils.isEmpty(execution.getTaskRunList())
+                ) {
                     sendTriggerExecutionTerminated(execution);
                     this.followExecutionEventQueue.emit(new FollowExecutionEvent(execution, ExecutionEventType.TERMINATED));
                     emitExecutionStatistic(execution);
+                    notifyExecutionTerminated(execution);
                 }
 
                 return;
@@ -692,7 +716,7 @@ public class DefaultExecutor extends AbstractService implements Executor {
             // or from a worker task in an afterExecution block, in this case we need to load the flow
             if (executor.getFlow() == null && executor.getExecution().getState().isTerminated()) {
                 var execution = executor.getExecution();
-                FlowWithSource flow = flowMetaStore.findByExecutionThenInjectDefaults(execution).orElseThrow(() -> new FlowNotFoundException(execution));
+                FlowWithSource flow = flowMetaStore.findByExecutionForRuntime(execution).orElseThrow(() -> new FlowNotFoundException(execution));
                 executor = executor.withFlow(flow);
             }
             boolean isTerminated = executor.getFlow() != null && executionService.isTerminated(executor.getFlow(), executor.getExecution());
@@ -711,6 +735,27 @@ public class DefaultExecutor extends AbstractService implements Executor {
 
             // IMPORTANT: this must be done before emitting the last execution message so that all consumers are notified that the execution ends.
             if (isTerminated) {
+                // release the concurrency slots (a no-op when no limit applies to the flow),
+                // then check if there exists a queued execution and submit it to the execution queue.
+                // Transactional outbox: the processor pops inside the concurrency-limit
+                // store's transaction and only returns the execution; it is emitted here,
+                // after releaseThenPop() has committed (same rule as executionDelayLoop).
+                // This runs first in the terminal block on purpose: only the cycle that terminated
+                // the execution may release.
+                // An execution that was not already terminal when this cycle started cannot have
+                // been over before it: afterExecution tasks run once the execution state is already terminal,
+                // and the cycle completing them is the one that really terminates the execution.
+                Execution executionAtEntry = executor.getTerminalExecutionAtEntry();
+                boolean terminatedByThisCycle = executionAtEntry == null
+                    || !executionService.isTerminated(executor.getFlow(), executionAtEntry);
+                Optional<Execution> popped = concurrencySlotReleaseProcessor.release(executor, terminatedByThisCycle);
+                if (popped.isPresent()) {
+                    executionQueue.emit(popped.get());
+
+                    // process flow triggers to allow listening on RUNNING state after a QUEUED state
+                    processFlowTriggers(popped.get());
+                }
+
                 // if there is a parent, we send a subflow execution result to it
                 if (ExecutableUtils.isSubflow(execution)) {
                     // locate the parent execution to find the parent task run
@@ -758,19 +803,6 @@ public class DefaultExecutor extends AbstractService implements Executor {
                     slaMonitorStateStore.purge(executor.getExecution().getId());
                 }
 
-                // release the concurrency slots (a no-op when no limit applies to the flow),
-                // then check if there exists a queued execution and submit it to the execution queue.
-                // Transactional outbox: the processor pops inside the concurrency-limit
-                // store's transaction and only returns the execution; it is emitted here,
-                // after releaseThenPop() has committed (same rule as executionDelayLoop).
-                Optional<Execution> popped = concurrencySlotReleaseProcessor.release(executor);
-                if (popped.isPresent()) {
-                    executionQueue.emit(popped.get());
-
-                    // process flow triggers to allow listening on RUNNING state after a QUEUED state
-                    processFlowTriggers(popped.get());
-                }
-
                 // purge the trigger: reset scheduler trigger at end
                 if (execution.getTrigger() != null && !isRealtimeTriggerExecution(executor.getFlow(), execution)) {
                     sendTriggerExecutionTerminated(execution);
@@ -785,6 +817,7 @@ public class DefaultExecutor extends AbstractService implements Executor {
                 this.followExecutionEventQueue.emit(new FollowExecutionEvent(executor.getExecution(), ExecutionEventType.TERMINATED));
 
                 emitExecutionStatistic(execution);
+                notifyExecutionTerminated(execution);
             } else {
                 ExecutionEvent event = new ExecutionEvent(executor.getExecution(), ExecutionEventType.UPDATED);
                 this.executionEventQueue.emit(event);
@@ -814,6 +847,7 @@ public class DefaultExecutor extends AbstractService implements Executor {
                         this.followExecutionEventQueue.emit(new FollowExecutionEvent(failedExecution, ExecutionEventType.TERMINATED));
 
                         emitExecutionStatistic(failedExecution);
+                        notifyExecutionTerminated(failedExecution);
                     } catch (QueueException ex) {
                         log.error("Unable to emit the execution {}", failedExecution.getId(), ex);
                     }
@@ -826,16 +860,28 @@ public class DefaultExecutor extends AbstractService implements Executor {
      * Asynchronously emits a raw execution-statistic row for the indexer to persist for every terminal NORMAL-kind execution.
      */
     private void emitExecutionStatistic(Execution execution) {
-        if (execution.getKind() == null || ExecutionKind.NORMAL == execution.getKind()) {
+        if (ExecutionKind.isNormal(execution)) {
             // An end date should always be set, but use the current date as a safety belt
             Instant bucket = execution.getState().getEndDate().orElse(Instant.now()).truncatedTo(ChronoUnit.MINUTES);
             this.executionStatisticQueue.emitAsync(new ExecutionStatistic(execution, bucket));
         }
     }
 
+    private void notifyExecutionTerminated(Execution execution) {
+        try {
+            this.executionTerminatedNotifier.executionTerminated(execution);
+        } catch (Exception e) {
+            log.warn("Unable to notify execution terminated for execution '{}'", execution.getId(), e);
+        }
+    }
+
     private void sendTriggerExecutionTerminated(Execution execution) {
         // The scheduler didn't manage states for the WebHook and the Flow trigger
-        if (!execution.getTrigger().getType().equals(Webhook.class.getName()) && !execution.getTrigger().getType().equals(io.kestra.plugin.core.trigger.Flow.class.getName())) {
+        if (
+            !execution.getTrigger().getType().equals(Webhook.class.getName()) &&
+                !execution.getTrigger().getType().equals(io.kestra.plugin.core.trigger.Flow.class.getName()) &&
+                !execution.getTrigger().getType().equals(io.kestra.plugin.core.flow.Subflow.class.getName())
+        ) {
             TriggerId triggerId = TriggerId.of(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getTrigger().getId());
             triggerEventQueue.send(new TriggerExecutionTerminated(triggerId, execution.getId(), execution.getState().getCurrent()));
         }

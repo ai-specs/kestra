@@ -8,11 +8,13 @@
  *   - RUNNING               → a turn is streaming; composer disabled (a 2nd turn 409s)
  *   - AWAITING_CONFIRMATION → a proposal is suspended; call `confirm(...)` to resume
  *
- * Non-streaming calls (create/get) go through the axios client; the `chat` and
- * `confirm` turns are POST SSE streams read via `streamSse`.
+ * Non-streaming calls (create/get) go through the `useClient()` facade — not the generated SDK AI
+ * endpoints, which differ per edition (the EE SDK doesn't expose thread `create`/`get`); the `chat`
+ * and `confirm` turns are POST SSE streams read via `streamSse`.
  */
 import {ref, computed} from "vue"
 import {useClient} from "@kestra-io/kestra-sdk"
+import type {AgentMessageRole, AgentMessageType, AgentThreadStatus, ApiDecision} from "@kestra-io/kestra-sdk"
 import {apiUrl} from "override/utils/route"
 import {uid} from "../../../utils/utils"
 import {streamSse, SseHttpError} from "./streamSse"
@@ -22,14 +24,11 @@ import {
     type ChatTurnRequest,
     type ConfirmActionRequest,
     type CreateThreadRequest,
-    type Decision,
     type DoneEvent,
     type ErrorEvent,
-    type Mode,
     type ProposedActionEvent,
     type ScopeBinding,
     type ThreadDetail,
-    type ThreadStatus,
     type ThreadSummary,
     type TokenEvent,
     type ToolCallEvent,
@@ -42,14 +41,34 @@ export type ErrorCode = "turnInProgress" | "turnCap" | "request" | "generic"
 /** Locale-agnostic non-error notice identifier; the component maps it to `ai.copilot.notice.<code>`. */
 export type NoticeCode = "emptyTurn"
 
+/** A display-only transcript line noting a focus change (a context resource added or removed). */
+export interface ContextNotice {
+    action: "added" | "removed"
+    /** i18n keypath for the resource's type word (e.g. `"flow"` → "Flow"). */
+    noun: string
+    /** The resource id/value, rendered as a code-styled token. */
+    id: string
+}
+
+/** A display-only transcript line noting the AI provider/model was switched mid-conversation. */
+export interface ModelChangeNotice {
+    /** The newly selected provider's display name (e.g. "GPT-5 nano"). */
+    label: string
+}
+
 /** A message as rendered in the chat transcript (a superset of the wire MessageView). */
 export interface ChatMessage {
     /** Local, stable key for v-for. */
     id: string
-    role: "USER" | "ASSISTANT" | "TOOL" | "SYSTEM"
-    type: "TEXT" | "TOOL_CALL" | "TOOL_RESULT" | "PROPOSED_ACTION" | "ARTEFACT_DRAFT" | "CANCELLED"
+    role: AgentMessageRole
+    /** `"CONTEXT"` and `"MODEL_CHANGED"` are local, display-only transcript lines — never wire types. */
+    type: AgentMessageType | "CONTEXT" | "MODEL_CHANGED"
     /** Assistant text; appended to as `token` events arrive. */
     content?: string
+    /** The focus change to render; present only on a `"CONTEXT"` line. */
+    context?: ContextNotice
+    /** The model switch to render; present only on a `"MODEL_CHANGED"` line. */
+    modelChange?: ModelChangeNotice
     toolCall?: ToolCallEvent
     toolResult?: ToolResultEvent
     proposedAction?: ProposedActionEvent
@@ -62,7 +81,7 @@ export function useAiChat() {
 
     const thread = ref<ThreadSummary | null>(null)
     const messages = ref<ChatMessage[]>([])
-    const status = ref<ThreadStatus>("IDLE")
+    const status = ref<AgentThreadStatus>("IDLE")
     const streaming = ref(false)
     /** A translation-key suffix under `ai.copilot.error.*`, or null. Kept locale-agnostic. */
     const error = ref<ErrorCode | null>(null)
@@ -77,6 +96,8 @@ export function useAiChat() {
     const pendingConfirmation = ref<ProposedActionEvent | null>(null)
     /** True when the backend reports no AI provider is configured (503) — render an "unavailable" state. */
     const unavailable = ref(false)
+    /** Title for the next thread created by `ensureThread` (e.g. a seeded "Fix with AI" turn); consumed once. */
+    const nextThreadTitle = ref<string | null>(null)
 
     /** Reference to the assistant bubble currently being streamed into. */
     let activeAssistant: ChatMessage | null = null
@@ -106,13 +127,17 @@ export function useAiChat() {
     /** Creates the thread once and reuses its uid for the rest of the session. */
     async function ensureThread(request: CreateThreadRequest = {}): Promise<ThreadSummary> {
         if (thread.value) return thread.value
+        if (nextThreadTitle.value) {
+            request = {...request, title: nextThreadTitle.value}
+        }
         // `showMessageOnError: false` opts out of the global "page not found" redirect: when no AI
         // provider is configured the agentic endpoints (`AiAgentController`, `@Requires` the
         // AiServiceManager bean) aren't registered, so this create 404s — surfaced as the copilot's
         // own "unavailable" state by sendChat, not a full-page redirect.
-        const {data} = await client.post<ThreadSummary>(base(), request, {showMessageOnError: false} as any)
+        const {data} = await client.post<ThreadSummary>(base(), request, {showMessageOnError: false})
         thread.value = data
         status.value = data.status
+        nextThreadTitle.value = null
         rememberThread(data.uid)
         return data
     }
@@ -141,7 +166,7 @@ export function useAiChat() {
         // the thread no longer exists (e.g. an evicted OSS in-memory conversation, or a deleted one) —
         // is handled here: forget the remembered id and start a fresh session instead of erroring out.
         const response = await client
-            .get<ThreadDetail>(`${base()}/${threadId}`, {showMessageOnError: false} as any)
+            .get<ThreadDetail>(`${base()}/${threadId}`, {showMessageOnError: false})
             .catch((e: {status?: number; response?: {status?: number}}) => {
                 if (e?.status === 404 || e?.response?.status === 404) return null
                 throw e
@@ -243,7 +268,7 @@ export function useAiChat() {
      * Resolves a pending proposal. APPROVE resumes & dispatches; REJECT records rejection.
      * The resumed turn runs a fresh model call, so it needs the same `providerId` the chat turn used.
      */
-    async function confirm(decision: Decision, reason?: string, providerId?: string): Promise<void> {
+    async function confirm(decision: ApiDecision, reason?: string, providerId?: string): Promise<void> {
         const active = thread.value
         const proposal = pendingConfirmation.value
         if (!active || !proposal) return
@@ -270,6 +295,7 @@ export function useAiChat() {
         notice.value = null
         pendingConfirmation.value = null
         unavailable.value = false
+        nextThreadTitle.value = null
         activeAssistant = null
         lastTurn = null
         forgetThread()
@@ -290,9 +316,9 @@ export function useAiChat() {
         try {
             await streamSse({url, body, signal: abort.signal, onFrame: reduce})
             // The stream closed cleanly but added nothing to the transcript and left no proposal —
-            // e.g. a transient provider hiccup returned only `done`. Surface a notice rather than
-            // leaving the panel silent, so the user knows to retry. A streamed error event already
-            // surfaces its own reason, so don't stack the empty-turn notice on top of it.
+            // e.g. a transient provider hiccup returned only `done`; surface a notice rather than
+            // leaving the panel silent. A streamed error event already surfaces its own reason, so
+            // don't stack the empty-turn notice on top of it.
             if (messages.value.length === countBefore && !pendingConfirmation.value && !errorDetail.value && !error.value) {
                 notice.value = "emptyTurn"
             }
@@ -369,6 +395,26 @@ export function useAiChat() {
         messages.value.push(message)
     }
 
+    /**
+     * Appends a display-only system line noting a context (focus) change — never a turn, so never sent
+     * to the backend or persisted. Suppressed until a conversation has started: before that the context
+     * pills already convey the focus, so the empty state stays clean.
+     */
+    function noteContext(notice: ContextNotice): void {
+        if (messages.value.length === 0) return
+        push({id: uid(), role: "SYSTEM", type: "CONTEXT", context: notice})
+    }
+
+    /**
+     * Appends a display-only system line noting the AI provider/model was switched — never a turn,
+     * so never sent to the backend or persisted. Suppressed until a conversation has started, same
+     * as `noteContext`.
+     */
+    function noteModelChange(label: string): void {
+        if (messages.value.length === 0) return
+        push({id: uid(), role: "SYSTEM", type: "MODEL_CHANGED", modelChange: {label}})
+    }
+
     function toErrorCode(e: unknown): ErrorCode {
         if (e instanceof SseHttpError) {
             if (e.status === 409) return "turnInProgress"
@@ -409,6 +455,7 @@ export function useAiChat() {
         pendingConfirmation,
         unavailable,
         canSend,
+        nextThreadTitle,
         // actions
         ensureThread,
         loadThread,
@@ -419,7 +466,9 @@ export function useAiChat() {
         reset,
         retry,
         retryLastTurn,
+        noteContext,
+        noteModelChange,
     }
 }
 
-export type {Mode, ScopeBinding}
+export type {ScopeBinding}

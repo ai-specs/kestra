@@ -133,8 +133,7 @@
     import {getAllTaskIds} from "../../utils/flowUtils"
     import {executeFlowBehaviours, storageKeys} from "../../utils/constants"
     import {WEBHOOK_TRIGGER_TYPE} from "../../utils/webhook"
-    import {normalize, flattenInputs} from "../../utils/inputs"
-    import type {InputType} from "../../utils/inputs"
+    import {flattenInputs} from "../../utils/inputs"
     import get from "lodash/get"
     import type {FormInstance} from "@kestra-io/design-system"
     import ContentCopy from "vue-material-design-icons/ContentCopy.vue"
@@ -151,7 +150,7 @@
         return style.toLowerCase() as AlertType
     }
 
-    interface ReplaySubmitOptions {
+    export interface ReplaySubmitOptions {
         formRef: FormInstance
         id: string
         namespace: string
@@ -368,11 +367,7 @@
                 if (value === undefined) {
                     return
                 }
-                inputsForm.inputsValues[leaf.id] = normalize(leaf.type as InputType, value)
-                const meta = inputsForm.inputsMetaData.find(m => m.id === leaf.id)
-                if (meta) {
-                    meta.isDefault = false
-                }
+                inputsForm.prefillInputValue(leaf, value)
             })
     }
 
@@ -387,10 +382,6 @@
 
     function onSubmit() {
         if (form.value && flowCanBeExecuted.value) {
-            apiStore.posthogEvents({
-                type: "FLOW_EXECUTION",
-                action: "submit",
-            })
             checks.value = []
             executeClicked.value = false
             coreStore.message = undefined
@@ -398,6 +389,14 @@
                 if (!valid) {
                     return
                 }
+
+                apiStore.posthogEvents({
+                    type: "FLOW_EXECUTION",
+                    action: "submit",
+                    // Replay-with-inputs bypasses triggerExecution, so it never emits a matching
+                    // `executed`: flagged so it can be excluded from the submit/executed funnel.
+                    is_replay: Boolean(props.replaySubmit),
+                })
 
                 const mergedInputs = props.selectedTrigger?.inputs
                     ? {...props.selectedTrigger.inputs, ...inputsNoDefaults.value}
@@ -417,7 +416,6 @@
                             breakpoints: breakpoints.value,
                         })
                     } else {
-                        const shouldShowOnboardingSuccessAnimation = route.query.onboardingPreset === "true"
                         if (flow.value) {
                             await executeTask(submitor, flow.value, mergedInputs, {
                                 redirect: props.redirect,
@@ -431,10 +429,6 @@
                                     .tz(localStorage.getItem(storageKeys.TIMEZONE_STORAGE_KEY) ?? moment.tz.guess())
                                     .toISOString(true),
                                 nextStep: true,
-                                query: shouldShowOnboardingSuccessAnimation ? {
-                                    autoExpandGantt: "true",
-                                    onboardingSuccess: "true",
-                                } : undefined,
                                 breakpoints: breakpoints.value,
                             })
                         }

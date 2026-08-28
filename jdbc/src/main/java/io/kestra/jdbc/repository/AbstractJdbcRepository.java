@@ -46,6 +46,13 @@ public abstract class AbstractJdbcRepository {
 
     protected static final int FETCH_SIZE = 100;
 
+    /**
+     * Operations valid on the {@link QueryFilter.Field#LABELS} field when its value is a plain
+     * string, i.e. {@code filters[labels][OP]=value} with no label key. Every other operation
+     * requires a keyed map value ({@code filters[labels][OP][key]=value}).
+     */
+    private static final Set<Op> SCALAR_LABEL_OPS = EnumSet.of(Op.CONTAINS, Op.NOT_CONTAINS, Op.IS_NULL, Op.IS_NOT_NULL);
+
     @Getter
     @Inject
     // Micronaut field-injects this for bean-managed repositories; log-store plugins (deserialized,
@@ -116,18 +123,32 @@ public abstract class AbstractJdbcRepository {
         return DSL.week(timestampField);
     }
 
+    /**
+     * The timestamp expression that {@link #groupByFields} extracts date parts from.
+     * <p>
+     * It must yield <em>UTC</em> wall-clock parts, because
+     * {@link io.kestra.jdbc.AbstractJdbcRepository#getDate} reassembles them in UTC. The default is
+     * correct for H2 and MySQL, whose date columns already hold UTC wall-clock values. Postgres
+     * stores {@code TIMESTAMPTZ}, for which a plain cast to {@code timestamp} resolves in the
+     * session timezone, so it overrides this.
+     */
+    protected Field<Timestamp> groupByTimestampField(String dateField) {
+        return DSL.timestamp(field(dateField, Date.class));
+    }
+
     protected List<Field<?>> groupByFields(Duration duration, @Nullable String dateField, @Nullable DateUtils.GroupType groupBy) {
         return groupByFields(duration, dateField, groupBy, true);
     }
 
     protected List<Field<?>> groupByFields(Duration duration, @Nullable String dateField, @Nullable DateUtils.GroupType groupBy, boolean withAs) {
         String field = dateField != null ? dateField : "timestamp";
-        Field<Integer> month = withAs ? DSL.month(DSL.timestamp(field(field, Date.class))).as("month") : DSL.month(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> year = withAs ? DSL.year(DSL.timestamp(field(field, Date.class))).as("year") : DSL.year(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> day = withAs ? DSL.day(DSL.timestamp(field(field, Date.class))).as("day") : DSL.day(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> week = withAs ? weekFromTimestamp(DSL.timestamp(field(field, Date.class))).as("week") : weekFromTimestamp(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> hour = withAs ? DSL.hour(DSL.timestamp(field(field, Date.class))).as("hour") : DSL.hour(DSL.timestamp(field(field, Date.class)));
-        Field<Integer> minute = withAs ? DSL.minute(DSL.timestamp(field(field, Date.class))).as("minute") : DSL.minute(DSL.timestamp(field(field, Date.class)));
+        Field<Timestamp> timestamp = groupByTimestampField(field);
+        Field<Integer> month = withAs ? DSL.month(timestamp).as("month") : DSL.month(timestamp);
+        Field<Integer> year = withAs ? DSL.year(timestamp).as("year") : DSL.year(timestamp);
+        Field<Integer> day = withAs ? DSL.day(timestamp).as("day") : DSL.day(timestamp);
+        Field<Integer> week = withAs ? weekFromTimestamp(timestamp).as("week") : weekFromTimestamp(timestamp);
+        Field<Integer> hour = withAs ? DSL.hour(timestamp).as("hour") : DSL.hour(timestamp);
+        Field<Integer> minute = withAs ? DSL.minute(timestamp).as("minute") : DSL.minute(timestamp);
 
         if (groupBy == DateUtils.GroupType.MONTH || duration.toDays() > DateUtils.GroupValue.MONTH.getValue()) {
             return List.of(year, month);
@@ -337,8 +358,8 @@ public abstract class AbstractJdbcRepository {
             return getEnabledCondition(value, operation);
         }
 
-        if (field == QueryFilter.Field.SUPER_ADMIN) {
-            return getSuperAdminCondition(value, operation);
+        if (field == QueryFilter.Field.INSTANCE_OWNER) {
+            return getInstanceOwnerCondition(value, operation);
         }
 
         if (field == QueryFilter.Field.STATUS) {
@@ -356,6 +377,10 @@ public abstract class AbstractJdbcRepository {
             return tagsCondition(value, operation);
         }
 
+        if (field == QueryFilter.Field.ASSIGNEE) {
+            return assigneeCondition(value, operation);
+        }
+
         if (field == QueryFilter.Field.EXPIRATION_DATE) {
             return getDateCondition(value, operation, QueryFilter.Field.EXPIRATION_DATE.name().toLowerCase());
         }
@@ -368,6 +393,13 @@ public abstract class AbstractJdbcRepository {
             if (value instanceof Map<?, ?> map) {
                 return findLabelCondition(Either.left(map), operation);
             } else if (value instanceof String string) {
+                if (!SCALAR_LABEL_OPS.contains(operation)) {
+                    throw new InvalidQueryFiltersException(
+                        "Operation %s on the labels field requires a label key, as in filters[labels][%s][<key>]=<value>. Operations supported without a key are %s.".formatted(
+                            operation, operation, SCALAR_LABEL_OPS
+                        )
+                    );
+                }
                 return findLabelCondition(Either.right(string), operation);
             } else {
                 throw new InvalidQueryFiltersException("Label field value must be instance of Map or String");
@@ -538,12 +570,16 @@ public abstract class AbstractJdbcRepository {
         return defaultHandlers(QueryFilter.Field.ENABLED, value, operation);
     }
 
-    protected Condition getSuperAdminCondition(Object value, Op operation) {
-        throw new InvalidQueryFiltersException("getSuperAdminCondition must be overridden for JSONB-backed superAdmin field");
+    protected Condition getInstanceOwnerCondition(Object value, Op operation) {
+        throw new InvalidQueryFiltersException("getInstanceOwnerCondition must be overridden for JSONB-backed instanceOwner field");
     }
 
     protected Condition tagsCondition(Object value, QueryFilter.Op operation) {
         return defaultHandlers(QueryFilter.Field.TAGS, value, operation);
+    }
+
+    protected Condition assigneeCondition(Object value, QueryFilter.Op operation) {
+        return defaultHandlers(QueryFilter.Field.ASSIGNEE, value, operation);
     }
 
     // Generate the condition for Field.STATE

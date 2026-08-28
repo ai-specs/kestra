@@ -2,6 +2,7 @@ package io.kestra.webserver.controllers.api;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.ZonedDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.Label;
 import io.kestra.core.models.QueryFilter;
+import io.kestra.core.models.QueryFilter.Op;
 import io.kestra.core.models.dashboards.Dashboard;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.executions.ExecutionKind;
@@ -143,6 +145,39 @@ class DashboardControllerTest {
         );
         assertThat(deleted).isNotNull();
         assertThat(deleted.code()).isEqualTo(204);
+    }
+
+    @Test
+    void searchDashboardsWithUnknownSortFieldReturns422() {
+        HttpClientResponseException e = Assertions.assertThrows(
+            HttpClientResponseException.class,
+            () -> client.toBlocking().exchange(GET(DASHBOARD_PATH + "?sort=nonexistent:asc"))
+        );
+
+        assertThat(e.getStatus().getCode()).isEqualTo(422);
+        String body = e.getResponse().getBody(String.class).orElse("");
+        assertThat(body).contains("nonexistent");
+        // regression guard: the generated SQL must never reach the client (kestra-io/kestra#18490)
+        assertThat(body).doesNotContainIgnoringCase("select ");
+        assertThat(body).doesNotContainIgnoringCase(" from ");
+        assertThat(body).doesNotContainIgnoringCase("order by");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void searchDashboardsSortsByTitle() {
+        String idA = IdUtils.create();
+        String idB = IdUtils.create();
+        client.toBlocking().exchange(POST(DASHBOARD_PATH, "id: %s\ntitle: AAA sort test %s".formatted(idA, idA)).contentType(MediaType.APPLICATION_YAML));
+        client.toBlocking().exchange(POST(DASHBOARD_PATH, "id: %s\ntitle: ZZZ sort test %s".formatted(idB, idB)).contentType(MediaType.APPLICATION_YAML));
+
+        PagedResults<DashboardController.DashboardResponse> dashboards = client.toBlocking().retrieve(
+            GET(DASHBOARD_PATH + "?sort=title:asc&size=1000"),
+            Argument.of(PagedResults.class, DashboardController.DashboardResponse.class)
+        );
+
+        List<String> ids = dashboards.getResults().stream().map(DashboardController.DashboardResponse::getId).toList();
+        assertThat(ids.indexOf(idA)).isLessThan(ids.indexOf(idB));
     }
 
     @Test
@@ -1035,5 +1070,69 @@ class DashboardControllerTest {
         );
         assertThat(httpClientResponseException.getStatus().getCode()).isEqualTo(422);
         assertThat(httpClientResponseException.getMessage()).contains("catastrophic backtracking");
+    }
+
+    @Test
+    void shouldProcessDashboardIntervalRangeGreaterThanYear() {
+        String namespace = TestsUtils.randomNamespace();
+        executionRepository.save(
+            Execution.builder()
+                .tenantId(MAIN_TENANT)
+                .id(IdUtils.create())
+                .namespace(namespace)
+                .flowId("flow")
+                .state(new State(State.Type.SUCCESS))
+                .build()
+        );
+
+        String chartYaml = """
+            id: total_executions_timeseries
+            type: io.kestra.plugin.core.dashboard.chart.TimeSeries
+            chartOptions:
+              description: Executions duration and count per date
+              displayName: Total Executions
+              legend:
+                enabled: true
+              column: date
+              colorByColumn: state
+              width: 8
+            data:
+              type: io.kestra.plugin.core.dashboard.data.Executions
+              columns:
+                date:
+                  field: START_DATE
+                  displayName: Date
+                state:
+                  field: STATE
+                total:
+                  displayName: Executions
+                  agg: COUNT
+                  graphStyle: BARS
+                duration:
+                  field: DURATION
+                  displayName: Duration
+                  agg: SUM
+                  graphStyle: LINES
+            """;
+
+        ZonedDateTime currentTime = ZonedDateTime.now();
+
+        List<QueryFilter> filters = List.of(
+            QueryFilter.builder().field(QueryFilter.Field.START_DATE).value(currentTime.minusDays(2)).operation(Op.GREATER_THAN_OR_EQUAL_TO).build(),
+            QueryFilter.builder().field(QueryFilter.Field.END_DATE).value(currentTime.plusYears(2)).operation(Op.LESS_THAN_OR_EQUAL_TO).build()
+        );
+
+        var globalChartOptions = ChartFiltersOverrides.builder().filters(filters).build();
+
+        var previewRequest = new DashboardController.PreviewRequest(chartYaml, globalChartOptions);
+
+        var chartData = client.toBlocking().retrieve(
+            POST(DASHBOARD_PATH + "/charts/preview", previewRequest),
+            PagedResults.class
+        );
+
+        assertThat(chartData).isNotNull();
+        assertThat(chartData.getTotal()).isGreaterThan(0L);
+        assertThat(chartData.getResults()).isNotNull().isNotEmpty();
     }
 }
