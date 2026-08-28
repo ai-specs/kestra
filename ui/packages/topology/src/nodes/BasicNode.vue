@@ -8,7 +8,7 @@
     >
         <div class="main-content">
             <div class="icon" :class="{'icon--dimmed': statusStyle?.dimIcon}">
-                <component :is="iconComponent || TaskIcon" :cls="cls" :class="taskIconBg" theme="light" variable="--ks-topology-icon-color" :icons="icons" />
+                <component :is="taskIconComponent" :cls="cls" :class="taskIconBg" variable="--ks-topology-icon-color" :icons="icons" :loadIcon="loadIcon" />
             </div>
             <div class="node-content">
                 <slot name="badge" />
@@ -18,11 +18,11 @@
                             {{ displayTitle }}
                         </KsTooltip>
                     </div>
-                    <slot name="title-status" />
-                    <slot name="title-actions" />
                 </div>
                 <slot name="content" />
             </div>
+            <slot name="title-status" />
+            <slot name="title-actions" />
         </div>
         <slot name="details" />
     </div>
@@ -30,8 +30,7 @@
 
 <script lang="ts" setup>
     import {computed, inject} from "vue"
-    import TaskIcon from "../components/TaskIcon.vue"
-    import {KsTooltip} from "@kestra-io/design-system"
+    import {KsTooltip, useTaskIcon} from "@kestra-io/design-system"
     import {EVENTS} from "../utils/constants"
     import {getStatusStyle} from "../utils/status"
     import {EXECUTION_INJECTION_KEY} from "../injectionKeys"
@@ -64,9 +63,13 @@
         state?: string;
         data: any;
         icons: any;
-        iconComponent: any;
+        // Resolves an icon the `icons` index doesn't carry; without it a node whose plugin isn't
+        // in the index has no way to ever get an icon (kestra-io/kestra#18129).
+        loadIcon?: (cls: string) => Promise<any>;
         class?: string | string[] | Record<string, boolean>;
     }>()
+
+    const taskIconComponent = useTaskIcon()
 
     function mouseover() {
         emit(EVENTS.MOUSE_OVER, props.data.node)
@@ -144,6 +147,7 @@
             padding: var(--ks-spacing-2);
             padding-right: var(--ks-spacing-4);
             align-items: center;
+            gap: var(--ks-spacing-1);
             width: 218px;
             height: 56px;
         }
@@ -184,7 +188,7 @@
         display: flex;
         flex-direction: column;
         justify-content: center;
-        margin-left: 0.7rem;
+        margin-left: var(--ks-spacing-2);
         flex: 1;
         min-width: 0;
 
@@ -202,7 +206,7 @@
     }
 
     .button-icon {
-        font-size: 0.75rem;
+        font-size: var(--ks-font-size-sm);
         transform: rotate(45deg);
     }
 

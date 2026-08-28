@@ -1,5 +1,6 @@
 <template>
     <ElInput
+        ref="elInputRef"
         v-model="model"
         v-bind="({...filteredProps(), ...$attrs} as any)"
         :class="reserveClearSpace ? 'ks-input--reserve-clear' : undefined"
@@ -7,6 +8,9 @@
     >
         <template v-if="$slots.prepend" #prepend>
             <slot name="prepend" />
+        </template>
+        <template v-if="$slots.prefix" #prefix>
+            <slot name="prefix" />
         </template>
         <template v-if="$slots.suffix" #suffix>
             <slot name="suffix" />
@@ -18,11 +22,19 @@
 </template>
 
 <script setup lang="ts">
-    import {computed} from "vue"
+    import {computed, ref} from "vue"
     import {ElInput} from "element-plus"
     import {useFilteredProps} from "../../utils/filteredProps"
 
     defineOptions({inheritAttrs: false})
+
+    const elInputRef = ref<InstanceType<typeof ElInput>>()
+
+    defineExpose({
+        focus: () => elInputRef.value?.focus(),
+        blur: () => elInputRef.value?.blur(),
+        select: () => elInputRef.value?.select(),
+    })
 
     const model = defineModel<string | number>()
 
@@ -46,6 +58,7 @@
 
     const slots = defineSlots<{
         prepend?(): unknown
+        prefix?(): unknown
         suffix?(): unknown
         default?(): unknown
     }>()
@@ -62,9 +75,13 @@
     @use 'element-plus/theme-chalk/src/input';
 
     .kel-textarea, .kel-input {
-        --kel-input-border-color: var(--ks-border-default);
+        --kel-input-border-color: var(--ks-border-strong);
         --kel-input-hover-border-color: var(--ks-border-strong);
         --kel-input-bg-color: var(--ks-bg-input);
+    }
+
+    .kel-input__inner, .kel-textarea__inner {
+        font-variant-ligatures: none;
     }
 
     .kel-input {

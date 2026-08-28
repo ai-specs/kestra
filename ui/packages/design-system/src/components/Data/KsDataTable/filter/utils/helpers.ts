@@ -2,10 +2,14 @@ import type {LocationQuery} from "vue-router"
 import {type AppliedFilter, type FilterGroup, type LeafFilterGroup, type LogicalOperator, Comparators, isWrapperGroup} from "./filterTypes"
 import {MAX_RENDERABLE_NESTING_DEPTH} from "./constants"
 
-const decodeURIComponentSafely = (value: string | (string | null)[]): string | string[] =>
+/**
+ * Normalizes a `filters[...]` query-param value after vue-router (or
+ * {@link parseFiltersFromString}) has already decoded it.
+ */
+export const decodeFilterValue = (value: string | (string | null)[]): string | string[] =>
     Array.isArray(value)
-        ? value.filter(v => v !== null).map(decodeURIComponent)
-        : decodeURIComponent(value)
+        ? value.filter((item): item is string => item !== null)
+        : value
 
 export function getComparator(comparatorKey: keyof typeof Comparators): Comparators {
     return Comparators[comparatorKey]
@@ -30,7 +34,7 @@ const FILTER_KEY_PATTERN = new RegExp(
 
 const PREFIX_SEGMENT_PATTERN = /\[(and|or)]\[(\d+)]/gi
 
-interface PrefixSegment {
+export interface PrefixSegment {
     logical: LogicalOperator
     index: number
 }
@@ -56,18 +60,38 @@ export interface DecodedParam {
     wrapperLogical?: LogicalOperator
 }
 
+/** One `filters[and|or][N]…[field][OPERATION][subKey]` key, split into its parts. */
+export interface ParsedFilterKey {
+    /** The `[and|or][N]` grouping chain, outermost first; empty for a root-level filter. */
+    chain: PrefixSegment[]
+    field: string
+    operation: string
+    /** Present for keys carrying a sub-key, e.g. the label name in `filters[labels][EQUALS][env]`. */
+    subKey?: string
+}
+
+/**
+ * Parses a filter URL key into its parts, or returns null when the key does not match
+ * {@link FILTER_KEY_PATTERN}. Exported so callers that translate the route into a backend request
+ * payload read the key format from its owner instead of restating the regex.
+ */
+export const parseFilterKey = (key: string): ParsedFilterKey | null => {
+    const match = key.match(FILTER_KEY_PATTERN)
+    if (!match) return null
+
+    const [, prefix, field, operation, subKey] = match
+    return {chain: parsePrefixChain(prefix), field, operation, subKey}
+}
 
 export const decodeSearchParams = (query: LocationQuery): DecodedParam[] =>
     Object.entries(query)
         .filter(([key]) => key.startsWith("filters[") || key === "q")
         .map(([key, value]): DecodedParam | null => {
             if (!value) return null
-            const match = key.match(FILTER_KEY_PATTERN)
-            if (!match) return null
+            const parsed = parseFilterKey(key)
+            if (!parsed) return null
 
-            const [, prefix, field, operation, subKey] = match
-            const chain = parsePrefixChain(prefix)
-            return buildParam(field, operation, subKey, value, chain)
+            return buildParam(parsed.field, parsed.operation, parsed.subKey, value, parsed.chain)
         })
         .filter((v): v is DecodedParam => v !== null)
 
@@ -78,9 +102,12 @@ const buildParam = (
     value: string | (string | null)[],
     chain: PrefixSegment[],
 ): DecodedParam => {
+    const decodedValue = decodeFilterValue(value)
     const decoded = subKey
-        ? `${subKey}:${decodeURIComponentSafely(value)}`
-        : decodeURIComponentSafely(value)
+        ? Array.isArray(decodedValue)
+            ? decodedValue.map(item => `${subKey}:${item}`)
+            : `${subKey}:${decodedValue}`
+        : decodedValue
     return {
         field,
         value: decoded,
@@ -93,6 +120,7 @@ const buildParam = (
 type Filter = Pick<AppliedFilter, "key" | "comparator" | "value">;
 
 type ComparatorKeyResolver = (comparator: Comparators) => string;
+type FilterQuery = Record<string, string | string[]>;
 
 export const encodeFiltersToQuery = (filters: Filter[], getComparatorKey: ComparatorKeyResolver) =>
     encodeFilterGroupsToQuery(
@@ -104,8 +132,8 @@ export const encodeFilterGroupsToQuery = (
     groups: FilterGroup[],
     getComparatorKey: ComparatorKeyResolver,
     topLogical: LogicalOperator = "OR",
-): Record<string, string> => {
-    const query: Record<string, string> = {}
+): FilterQuery => {
+    const query: FilterQuery = {}
     const onlyOneLeaf = groups.length === 1 && !isWrapperGroup(groups[0])
     const topOp = topLogical.toLowerCase()
 
@@ -128,7 +156,7 @@ export const encodeFilterGroupsToQuery = (
 }
 
 const writeFilter = (
-    query: Record<string, string>,
+    query: FilterQuery,
     prefix: string,
     filter: Filter,
     getComparatorKey: ComparatorKeyResolver,
@@ -158,10 +186,20 @@ const writeFilter = (
                 const {startDate, endDate} = value as {startDate: Date; endDate: Date}
                 query[`${prefix}[${key}][GREATER_THAN_OR_EQUAL_TO]`] = startDate.toISOString()
                 query[`${prefix}[${key}][LESS_THAN_OR_EQUAL_TO]`] = endDate.toISOString()
-            } else if (Array.isArray(value) && value.some(v => typeof v === "string" && v.includes(":"))) {
+            } else if (Array.isArray(value) && (key === "labels" || value.some(v => typeof v === "string" && v.includes(":")))) {
                 value.forEach((item: string) => {
-                    const [k, v] = item.split(":", 2)
-                    if (k && v) query[`${prefix}[${key}][${comparatorKey}][${k}]`] = v
+                    const separatorIndex = item.indexOf(":")
+                    if (separatorIndex <= 0) return
+                    const k = item.slice(0, separatorIndex)
+                    const v = item.slice(separatorIndex + 1)
+                    if (!k || !v) return
+                    const queryKey = `${prefix}[${key}][${comparatorKey}][${k}]`
+                    const existing = query[queryKey]
+                    if ((comparator === Comparators.IN || comparator === Comparators.NOT_IN) && existing !== undefined) {
+                        query[queryKey] = Array.isArray(existing) ? [...existing, v] : [existing, v]
+                    } else {
+                        query[queryKey] = v
+                    }
                 })
             } else {
                 query[`${prefix}[${key}][${comparatorKey}]`] = Array.isArray(value)

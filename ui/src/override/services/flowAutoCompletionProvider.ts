@@ -1,13 +1,15 @@
 import {ComputedRef} from "vue"
 import type {JSONSchema} from "../../components/plugins/schema/utils/schemaUtils"
-import {YamlElement} from "@kestra-io/topology"
-import {flowYamlUtils as YAML_UTILS} from "@kestra-io/topology"
+import type {YamlElement} from "@kestra-io/topology/flow-yaml-utils"
+import * as YAML_UTILS from "@kestra-io/topology/flow-yaml-utils"
 import {QUOTE, YamlAutoCompletion, functionToSnippet, type RootCompletionContext} from "../../services/autoCompletionProvider"
 import RegexProvider from "../../utils/regex"
 import {State} from "@kestra-io/design-system"
 import {usePluginsStore} from "../../stores/plugins"
 import {useFlowStore} from "../../stores/flow"
 import {useMcpStore} from "../../stores/mcp"
+import {useDashboardStore} from "../../stores/dashboard"
+import {isExportableChart} from "../../components/dashboard/composables/useDashboards"
 import {useNamespacesStore} from "override/stores/namespaces"
 
 function distinct<T>(val: T[] | undefined): T[] {
@@ -24,6 +26,7 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
     flowStore: ReturnType<typeof useFlowStore>
     namespacesStore: ReturnType<typeof useNamespacesStore>
     mcpStore: ReturnType<typeof useMcpStore>
+    dashboardStore: ReturnType<typeof useDashboardStore>
     private mcpServerIdsCache: string[] | undefined
     private readonly completionSource: ComputedRef<string | undefined> | undefined
 
@@ -32,6 +35,7 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
         pluginsStore: ReturnType<typeof usePluginsStore>,
         namespacesStore: ReturnType<typeof useNamespacesStore>,
         mcpStore: ReturnType<typeof useMcpStore>,
+        dashboardStore: ReturnType<typeof useDashboardStore>,
         completionSource?: ComputedRef<string | undefined>,
     ) {
         super()
@@ -39,6 +43,7 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
         this.pluginsStore = pluginsStore
         this.namespacesStore = namespacesStore
         this.mcpStore = mcpStore
+        this.dashboardStore = dashboardStore
         this.completionSource = completionSource
     }
 
@@ -57,6 +62,7 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
             "globals",
             "parent",
             "parents",
+            "item",
             "error",
             "kestra",
         ]
@@ -172,7 +178,9 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
             return []
         }
 
+        // the flow may reference a catalog type that isn't installed yet — its doc 404s
         const pluginDoc = await this.pluginsStore.load({cls: taskType, commit: false})
+            .catch(() => undefined)
 
         return Object.keys((pluginDoc?.schema as any)?.outputs?.properties ?? {})
     }
@@ -188,7 +196,7 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
                     const triggerDoc: {schema: JSONSchema} | undefined = await this.pluginsStore.load({
                         cls: triggerType,
                         commit: false,
-                    }) as any
+                    }).catch(() => undefined) as any
                     return Object.keys(triggerDoc?.schema?.outputs?.properties ?? {})
                 }),
         )
@@ -221,6 +229,16 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
                 return Promise.resolve(["id", "type"])
             case "taskrun":
                 return Promise.resolve(["id", "startDate", "attemptsCount", "parentId", "value", "iteration"])
+            case "parent":
+                return Promise.resolve(["task", "taskrun"])
+            case "parent.task":
+                return Promise.resolve(["id"])
+            case "parent.taskrun":
+                return Promise.resolve(["value"])
+            case "item":
+                return Promise.resolve(["value", "key", "index", "parent", "parents"])
+            case "item.parent":
+                return Promise.resolve(["value", "key", "index"])
             case "error":
                 return Promise.resolve(["taskId", "message", "stackTrace"])
             case "kestra":
@@ -229,6 +247,15 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
                 const match = parentField.match(/^outputs\.([^.]+)$/)
                 if (match) {
                     return await this.outputsFor(match[1], source)
+                }
+
+                // progressive autocomplete into a FORM group: `inputs.environment.` -> region, data_center
+                const formMatch = parentField.match(/^inputs\.([^.]+)$/)
+                if (formMatch) {
+                    const form = parsed?.inputs?.find(
+                        (input: {id?: string; type?: string}) => input.id === formMatch[1] && input.type === "FORM",
+                    )
+                    return Promise.resolve(form?.inputs?.map((child: {id?: string}) => child.id) ?? [])
                 }
 
                 return Promise.resolve([])
@@ -303,6 +330,17 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
                 }
                 return this.mcpServerIdsCache
             }
+            case "dashboardId": {
+                // "_default" is a backend/task-only sentinel, never a real saved dashboard: excluded here.
+                const dashboards = await this.dashboardStore.searchIds()
+                return dashboards.map(dashboard => dashboard.id)
+            }
+            case "chartId": {
+                // stays live even when dashboardId is empty: falls back to the "_default" sentinel dashboard.
+                const dashboardId = parentTask?.dashboardId ?? "_default"
+                const charts = await this.dashboardStore.chartsById(dashboardId)
+                return charts.filter(chart => isExportableChart(chart.type)).map(chart => chart.id)
+            }
         }
 
         return Promise.resolve([])
@@ -339,7 +377,7 @@ export class FlowAutoCompletion extends YamlAutoCompletion {
                 if (namespace === undefined) {
                     return Promise.resolve([])
                 }
-                return (await this.namespacesStore.kvsList({id: namespace})).map((kv: {key: string}) => QUOTE + kv.key + QUOTE)
+                return (await this.namespacesStore.kvsList({id: namespace})).map((kv: {key?: string}) => QUOTE + kv.key + QUOTE)
             }
             case "tasksWithState": {
                 return State.arrayAllStates().map(({name}) => QUOTE + name + QUOTE)

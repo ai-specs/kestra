@@ -1,5 +1,5 @@
 <template>
-    <div class="d-flex full-height docs-layout-container">
+    <div class="d-flex docs-layout-container" :class="hasMenu ? 'full-height' : 'embedded'">
         <div
             v-if="mobileMenuOpen && $slots.menu"
             class="mobile-backdrop"
@@ -19,7 +19,7 @@
                 <slot name="menu" />
             </div>
         </div>
-        <div class="main-content-wrapper">
+        <div ref="mainContent" class="main-content-wrapper">
             <div v-if="$slots['secondary-header']" class="secondary-header">
                 <KsButton
                     v-if="$slots.menu && isPluginsRoute"
@@ -41,8 +41,11 @@
 </template>
 
 <script setup lang="ts">
-    import {ref, computed, watch} from "vue"
+    import {ref, computed, watch, useSlots} from "vue"
     import {useRoute} from "vue-router"
+
+    const slots = useSlots()
+    const hasMenu = computed(() => !!slots.menu)
     import {useScrollMemory} from "../../composables/useScrollMemory"
     import Menu from "vue-material-design-icons/Menu.vue"
     import Close from "vue-material-design-icons/Close.vue"
@@ -57,7 +60,9 @@
             (typeof route.name === "string" && route.name.startsWith("plugins/"))
     })
 
-    useScrollMemory(scrollKey, undefined, true)
+    const mainContent = ref<HTMLElement | null>(null)
+
+    useScrollMemory(scrollKey, mainContent, !hasMenu.value)
 
     watch(() => route.fullPath, () => {
         mobileMenuOpen.value = false
@@ -67,6 +72,10 @@
 
 <style scoped lang="scss">
     @use '../../styles/responsive' as *;
+
+    .docs-layout-container.full-height {
+        min-height: 0;
+    }
 
     .sidebar {
         background: var(--ks-bg-surface);
@@ -129,6 +138,17 @@
         position: relative;
         min-height: 0;
         overflow-y: auto;
+    }
+
+    .embedded {
+        height: auto;
+
+        .main-content-wrapper,
+        .main-container {
+            height: auto;
+            min-height: 0;
+            overflow: visible;
+        }
     }
 
     .content {
@@ -303,6 +323,11 @@
             &.mobile-open {
                 left: auto;
             }
+        }
+
+        .full-height .sidebar {
+            height: 100%;
+            padding-bottom: 0;
         }
 
         .main-content-wrapper {

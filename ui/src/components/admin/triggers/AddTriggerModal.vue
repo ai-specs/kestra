@@ -1,9 +1,10 @@
 <template>
     <KsDialog
         v-model="visible"
-        width="40%"
         destroyOnClose
         appendToBody
+        large
+        scrollable
     >
         <template #header>
             <div class="header">
@@ -17,89 +18,97 @@
             </div>
         </template>
 
-        <div class="modal-body">
-            <KsTabs v-model="activeTab" type="segmented">
-                <KsTabPane name="form" :label="$t('triggers_add_modal_tab_form')">
-                    <div class="form">
-                        <KsForm labelPosition="left" labelWidth="122px" :model="formModel">
-                            <KsFormItem :label="$t('namespace')" required>
-                                <NamespaceSelect
-                                    v-model="formModel.namespace"
-                                    :placeholder="$t('triggers_add_modal_namespace_placeholder')"
-                                    :clearable="false"
-                                    :autoDefault="false"
-                                    @update:model-value="onNamespaceChange"
-                                />
-                            </KsFormItem>
+        <KsTabs v-model="activeTab" type="segmented" class="modal-tabs">
+            <KsTabPane name="form" :label="$t('triggers_add_modal_tab_form')">
+                <div class="form">
+                    <KsForm labelPosition="left" labelWidth="122px" :model="formModel">
+                        <KsFormItem :label="$t('namespace')" required>
+                            <NamespaceSelect
+                                v-model="formModel.namespace"
+                                :placeholder="$t('triggers_add_modal_namespace_placeholder')"
+                                :clearable="false"
+                                :autoDefault="false"
+                                @update:model-value="onNamespaceChange"
+                            />
+                        </KsFormItem>
 
-                            <KsFormItem :label="$t('flow')" required>
-                                <KsSelect
-                                    v-model="formModel.flowId"
-                                    filterable
-                                    :placeholder="$t('triggers_add_modal_flow_placeholder')"
-                                    :disabled="!formModel.namespace"
-                                    :loading="flowsLoading"
-                                >
-                                    <KsOption v-for="f in flowOptions" :key="f.id" :label="f.id" :value="f.id" />
-                                </KsSelect>
-                            </KsFormItem>
+                        <KsFormItem :label="$t('flow')" required>
+                            <KsSelect
+                                v-model="formModel.flowId"
+                                filterable
+                                :placeholder="$t('triggers_add_modal_flow_placeholder')"
+                                :disabled="!formModel.namespace"
+                                :loading="flowsLoading"
+                            >
+                                <KsOption v-for="f in flowOptions" :key="f.id" :label="f.id" :value="f.id" />
+                            </KsSelect>
+                        </KsFormItem>
 
-                            <KsFormItem :label="$t('triggers_add_modal_trigger_id')" required>
-                                <KsInput
-                                    v-model="formModel.triggerId"
-                                    class="id-input"
-                                    :placeholder="$t('triggers_add_modal_trigger_id_placeholder')"
-                                />
-                            </KsFormItem>
-                        </KsForm>
+                        <KsFormItem :label="$t('triggers_add_modal_trigger_id')" required>
+                            <KsInput
+                                v-model="formModel.triggerId"
+                                class="id-input"
+                                :placeholder="$t('triggers_add_modal_trigger_id_placeholder')"
+                            />
+                        </KsFormItem>
 
-                        <p class="hint">
+                        <TaskObject
+                            v-if="hasTriggerProperties"
+                            :modelValue="triggerPropertiesModel"
+                            @update:model-value="onPropertiesUpdate"
+                            :properties="triggerProperties"
+                            :schema="triggerSchema"
+                            :root="trigger.type"
+                            merge
+                        />
+
+                        <p v-else class="hint">
                             {{ $t("triggers_add_modal_properties_hint") }}
                         </p>
-                    </div>
-                </KsTabPane>
+                    </KsForm>
+                </div>
+            </KsTabPane>
 
-                <KsTabPane name="source" :label="$t('triggers_add_modal_tab_source')">
-                    <div class="source">
-                        <KsIconButton
-                            class="copy"
-                            :aria-label="copied ? $t('copied') : $t('copy')"
-                            @click="copySource"
-                        >
-                            <CheckIcon v-if="copied" class="text-success" />
-                            <ContentCopy v-else />
-                        </KsIconButton>
-                        <KsEditor
-                            v-bind="editorBindings"
-                            :modelValue="sourceYaml"
-                            lang="yaml"
-                            :inline="true"
-                            :navbar="false"
-                            readOnly
-                            :options="{
-                                fullHeight: false,
-                                customHeight: 24,
-                                editor: {
-                                    padding: {top: 6, bottom: 6},
-                                    guides: {indentation: false},
-                                },
-                            }"
-                        />
-                    </div>
-                </KsTabPane>
+            <KsTabPane name="source" :label="$t('triggers_add_modal_tab_source')">
+                <div class="source">
+                    <KsIconButton
+                        class="copy"
+                        :aria-label="copied ? $t('copied') : $t('copy')"
+                        @click="copySource"
+                    >
+                        <CheckIcon v-if="copied" class="text-success" />
+                        <ContentCopy v-else />
+                    </KsIconButton>
+                    <KsEditor
+                        v-bind="editorBindings"
+                        :modelValue="sourceYaml"
+                        lang="yaml"
+                        :inline="true"
+                        :navbar="false"
+                        readOnly
+                        :options="{
+                            fullHeight: false,
+                            customHeight: 24,
+                            editor: {
+                                padding: {top: 6, bottom: 6},
+                                guides: {indentation: false},
+                            },
+                        }"
+                    />
+                </div>
+            </KsTabPane>
 
-                <KsTabPane name="documentation" :label="$t('triggers_add_modal_tab_documentation')">
-                    <div class="docs">
-                        <PluginDocumentation
-                            v-if="documentationPlugin"
-                            :plugin="documentationPlugin"
-                            fetchPluginDocumentation
-                        />
-                        <KsSkeleton v-else :rows="6" animated />
-                    </div>
-                </KsTabPane>
-            </KsTabs>
-        </div>
+            <KsTabPane name="documentation" :label="$t('triggers_add_modal_tab_documentation')">
+                <div class="docs">
+                    <PluginDocumentation
+                        v-if="documentationPlugin"
+                        :plugin="documentationPlugin"
+                        fetchPluginDocumentation
+                    />
+                    <KsSkeleton v-else :rows="6" animated />
+                </div>
+            </KsTabPane>
+        </KsTabs>
 
         <template #footer>
             <div class="footer">
@@ -115,10 +124,11 @@
 </template>
 
 <script setup lang="ts">
-    import {computed, ref, watch} from "vue"
+    import {computed, provide, ref, watch} from "vue"
     import {useRouter} from "vue-router"
 
-    import {KsEditor} from "@kestra-io/design-system"
+    import {KsEditor, copyToClipboard} from "@kestra-io/design-system"
+    import * as YAML_UTILS from "@kestra-io/topology/flow-yaml-utils"
     import CheckIcon from "vue-material-design-icons/Check.vue"
     import ContentCopy from "vue-material-design-icons/ContentCopy.vue"
 
@@ -130,6 +140,12 @@
 
     import NamespaceSelect from "../../namespaces/components/NamespaceSelect.vue"
     import PluginDocumentation from "../../plugins/PluginDocumentation.vue"
+    import TaskObject from "../../no-code/components/tasks/TaskObject.vue"
+    import {
+        BLOCK_SCHEMA_PATH_INJECTION_KEY,
+        FULL_SCHEMA_INJECTION_KEY,
+        SCHEMA_DEFINITIONS_INJECTION_KEY,
+    } from "../../no-code/injectionKeys"
 
     const visible = defineModel<boolean>("visible", {required: true})
     const props = defineProps<{trigger: TriggerPluginDto}>()
@@ -152,6 +168,15 @@
 
     const flowOptions = ref<{id: string; namespace: string}[]>([])
     const documentationPlugin = ref<PluginComponent | null>(null)
+    const triggerPlugin = ref<PluginComponent | null>(null)
+
+    // Provide schema injection context so TaskObject can resolve $ref fields
+    // (e.g. inherited labels, workerSelector from parent trigger types).
+    provide(FULL_SCHEMA_INJECTION_KEY, computed(() => (triggerPlugin.value?.schema ?? {}) as any))
+    provide(SCHEMA_DEFINITIONS_INJECTION_KEY, computed(() => triggerPlugin.value?.schema?.definitions ?? {}))
+    provide(BLOCK_SCHEMA_PATH_INJECTION_KEY, computed(() => {
+        return props.trigger.type ? `#/definitions/${props.trigger.type}` : ""
+    }))
 
     const generateId = () => `mytrigger_${Math.floor(10000 + Math.random() * 90000)}`
     const formModel = ref({
@@ -159,14 +184,64 @@
         flowId: "",
         triggerId: generateId(),
     })
+    const triggerPropertiesModel = ref<Record<string, any>>({})
+
+    // Fields handled by the modal itself, not rendered through the no-code form.
+    const RESERVED_FIELDS = new Set(["id", "type", "description"])
 
     const displayName = computed(() => triggerDisplayName(props.trigger))
-    const canSubmit = computed(() =>
-        !!formModel.value.namespace && !!formModel.value.flowId && !!formModel.value.triggerId.trim(),
-    )
+
+    // `triggerPlugin.value.schema` is a JSON Schema wrapper (top-level keys:
+    // $schema, properties, required, title…). The actual class fields live at
+    // schema.properties.properties, with the required array at schema.properties.required.
+    const triggerProperties = computed(() => {
+        const fields = triggerPlugin.value?.schema?.properties?.properties
+        if (!fields) return {}
+        return Object.fromEntries(
+            Object.entries(fields).filter(([key]) => !RESERVED_FIELDS.has(key)),
+        )
+    })
+
+    const triggerSchema = computed<{required?: string[]}>(() => {
+        const wrapper = triggerPlugin.value?.schema?.properties as unknown as {required?: string[]} | undefined
+        const required = wrapper?.required?.filter(key => !RESERVED_FIELDS.has(key))
+        return required?.length ? {required} : {}
+    })
+
+    const hasTriggerProperties = computed(() => Object.keys(triggerProperties.value).length > 0)
+
+    const canSubmit = computed(() => {
+        if (!formModel.value.namespace || !formModel.value.flowId || !formModel.value.triggerId.trim()) {
+            return false
+        }
+        // Validate that schema-required fields (e.g. cron for Schedule) are filled
+        if (triggerSchema.value?.required) {
+            return triggerSchema.value.required.every((k: string) => {
+                const val = triggerPropertiesModel.value[k]
+                return val !== undefined && val !== null && val !== ""
+            })
+        }
+        return true
+    })
 
     const getTriggerId = () => formModel.value.triggerId.trim() || "mytrigger"
-    const sourceYaml = computed(() => `  - id: ${getTriggerId()}\n    type: ${props.trigger.type}`)
+
+    const triggerBlock = computed(() => {
+        const trigger: Record<string, any> = {
+            id: getTriggerId(),
+            type: props.trigger.type,
+            ...triggerPropertiesModel.value,
+        }
+        return YAML_UTILS.stringify(trigger).trimEnd()
+    })
+
+    const sourceYaml = computed(() => {
+        // Indent the trigger block as a list item under `triggers:`
+        return triggerBlock.value
+            .split("\n")
+            .map((line, idx) => (idx === 0 ? `  - ${line}` : `    ${line}`))
+            .join("\n")
+    })
 
     const loadFlows = async (namespace: string) => {
         if (!namespace) {
@@ -187,18 +262,24 @@
         loadFlows(typeof ns === "string" ? ns : "")
     }
 
+    const onPropertiesUpdate = (value: Record<string, any> | undefined) => {
+        triggerPropertiesModel.value = value ?? {}
+    }
+
     const copySource = async () => {
-        await navigator.clipboard.writeText(`triggers:\n${sourceYaml.value}\n`)
+        await copyToClipboard(`triggers:\n${sourceYaml.value}\n`)
         copied.value = true
         setTimeout(() => copied.value = false, COPY_FEEDBACK_MS)
     }
 
     const loadDocumentation = async () => {
         try {
-            const doc = await pluginsStore.load({cls: props.trigger.type, commit: false})
+            const doc = await pluginsStore.load({cls: props.trigger.type, commit: false, all: true})
             documentationPlugin.value = {...doc, cls: props.trigger.type}
+            triggerPlugin.value = documentationPlugin.value
         } catch {
             documentationPlugin.value = null
+            triggerPlugin.value = null
         }
     }
 
@@ -208,13 +289,13 @@
         triggerDraftStore.setDraft({
             namespace: formModel.value.namespace,
             flowId: formModel.value.flowId,
-            triggerYaml: `id: ${getTriggerId()}\ntype: ${props.trigger.type}\n`,
+            triggerYaml: triggerBlock.value,
         })
 
         visible.value = false
         router.push({
-            name: "flows/update",
-            params: {namespace: formModel.value.namespace, id: formModel.value.flowId, tab: "edit"},
+            name: "flows/update/edit",
+            params: {namespace: formModel.value.namespace, id: formModel.value.flowId},
             query: {createTrigger: "true"},
         })
     }
@@ -224,6 +305,7 @@
             activeTab.value = "form"
             copied.value = false
             formModel.value = {namespace: "", flowId: "", triggerId: generateId()}
+            triggerPropertiesModel.value = {}
             loadDocumentation()
         }
     }, {immediate: true})
@@ -260,8 +342,8 @@
         }
     }
 
-    .modal-body :deep(.kel-tabs--segmented) {
-        .kel-tabs__header {
+    .modal-tabs {
+        :deep(.kel-tabs__header) {
             margin: var(--ks-spacing-3) 0 var(--ks-spacing-5);
         }
     }

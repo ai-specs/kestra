@@ -10,14 +10,6 @@
             @search="filter = $event"
             @filter="syncFromAppliedFilters"
         />
-        <QuickFilters
-            v-if="!hasComplexFilters"
-            :levels="logLevels"
-            :level="effectiveLevelValue?.value"
-            :showInterval="false"
-            :levelLabel="t('filter.level_log_executions.label')"
-            @update:level="(value) => setLevelRouteValue({value, direction: 'min'})"
-        />
         <div class="logs-toolbar">
             <div class="logs-toolbar__left">
                 <template v-for="logLevel in currentLevelOrLower" :key="logLevel">
@@ -34,18 +26,17 @@
                 <KsButton class="logs-toolbar__text-btn" @click="expandCollapseAll()" :disabled="raw_view" :icon="logDisplayButtonIcon">
                     {{ logDisplayButtonText }}
                 </KsButton>
-                <KsTooltip :content="!raw_view ? t('logs_view.raw_details') : t('logs_view.compact_details')">
+                <KsTooltip :content="!raw_view ? $t('logs_view.raw_details') : $t('logs_view.compact_details')">
                     <KsButton class="logs-toolbar__text-btn" @click="toggleViewType" :icon="logViewTypeButtonIcon">
-                        {{ !raw_view ? t('logs_view.raw') : t('logs_view.compact') }}
+                        {{ !raw_view ? $t('logs_view.raw') : $t('logs_view.compact') }}
                     </KsButton>
                 </KsTooltip>
             </div>
             <div class="logs-toolbar__actions">
-                <Restart v-if="executionsStore.execution" :execution="executionsStore.execution" @follow="emit('follow', $event)" />
+                <Restart v-if="executionsStore.execution" :execution="executionsStore.execution" />
                 <LogDisplaySettings />
-                <KsButton type="default" size="default" class="logs-toolbar__btn" :icon="Download" :aria-label="t('download logs')" :tooltip="t('download logs')" @click="downloadContent()" />
-                <KsButton type="default" size="default" class="logs-toolbar__btn" :icon="ContentCopy" :aria-label="t('copy logs')" :tooltip="t('copy logs')" @click="copyAllLogs()" />
-                <KsButton type="default" size="default" class="logs-toolbar__btn" :icon="Refresh" :aria-label="t('refresh')" :tooltip="t('refresh')" @click="loadLogs()" />
+                <KsButton square type="default" size="default" :icon="Download" :aria-label="$t('download logs')" :tooltip="$t('download logs')" @click="downloadContent()" />
+                <KsButton square type="default" size="default" :icon="ContentCopy" :aria-label="$t('copy logs')" :tooltip="$t('copy logs')" @click="copyAllLogs()" />
             </div>
         </div>
 
@@ -58,17 +49,17 @@
             :levelToHighlight="cursorLogLevel"
             @log-cursor="logCursor = $event"
             :logCursor="logCursor"
-            @follow="emit('follow', $event)"
+           
             @opened-taskruns-count="openedTaskrunsCount = $event"
-            @log-indices-by-level="Object.entries($event).forEach(([levelName, indices]) => logIndicesByLevel[levelName] = indices)"
+            @log-indices-by-level="setLogIndicesByLevel"
             :targetFlow="executionsStore.flow"
             :showProgressBar="false"
         />
         <KsCard v-else class="attempt-wrapper" style="--kel-card-padding: 0">
             <KsNoData
                 v-if="Array.isArray((executionsStore.logs as any)) && temporalLogs.length === 0"
-                :title="t('no_logs_data_title')"
-                :description="t('no_logs_data_description')"
+                :title="$t('no_logs_data_title')"
+                :description="$t('no_logs_data_description')"
             />
             <DynamicScroller
                 v-if="temporalLogs.length > 0"
@@ -85,7 +76,6 @@
                     <DynamicScrollerItem
                         :item="asLog(item)"
                         :active="active"
-                        :sizeDependencies="[asLog(item).message]"
                         :data-index="asLog(item).index"
                         :key="asLog(item).uid"
                     >
@@ -128,7 +118,6 @@
     import LogLine from "../logs/LogLine.vue"
     import Restart from "./overview/components/actions/Restart.vue"
     import * as LogUtils from "../../utils/logs"
-    import Refresh from "vue-material-design-icons/Refresh.vue"
     import {useExecutionsStore} from "../../stores/executions"
     import {KsFilter as KSFilter} from "@kestra-io/design-system"
     import {storageKeys} from "../../utils/constants"
@@ -142,10 +131,6 @@
         type LevelFilterValue,
     } from "@kestra-io/design-system"
     import {useRouteFilterPolicy} from "@kestra-io/design-system"
-    import {useValues} from "../filter/composables/useValues"
-    import {useComplexFilters} from "../filter/composables/useComplexFilters"
-    import QuickFilters from "../filter/QuickFilters.vue"
-
     function distinctFilter(value: string, index: number, array: string[]) {
         return array.indexOf(value) === index
     }
@@ -168,11 +153,7 @@
 
     const {t} = useI18n()
     const toast = useToast()
-    const {hasComplexFilters} = useComplexFilters()
 
-    const emit = defineEmits<{
-        follow: [event: unknown]
-    }>()
 
     const props = withDefaults(defineProps<{
         playground?: boolean
@@ -209,7 +190,6 @@
         routeValue: routeLevel,
         effectiveValue: effectiveLevel,
         syncFromAppliedFilters,
-        setRouteValue: setLevelRouteValue,
     } = useRouteFilterPolicy({
         defaultValue: () => ({value: defaultLogLevel.value, direction: "min" as const}),
         applyDefaultIfMissing: () => true,
@@ -224,15 +204,15 @@
     const effectiveLevelValue = computed(() => effectiveLevel.value as LevelFilterValue | undefined)
     const routeLevelValue = computed(() => routeLevel.value as LevelFilterValue | undefined)
 
-    const {VALUES} = useValues("logs")
-    const logLevels = VALUES.LEVELS
-
     const filter = ref<string | undefined>(undefined)
     const openedTaskrunsCount = ref(0)
     const raw_view = ref((localStorage.getItem(storageKeys.LOGS_VIEW_TYPE) ?? "false").toLowerCase() === "true")
-    const logIndicesByLevel = ref<Record<string, string[]>>(
-        Object.fromEntries(LogUtils.levelOrLower(undefined as any).map((level: string) => [level, []])),
-    )
+    const emptyLogIndicesByLevel = () =>
+        Object.fromEntries(LogUtils.levelOrLower(undefined as any).map((level: string) => [level, [] as string[]]))
+    const logIndicesByLevel = ref<Record<string, string[]>>(emptyLogIndicesByLevel())
+    const setLogIndicesByLevel = (indices: Record<string, string[]>) => {
+        logIndicesByLevel.value = {...emptyLogIndicesByLevel(), ...indices}
+    }
     const logCursor = ref<string | undefined>(undefined)
     const logsLoading = ref(false)
 
@@ -286,6 +266,13 @@
                 if (!sseFlushTimer) {
                     sseFlushTimer = setTimeout(flushSseBuffer, 200)
                 }
+            }
+            // Close on error: without this, EventSource auto-reconnects (~every 3s)
+            // and each reconnect opens a fresh server-side log-follow stream whose
+            // Netty direct buffers are not promptly reclaimed, leaking off-heap
+            // memory over time. See kestra-io/kestra#16982.
+            sse.onerror = () => {
+                closeLogsSSE()
             }
         })
     }
@@ -556,15 +543,12 @@
       margin-left: auto;
     }
 
-    &__btn {
-      margin: 0;
-      padding: var(--ks-spacing-2);
-      border-radius: var(--ks-radius-base);
+    &__text-btn {
+      font-size: var(--ks-font-size-xs);
     }
 
-    &__text-btn {
-      margin: 0;
-      font-size: var(--ks-font-size-xs);
+    :deep(.kel-button) {
+        margin: 0;
     }
   }
 </style>

@@ -118,7 +118,7 @@
             padding: 0 8px;
             word-break: break-word;
             font-weight: 400;
-            font-size: var(--ks-font-size-xs);
+            font-size: var(--ks-font-size-sm);
         }
 
         .kel-table__inner-wrapper::before {
@@ -131,7 +131,7 @@
 
         .kel-table__body tr:hover > td.kel-table__cell,
         .kel-table__body tr.hover-row > td.kel-table__cell {
-            background-color: var(--ks-bg-hover);
+            background-color: var(--ks-table-row-hover-bg, var(--ks-bg-hover));
         }
 
         th {
@@ -147,7 +147,7 @@
                 white-space: nowrap;
                 font-weight: 600;
                 color: var(--ks-text-secondary);
-                font-size: var(--ks-font-size-xs);
+                font-size: var(--ks-font-size-sm);
             }
         }
 
@@ -173,11 +173,10 @@
                 padding: 0;
                 cursor: pointer;
 
-                .material-design-icon__svg {
-                    bottom: 0;
-                    width: 16px;
-                    height: 16px;
-                    transform: translateY(1px) translateX(-0.5px);
+                .material-design-icon,
+                .material-design-icon > .material-design-icon__svg {
+                    width: var(--ks-icon-size-sm);
+                    height: var(--ks-icon-size-sm);
                 }
             }
 
@@ -219,7 +218,8 @@
                 margin-right: .3rem;
             }
 
-            a {
+            // Plain links only: an <a> rendered by KsButton (tag="a") must keep its button styling.
+            a:not(.kel-button) {
                 color: var(--ks-text-primary);
                 &:hover{
                     text-decoration: underline;

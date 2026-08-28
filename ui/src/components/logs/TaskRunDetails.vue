@@ -23,6 +23,7 @@
                 <KsCard class="attempt-wrapper" shadow="never" :class="{'attempt-wrapper--transparent': hideTaskHeader}">
                     <TaskRunLine
                         :currentTaskRun="currentTaskRun"
+                        :depth="asTaskRun(currentTaskRun).depth"
                         :followedExecution="followedExecution"
                         :flow="flow"
                         :forcedAttemptNumber="forcedAttemptNumber"
@@ -76,7 +77,6 @@
                             <DynamicScrollerItem
                                 :item="item"
                                 :active="active"
-                                :sizeDependencies="[item.message, item.image, item.isGroup, item.isGroup && isGroupExpanded(currentTaskRunIndex, item)]"
                                 :data-index="item.index"
                             >
                                 <template v-if="item.isGroup">
@@ -104,7 +104,7 @@
                                             <ChevronDown />
                                         </KsIcon>
                                         <span class="log-group-count">×{{ item.members.length }}</span>
-                                        <span class="log-group-label">{{ isGroupExpanded(currentTaskRunIndex, item) ? t("collapse") : t("similar lines") }}</span>
+                                        <span class="log-group-label">{{ isGroupExpanded(currentTaskRunIndex, item) ? $t("collapse") : $t("similar lines") }}</span>
                                     </button>
                                 </template>
                                 <template v-else>
@@ -119,7 +119,7 @@
                                                 :icon="Download"
                                                 rel="noopener noreferrer"
                                             >
-                                                {{ t("download") }}
+                                                {{ $t("download") }}
                                             </KsButton>
                                             <FilePreview
                                                 :value="item.logFile"
@@ -216,7 +216,7 @@
                                         :filter="filter"
                                         :allowAutoExpandSubflows="false"
                                         :targetExecutionId="
-                                            asTaskRun(currentTaskRun).outputs.executionId
+                                            asTaskRun(currentTaskRun).outputs?.executionId
                                         "
                                         :class="
                                             $el.classList.contains('even')
@@ -233,7 +233,7 @@
                 </KsCard>
                 <div
                     v-if="taskType(currentTaskRun) === 'io.kestra.plugin.core.flow.Loop' && isTaskRunActive"
-                    style="display:flex; align-items: center; gap: 10px; margin: 12px 0"
+                    class="loop-progress"
                 >
                     <KsButton
                         :tag="RouterLink"
@@ -242,20 +242,19 @@
                             query: {
                                 'filters[parentId][EQUALS]': asTaskRun(currentTaskRun).executionId,
                                 'filters[kind][EQUALS]': 'LOOP',
+                                'filters[taskId][EQUALS]': asTaskRun(currentTaskRun).taskId,
                             }
                         }"
                         size="small"
                     >
-                        Iterations
+                        {{ $t("iterations") }}
                     </KsButton>
-                    <KsProgress
-                        :percentage="Math.ceil((loopOutputsByTaskRunId[asTaskRun(currentTaskRun).id]?.terminatedIterations ?? 0) / (loopOutputsByTaskRunId[asTaskRun(currentTaskRun).id]?.iterationCount ?? 1) * 100)"
-                        :strokeWidth="7"
-                        :radius="81"
-                        class="progress-bar"
-                    >
-                        <span>{{ loopOutputsByTaskRunId[asTaskRun(currentTaskRun).id]?.terminatedIterations ?? 0 }} / {{ loopOutputsByTaskRunId[asTaskRun(currentTaskRun).id]?.iterationCount ?? '?' }}</span>
-                    </KsProgress>
+                    <TaskRunLoopProgress
+                        :currentTaskRunId="asTaskRun(currentTaskRun).id"
+                        :loopOutputsByTaskRunId="loopOutputsByTaskRunId"
+                        :executionId="asTaskRun(currentTaskRun).executionId"
+                        :taskId="asTaskRun(currentTaskRun).taskId"
+                    />
                 </div>
             </DynamicScrollerItem>
         </template>
@@ -271,7 +270,7 @@
     import ChevronDown from "vue-material-design-icons/ChevronDown.vue"
     import * as OutputsAPI from "@kestra-io/kestra-sdk/outputs"
     import LogLine from "./LogLine.vue"
-    import {State, levelToRequestParams, KsProgress, type LevelFilterValue} from "@kestra-io/design-system"
+    import {State, levelToRequestParams, type LevelFilterValue} from "@kestra-io/design-system"
     import _xor from "lodash/xor"
     import _groupBy from "lodash/groupBy"
     import moment from "moment"
@@ -286,19 +285,25 @@
     import {apiUrl} from "override/utils/route"
     import * as Utils from "../../utils/utils"
     import * as LogUtils from "../../utils/logs"
+    import {buildTaskRunHierarchy} from "../../utils/taskRunHierarchy"
     import throttle from "lodash/throttle"
-    import {useClient} from "@kestra-io/kestra-sdk"
+    import {useClient, type TaskRun, type TaskRunAttempt} from "@kestra-io/kestra-sdk"
 
     // Recursive component - self reference
     import TaskRunDetails from "./TaskRunDetails.vue"
+    import TaskRunLoopProgress from "./TaskRunLoopProgress.vue"
 
     const {t} = useI18n()
 
     const $http = useClient()
 
+    // The UI taskrun carries a computed `depth` (for nesting) and subflow `outputs`,
+    // neither of which the SDK TaskRun type models.
+    type TaskRunWithDepth = TaskRun & { depth: number; outputs?: Record<string, any> }
+
     // Cast helper for DynamicScroller slot items which lose type info
-    function asTaskRun(item: unknown): any { // FIXME: any
-        return item
+    function asTaskRun(item: unknown): TaskRunWithDepth {
+        return item as TaskRunWithDepth
     }
 
     const coreStore = useCoreStore()
@@ -355,6 +360,9 @@
     const selectedAttemptNumberByTaskRunId = ref<Record<string, number>>({})
     const executionSSE = ref<any>(undefined) // FIXME: any
     const logsSSE = ref<any>(undefined) // FIXME: any
+    // Execution `rawLogs` and any open logs SSE belong to, so both can be dropped on a change.
+    const logsExecutionId = ref<string | undefined>(undefined)
+    const logsCloseTimeout = ref<ReturnType<typeof setTimeout> | undefined>(undefined)
     const flow = ref<any>(undefined) // FIXME: any
     const logsBuffer = ref<any[]>([]) // FIXME: any
     const shownSubflowsIds = ref<{subflowExecutionId: string; taskRunIndex: number}[]>([])
@@ -376,23 +384,31 @@
             : targetExecution.value,
     )
 
-    const currentTaskRuns = computed(() =>
-        (followedExecution.value?.taskRunList?.filter((tr: any) => // FIXME: any
-            props.taskRunId ? tr.id === props.taskRunId : true,
-        ) ?? []),
-    )
+    const currentTaskRuns = computed<TaskRunWithDepth[]>(() => {
+        const taskRunList: TaskRun[] = followedExecution.value?.taskRunList ?? []
+
+        if (props.taskRunId) {
+            return taskRunList
+                .filter((tr) => tr.id === props.taskRunId)
+                .map((tr) => ({...tr, depth: 0}))
+        }
+
+        // Order taskruns parent → child and annotate depth, so dynamically-generated taskruns
+        // (e.g. each Ansible play/task) render indented under their parent taskrun.
+        return buildTaskRunHierarchy(taskRunList).map(({task, depth}) => ({...task, depth}))
+    })
 
     const taskRunById = computed(() =>
         Object.fromEntries(
-            currentTaskRuns.value.map((taskRun: any) => [taskRun.id, taskRun]), // FIXME: any
+            currentTaskRuns.value.map((taskRun) => [taskRun.id, taskRun]),
         ),
     )
 
     const logsWithIndexByAttemptUid = computed(() => {
-        const logFilesWrappers = currentTaskRuns.value.flatMap((taskRun: any) => // FIXME: any
+        const logFilesWrappers = currentTaskRuns.value.flatMap((taskRun) =>
             attempts(taskRun)
-                .filter((attempt: any) => attempt.logFile !== undefined) // FIXME: any
-                .map((attempt: any, attemptNumber: number) => ({ // FIXME: any
+                .filter((attempt) => attempt.logFile !== undefined)
+                .map((attempt, attemptNumber: number) => ({
                     logFile: attempt.logFile,
                     taskRunId: taskRun.id,
                     attemptNumber,
@@ -512,7 +528,7 @@
 
     const currentTaskRunsLogIndicesByLevel = computed(() =>
         currentTaskRuns.value.reduce(
-            (indicesByLevel: Record<string, string[]>, taskRun: any, taskRunIndex: number) => { // FIXME: any
+            (indicesByLevel: Record<string, string[]>, taskRun, taskRunIndex: number) => {
                 if (shouldDisplayLogs(taskRun)) {
                     const currentTaskRunLogs =
                         logsWithIndexByAttemptUid.value[
@@ -592,7 +608,7 @@
         (taskRuns) => {
             // by default we preselect the last attempt for each task run
             selectedAttemptNumberByTaskRunId.value = Object.fromEntries(
-                taskRuns.map((taskRun: any) => [ // FIXME: any
+                taskRuns.map((taskRun) => [
                     taskRun.id,
                     props.forcedAttemptNumber ??
                         attempts(taskRun).length - 1,
@@ -618,6 +634,13 @@
         async (newExecution, oldExecution) => {
             if (!newExecution) {
                 return
+            }
+
+            // Closed here so the `!logsSSE.value` guards below cannot read a stream still following the previous execution as "already covered" (kestra-io/kestra#14018).
+            if (logsExecutionId.value !== undefined && logsExecutionId.value !== newExecution.id) {
+                closeLogsSSE()
+                rawLogs.value = []
+                logsBuffer.value = []
             }
 
             if (!oldExecution) {
@@ -653,7 +676,8 @@
 
             if (!State.isRunning(followedExecution.value.state.current)) {
                 // wait a bit to make sure we don't miss logs as log indexer is asynchronous
-                setTimeout(() => {
+                cancelLogsSSEClose()
+                logsCloseTimeout.value = setTimeout(() => {
                     closeLogsSSE()
                 }, 2000)
 
@@ -687,8 +711,8 @@
 
     // Lifecycle
     onMounted(() => {
-        throttledExecutionUpdate.value = throttle((executionEvent: any) => { // FIXME: any
-            targetExecution.value = JSON.parse(executionEvent.data)
+        throttledExecutionUpdate.value = throttle((targetExecutionEvent: any) => { // FIXME: any
+            targetExecution.value = targetExecutionEvent
         }, 500)
 
         if (props.targetExecutionId) {
@@ -734,7 +758,7 @@
             return
         }
 
-        const axiosResponse = await $http(
+        const axiosResponse = await $http.get(
             `${apiUrl()}/executions/${followedExecution.value.id}/file/metas?path=${path}`,
             {
                 validateStatus: (status: number) =>
@@ -746,7 +770,15 @@
         )
     }
 
+    function cancelLogsSSEClose() {
+        if (logsCloseTimeout.value) {
+            clearTimeout(logsCloseTimeout.value)
+            logsCloseTimeout.value = undefined
+        }
+    }
+
     function closeLogsSSE() {
+        cancelLogsSSEClose()
         if (logsSSE.value) {
             logsSSE.value.close()
             logsSSE.value = undefined
@@ -770,7 +802,7 @@
             setTimeout(() => autoExpandBasedOnSettings(), 50)
             return
         }
-        currentTaskRuns.value.forEach((taskRun: any) => { // FIXME: any
+        currentTaskRuns.value.forEach((taskRun) => {
             if (isSubflow(taskRun) && !props.allowAutoExpandSubflows) {
                 return
             }
@@ -789,7 +821,7 @@
         })
     }
 
-    function shouldDisplayLogs(taskRun: any): boolean { // FIXME: any
+    function shouldDisplayLogs(taskRun: TaskRun): boolean {
         const uid = attemptUid(
             taskRun.id,
             selectedAttemptNumberByTaskRunId.value[taskRun.id],
@@ -809,24 +841,13 @@
 
     function followExecution(executionId: string) {
         closeTargetExecutionSSE()
-        executionsStore
-            .followExecution({id: executionId, rawSSE: true}, (s: string) => s)
-            .then((sse: any) => { // FIXME: any
-                executionSSE.value = sse
-                executionSSE.value.onmessage = (executionEvent: any) => { // FIXME: any
-                    const isEnd =
-                        executionEvent &&
-                        executionEvent.lastEventId === "end"
-                    // we are receiving a first "fake" event to force initializing the connection: ignoring it
-                    if (executionEvent.lastEventId !== "start") {
-                        throttledExecutionUpdate.value!(executionEvent)
-                    }
-                    if (isEnd) {
-                        closeTargetExecutionSSE()
-                        throttledExecutionUpdate.value!.flush()
-                    }
-                }
-            })
+        executionSSE.value = executionsStore.subscribeToExecution(executionId, {
+            onExecution: (targetExecutionEvent) => throttledExecutionUpdate.value!(targetExecutionEvent),
+            onEnd: () => {
+                throttledExecutionUpdate.value!.flush()
+                closeTargetExecutionSSE()
+            },
+        })
     }
 
     function refreshLogs() {
@@ -837,6 +858,9 @@
     }
 
     function followLogs(executionId: string) {
+        // A replay is RESTARTED, not a running state, so the grace-period close is armed before RUNNING and would otherwise close this stream mid-execution.
+        cancelLogsSSEClose()
+        logsExecutionId.value = executionId
         executionsStore.followLogs({id: executionId, params: buildLogParams()}).then((sse: any) => { // FIXME: any
             logsSSE.value = sse
 
@@ -872,12 +896,12 @@
         })
     }
 
-    function isSubflow(taskRun: any): boolean { // FIXME: any
+    function isSubflow(taskRun: TaskRunWithDepth): boolean {
         return taskRun?.outputs?.executionId
     }
 
-    function shouldDisplaySubflow(taskRunIndex: number, taskRun: any): boolean { // FIXME: any
-        const subflowExecutionId = taskRun.outputs.executionId
+    function shouldDisplaySubflow(taskRunIndex: number, taskRun: TaskRunWithDepth): boolean {
+        const subflowExecutionId = taskRun.outputs?.executionId
         const index = shownSubflowsIds.value.findIndex(
             (item) => item.subflowExecutionId === subflowExecutionId,
         )
@@ -900,7 +924,7 @@
             return
         }
 
-        shownAttemptsUid.value = currentTaskRuns.value.map((taskRun: any) => // FIXME: any
+        shownAttemptsUid.value = currentTaskRuns.value.map((taskRun) =>
             attemptUid(
                 taskRun.id,
                 selectedAttemptNumberByTaskRunId.value[taskRun.id] ?? 0,
@@ -915,7 +939,7 @@
 
     function expandSubflows() {
         if (
-            currentTaskRuns.value.some((taskRun: any) => isSubflow(taskRun)) // FIXME: any
+            currentTaskRuns.value.some((taskRun) => isSubflow(taskRun))
         ) {
             const subflowLogsElements = Object.values(
                 subflowTaskRunDetailsRefs.value,
@@ -944,7 +968,7 @@
                 followedExecution.value?.state?.current,
             )
         ) {
-            currentTaskRuns.value.forEach((taskRun: any) => { // FIXME: any
+            currentTaskRuns.value.forEach((taskRun) => {
                 if (
                     taskRun.state.current === State.FAILED ||
                     taskRun.state.current === State.RUNNING
@@ -966,7 +990,7 @@
         }
     }
 
-    function uniqueTaskRunDisplayFilter(currentTaskRun: any): boolean { // FIXME: any
+    function uniqueTaskRunDisplayFilter(currentTaskRun: TaskRun): boolean {
         return !(props.taskRunId && props.taskRunId !== currentTaskRun.id)
     }
 
@@ -986,13 +1010,22 @@
     }
 
     function loadLogs(executionId?: string) {
+        const id = executionId ?? followedExecution.value?.id
+        if (!id) {
+            return
+        }
+        logsExecutionId.value = id
         const p = buildLogParams()
         executionsStore
             .loadLogs({
-                executionId: executionId!,
+                executionId: id,
                 params: p,
             })
             .then((logs: any) => { // FIXME: any
+                // A response for an execution the view has since left would overwrite the current one's logs.
+                if (logsExecutionId.value !== id) {
+                    return
+                }
                 // `loadLogs` returns a paginated response `{ results, total }`, and `rawLogs` must be an array of log lines.
                 rawLogs.value = logs?.results ?? logs ?? []
                 // Discard any buffered SSE logs to prevent duplicates after the full REST fetch replaces `rawLogs`.
@@ -1000,7 +1033,7 @@
             })
     }
 
-    function attempts(taskRun: any): any[] { // FIXME: any
+    function attempts(taskRun: TaskRun): TaskRunAttempt[] {
         if (
             followedExecution.value.state.current === State.RUNNING ||
             props.forcedAttemptNumber === undefined
@@ -1035,7 +1068,7 @@
             newDisplayedAttemptNumber
     }
 
-    function taskType(taskRun: any): string | undefined { // FIXME: any
+    function taskType(taskRun: TaskRun | undefined): string | undefined {
         if (!taskRun) return undefined
 
         const task = FlowUtils.findTaskById(flow.value, taskRun?.taskId)
@@ -1191,14 +1224,11 @@
     padding-left: 0;
   }
 
-  .progress-bar {
-    margin-block: .5rem;
-    flex: 1;
-
-    :deep(.kel-progress__text) {
-      font-size: var(--ks-font-size-sm) !important;
-      color: var(--ks-text-secondary);
-    }
+  .loop-progress {
+    display: flex;
+    align-items: top;
+    gap: var(--ks-spacing-3);
+    margin-block: var(--ks-spacing-3);
   }
 
   .attempt-wrapper {
@@ -1209,6 +1239,7 @@
     &.attempt-wrapper--transparent {
       background-color: transparent;
       border: none;
+      overflow: visible;
 
       .line {
         border-top: none;

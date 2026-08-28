@@ -11,7 +11,7 @@
                 >
                     <span class="d-inline-flex align-items-center">
                         <AiIcon class="me-1" />
-                        <span>{{ t('fix_with_ai') }}</span>
+                        <span>{{ $t('fix_with_ai') }}</span>
                     </span>
                 </KsDropdownItem>
                 <SubFlowLink
@@ -24,7 +24,8 @@
                 <Metrics :taskRun="taskRun" :execution="execution" />
 
                 <Outputs
-                    :outputs="taskRun.outputs"
+                    :taskRun="taskRun"
+                    :executionId="execution.id"
                     :execution="execution"
                 />
 
@@ -62,19 +63,19 @@
                     :icon="Download"
                     @click="downloadContent(taskRun.id)"
                 >
-                    {{ t("download logs") }}
+                    {{ $t("download logs") }}
                 </KsDropdownItem>
                 <KsDropdownItem
                     :icon="Copy"
                     @click="copyContent(taskRun.id)"
                 >
-                    {{ t("copy logs") }}
+                    {{ $t("copy logs") }}
                 </KsDropdownItem>
                 <KsDropdownItem
                     :icon="Delete"
                     @click="deleteLogs(taskRun.id)"
                 >
-                    {{ t("delete logs") }}
+                    {{ $t("delete logs") }}
                 </KsDropdownItem>
                 <WorkerInfo
                     component="KsDropdownItem"
@@ -90,7 +91,7 @@
 <script setup lang="ts">
     import {computed} from "vue"
     import {useI18n} from "vue-i18n"
-    import {useRoute, useRouter} from "vue-router"
+    import {useRoute} from "vue-router"
 
     import DotsVertical from "vue-material-design-icons/DotsVertical.vue"
     import Copy from "vue-material-design-icons/ContentCopy.vue"
@@ -106,6 +107,7 @@
     import {useCoreStore} from "../../stores/core"
     import {useExecutionsStore} from "../../stores/executions"
     import {useAuthStore} from "override/stores/auth"
+    import {useMiscStore} from "override/stores/misc"
     import Restart from "./overview/components/actions/Restart.vue"
     import Metrics from "./Metrics.vue"
     import ChangeStatus from "./ChangeStatus.vue"
@@ -136,8 +138,8 @@
 
     const {t} = useI18n()
     const route = useRoute()
-    const router = useRouter()
     const toast = useToast()
+    const miscStore = useMiscStore()
     const coreStore = useCoreStore()
     const executionsStore = useExecutionsStore()
     const authStore = useAuthStore()
@@ -226,30 +228,15 @@
             return last?.message ?? ""
         })()
         const prompt = `Fix the task ${props.taskRun.taskId} as it generated the following error:\n${errorLines}`
-        try {
-            window.sessionStorage.setItem("kestra-ai-prompt", prompt)
-        } catch (err) {
-            console.warn("AI prompt not persisted to sessionStorage:", err)
-        }
-
-        router.push({
-            name: "flows/update",
-            params: {
-                namespace: props.execution.namespace,
-                id: props.execution.flowId,
-                tab: "edit",
-                tenant: route.params?.tenant,
-            },
-            query: {ai: "open"},
-        })
+        miscStore.promptCopilot(prompt, {title: t("ai.copilot.fixThread.task", {id: props.taskRun.taskId}), newThread: true})
     }
 </script>
 
 <style scoped lang="scss">
     .task-run-buttons {
         padding: 0 .5rem;
-        border: 1px solid var(--ks-border-default);
-        background-color: var(--ks-btn-secondary-bg-default) !important;
+        border: none;
+        background: transparent !important;
 
         &:not(:hover) {
             background: var(--ks-btn-secondary-bg-inactive);

@@ -2,6 +2,7 @@ package io.kestra.controller.grpc.services;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -20,6 +21,8 @@ import java.util.stream.Stream;
 
 import javax.annotation.concurrent.ThreadSafe;
 
+import org.slf4j.event.Level;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -34,10 +37,9 @@ import io.kestra.core.executor.WorkerJobRunningStateStore;
 import io.kestra.core.metrics.MetricRegistry;
 import io.kestra.core.models.executions.ExecutionKilled;
 import io.kestra.core.models.executions.ExecutionKilledExecution;
+import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.executions.TaskRun;
 import io.kestra.core.models.flows.State;
-import io.kestra.core.worker.QueueSubscription;
-import io.kestra.core.worker.WorkerQueues;
 import io.kestra.core.models.triggers.TriggerContext;
 import io.kestra.core.models.triggers.TriggerId;
 import io.kestra.core.queues.BroadcastQueueInterface;
@@ -53,7 +55,9 @@ import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.core.server.ClusterEvent;
 import io.kestra.core.utils.Either;
 import io.kestra.core.worker.MetadataChangePayload;
+import io.kestra.core.worker.QueueSubscription;
 import io.kestra.core.worker.WorkerBroadcastEvent;
+import io.kestra.core.worker.WorkerQueues;
 
 import io.micronaut.core.annotation.Nullable;
 import jakarta.annotation.PreDestroy;
@@ -160,6 +164,11 @@ public class WorkerJobDispatcher {
      */
     private final List<WorkerLifecycleListener> lifecycleListeners;
 
+    /**
+     * Builds the loggers used to surface dispatch failures in the user-facing execution logs.
+     */
+    private final RunContextLoggerFactory runContextLoggerFactory;
+
     @Inject
     public WorkerJobDispatcher(
         KeyedDispatchQueueInterface<WorkerJobEvent> workerJobEventQueue,
@@ -171,7 +180,8 @@ public class WorkerJobDispatcher {
         MetricRegistry metricRegistry,
         MetadataChangeListener metadataChangeListener,
         WorkerQueueResolver workerQueueResolver,
-        List<WorkerLifecycleListener> lifecycleListeners) {
+        List<WorkerLifecycleListener> lifecycleListeners,
+        RunContextLoggerFactory runContextLoggerFactory) {
         this.workerJobEventQueue = workerJobEventQueue;
         this.workerJobRunningStateStore = workerJobRunningStateStore;
         this.workerTaskResultQueue = workerTaskResultQueue;
@@ -180,6 +190,7 @@ public class WorkerJobDispatcher {
         this.metadataChangeListener = metadataChangeListener;
         this.workerQueueResolver = workerQueueResolver;
         this.lifecycleListeners = List.copyOf(lifecycleListeners);
+        this.runContextLoggerFactory = runContextLoggerFactory;
 
         // Construct broadcast subscribers and gauges with cleanup on partial failure.
         // @PreDestroy is not invoked when bean construction fails, so any subscriber that has
@@ -507,7 +518,8 @@ public class WorkerJobDispatcher {
             metricRegistry.gauge(
                 MetricRegistry.METRIC_CONTROLLER_WORKER_ACTIVE,
                 MetricRegistry.METRIC_CONTROLLER_WORKER_ACTIVE_DESCRIPTION,
-                (Supplier<Integer>) () -> {
+                (Supplier<Integer>) () ->
+                {
                     Set<String> ids = workerIdsByWorkerQueue.get(workerQueueId);
                     return ids == null ? 0 : ids.size();
                 },
@@ -589,8 +601,10 @@ public class WorkerJobDispatcher {
                 // Queue, the new stream owns the registration and we must leave it alone.
                 WorkerStreamContext<WorkerJobResponse> current = activeStreams.get(workerId);
                 if (current != null && current.subscribedWorkerQueueIds().contains(workerQueueId)) {
-                    log.debug("Skipping unregister of worker [{}] from Worker Queue '{}': replaced by fresh registration",
-                        workerId, WorkerQueues.forLog(workerQueueId));
+                    log.debug(
+                        "Skipping unregister of worker [{}] from Worker Queue '{}': replaced by fresh registration",
+                        workerId, WorkerQueues.forLog(workerQueueId)
+                    );
                     continue;
                 }
 
@@ -872,7 +886,8 @@ public class WorkerJobDispatcher {
     /**
      * A worker that has reserved a slot in a specific bucket for an incoming job.
      */
-    private record ReservedSlot(WorkerStreamContext<WorkerJobResponse> context, String bucket) {}
+    private record ReservedSlot(WorkerStreamContext<WorkerJobResponse> context, String bucket) {
+    }
 
     /**
      * Dispatches a job to a worker.
@@ -915,8 +930,10 @@ public class WorkerJobDispatcher {
         try {
             persistJobToStateStore(context, job, dispatchWorkerQueueId);
         } catch (Exception e) {
-            log.warn("Failed to persist running state for job {} on worker {}; re-queuing for redelivery: {}",
-                jobId, context.getWorkerId(), e.getMessage());
+            log.warn(
+                "Failed to persist running state for job {} on worker {}; re-queuing for redelivery: {}",
+                jobId, context.getWorkerId(), e.getMessage()
+            );
             handlePersistFailure(context, job, originalEvent, dispatchWorkerQueueId, bucket);
             return;
         }
@@ -1009,8 +1026,10 @@ public class WorkerJobDispatcher {
      */
     private void rejectOversizedJob(WorkerStreamContext<WorkerJobResponse> context, WorkerJob job,
         String dispatchWorkerQueueId, String bucket, int payloadSize, int workerLimit) {
-        log.error("Job {} payload ({} bytes) exceeds worker {} max inbound gRPC message size ({} bytes); failing the job instead of dispatching",
-            job.uid(), payloadSize, context.getWorkerId(), workerLimit);
+        log.error(
+            "Job {} payload ({} bytes) exceeds worker {} max inbound gRPC message size ({} bytes); failing the job instead of dispatching",
+            job.uid(), payloadSize, context.getWorkerId(), workerLimit
+        );
 
         metricRegistry.counter(
             MetricRegistry.METRIC_CONTROLLER_JOB_DISPATCH_FAILED_TOTAL,
@@ -1024,14 +1043,43 @@ public class WorkerJobDispatcher {
 
         // Fail the job cleanly so the execution reaches a terminal state.
         if (job instanceof WorkerTask workerTask) {
+            emitJobLog(
+                runContextLoggerFactory.create(workerTask),
+                LogEntry.of(workerTask.getTaskRun(), workerTask.getExecutionKind()),
+                oversizedPayloadMessage("task", context.getWorkerId(), payloadSize, workerLimit)
+            );
+
             try {
                 workerTaskResultQueue.emit(new WorkerTaskResult(workerTask.getTaskRun().fail()));
             } catch (QueueException e) {
                 log.error("Failed to emit FAILED result for oversized job {}: {}", job.uid(), e.getMessage(), e);
             }
         } else if (job instanceof WorkerTrigger workerTrigger) {
+            emitJobLog(
+                runContextLoggerFactory.create(workerTrigger.triggerId(), workerTrigger.getTrigger()),
+                LogEntry.of(workerTrigger.triggerId(), workerTrigger.getTrigger()),
+                oversizedPayloadMessage("trigger", context.getWorkerId(), payloadSize, workerLimit)
+            );
+
             triggerEventQueue.send(new TriggerEvaluated(workerTrigger.triggerId(), null));
         }
+    }
+
+    private static String oversizedPayloadMessage(String jobKind, String workerId, int payloadSize, int workerLimit) {
+        return ("Cannot dispatch this %s to worker '%s': its serialized payload is %d bytes and exceeds the maximum inbound gRPC message size of %d bytes configured on that worker. "
+            + "Increase 'kestra.grpc.max-inbound-message-size' on the workers and on the worker controller, or reduce the amount of data it carries such as large inputs, variables or outputs.")
+            .formatted(jobKind, workerId, payloadSize, workerLimit);
+    }
+
+    private void emitJobLog(RunContextLogger logger, LogEntry template, String message) {
+        logger.emitLogIfEnabled(
+            template.toBuilder()
+                .level(Level.ERROR)
+                .message(message)
+                .timestamp(Instant.now())
+                .thread(Thread.currentThread().getName())
+                .build()
+        );
     }
 
     /**
@@ -1083,7 +1131,8 @@ public class WorkerJobDispatcher {
         for (String metricName : List.of(
             MetricRegistry.METRIC_CONTROLLER_WORKER_ACTIVE,
             MetricRegistry.METRIC_CONTROLLER_PERMITS_AVAILABLE,
-            MetricRegistry.METRIC_CONTROLLER_JOB_INFLIGHT)) {
+            MetricRegistry.METRIC_CONTROLLER_JOB_INFLIGHT
+        )) {
             metricRegistry.find(metricName)
                 .tag(MetricRegistry.TAG_WORKER_QUEUE, workerQueueTag)
                 .gauges()
@@ -1333,8 +1382,7 @@ public class WorkerJobDispatcher {
     private void fireWorkerSubscriptionsChanged(
         WorkerStreamContext<WorkerJobResponse> context,
         Set<String> added,
-        Set<String> removed
-    ) {
+        Set<String> removed) {
         if (added.isEmpty() && removed.isEmpty()) {
             return;
         }

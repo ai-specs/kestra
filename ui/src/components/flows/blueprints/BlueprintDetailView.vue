@@ -7,7 +7,11 @@
                         {{ $t("common.back") }}
                     </KsButton>
                     <div class="actions">
-                        <slot name="actions" />
+                        <slot
+                            name="actions"
+                            :hasMissingPlugins="hasMissingPlugins"
+                            :missingTasks="missingTasks"
+                        />
                     </div>
                 </div>
                 <div class="info">
@@ -34,7 +38,7 @@
                         :modelValue="blueprint.source"
                     >
                         <template #absolute>
-                            <CopyToClipboard :text="blueprint.source" />
+                            <CopyToClipboard v-if="blueprint.source" :text="blueprint.source" />
                         </template>
                     </KsEditor>
                 </KsSplitterPanel>
@@ -48,12 +52,17 @@
                         :flowGraph="flowGraph"
                         :source="blueprint.source"
                         :horizontalDefault="stacked"
+                        :showDetailsToggle="false"
                     />
                 </KsSplitterPanel>
             </KsSplitter>
         </div>
 
-        <BlueprintOverview :blueprint :tags :icons />
+        <BlueprintOverview :blueprint :tags :icons :loadIcon>
+            <template #missing-plugins-action="slotProps">
+                <slot name="missing-plugins-action" v-bind="slotProps" />
+            </template>
+        </BlueprintOverview>
 
         <KsMarkdown
             v-if="blueprint.description"
@@ -64,17 +73,18 @@
 </template>
 
 <script setup lang="ts">
-    import {computed} from "vue"
+    import {computed, onMounted} from "vue"
     import {useMediaQuery} from "@vueuse/core"
 
     import {KsEditor} from "@kestra-io/design-system"
-    import {flowYamlUtils as YAML_UTILS} from "@kestra-io/topology"
+    import * as YAML_UTILS from "@kestra-io/topology/flow-yaml-utils"
     import ChevronLeft from "vue-material-design-icons/ChevronLeft.vue"
 
     import LowCodeEditor from "../../inputs/LowCodeEditor.vue"
     import CopyToClipboard from "../../layout/CopyToClipboard.vue"
     import BlueprintOverview from "./BlueprintOverview.vue"
     import {useEditorBindings} from "../../../composables/useEditorBindings"
+    import {useBlueprintPlugins} from "../../../composables/useBlueprintPlugins"
     import type {BlueprintTag, FlowBlueprint} from "../../../stores/blueprints"
 
     const EDITOR_OPTIONS = {
@@ -89,10 +99,12 @@
         flowGraph?: any;
         tags?: Record<string, BlueprintTag>;
         icons?: Record<string, any>;
+        loadIcon?: (cls: string) => Promise<any>;
     }>(), {
         flowGraph: undefined,
         tags: undefined,
         icons: () => ({}),
+        loadIcon: undefined,
     })
 
     const emit = defineEmits<{back: []}>()
@@ -105,6 +117,16 @@
             ? {...YAML_UTILS.parse(props.blueprint.source), source: props.blueprint.source}
             : {},
     )
+
+    const {ensureInstalledPluginsLoaded, missingTaskTypes} = useBlueprintPlugins()
+
+    const missingTasks = computed(() =>
+        missingTaskTypes(props.blueprint.includedTasks),
+    )
+
+    const hasMissingPlugins = computed(() => missingTasks.value.length > 0)
+
+    onMounted(ensureInstalledPluginsLoaded)
 </script>
 
 <style scoped lang="scss">

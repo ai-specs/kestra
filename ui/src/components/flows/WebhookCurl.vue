@@ -14,7 +14,7 @@
             <div v-for="trigger in webhookTriggers" :key="trigger.id" class="trigger">
                 <div class="code">
                     <pre><code>{{ generateWebhookCurlCommand(trigger) }}</code></pre>
-                    <CopyToClipboard :text="generateWebhookCurlCommand(trigger)" class="copy" />
+                    <CopyToClipboard :text="generateWebhookCurlCommand(trigger)" />
                 </div>
             </div>
 
@@ -36,20 +36,7 @@
     import {KsEditor} from "@kestra-io/design-system"
     import {useEditorBindings} from "../../composables/useEditorBindings"
     import {webhookUrl, WEBHOOK_TRIGGER_TYPE} from "../../utils/webhook"
-    import {useFlowStore} from "../../stores/flow"
-
-    interface Flow {
-        namespace: string;
-        id: string;
-        triggers?: Trigger[];
-    }
-
-    interface Trigger {
-        id: string;
-        type: string;
-        key?: string;
-        disabled?: boolean;
-    }
+    import {useFlowStore, type Flow, type Trigger} from "../../stores/flow"
 
     const props = defineProps<{
         flow: Flow;
@@ -131,16 +118,12 @@
 
     .code {
         position: relative;
-        pre {
-            overflow-x: auto;
-        }
-    }
 
-    .copy {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        z-index: 10;
+        pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            padding-right: var(--ks-spacing-8);
+        }
     }
 }
 </style>

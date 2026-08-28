@@ -2,8 +2,8 @@
     <KsDialog
         v-model="visible"
         :title="$t('customize sidebar')"
-        width="480px"
         destroyOnClose
+        scrollable
     >
         <div class="sidebar-customize">
             <div

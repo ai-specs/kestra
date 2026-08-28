@@ -1,10 +1,18 @@
 package io.kestra.plugin.core.trigger;
 
+import java.time.Duration;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Map;
+import java.util.Optional;
+
 import com.cronutils.model.Cron;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.model.time.ExecutionTime;
 import com.cronutils.parser.CronParser;
 import com.google.common.annotations.VisibleForTesting;
+
 import io.kestra.core.exceptions.InternalException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
@@ -17,19 +25,15 @@ import io.kestra.core.scheduler.SchedulerClock;
 import io.kestra.core.utils.TruthUtils;
 import io.kestra.core.validations.ScheduleValidation;
 import io.kestra.core.validations.TimezoneId;
+
+import org.hibernate.validator.constraints.time.DurationMin;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Null;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 import lombok.extern.slf4j.Slf4j;
-
-import java.time.Duration;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.temporal.ChronoUnit;
-import java.util.Map;
-import java.util.Optional;
 
 @Slf4j
 @SuperBuilder
@@ -225,6 +229,7 @@ public class Schedule extends AbstractTrigger implements Schedulable, TriggerOut
         description = "If the scheduled execution didn't start after this delay (e.g. due to infrastructure issues), the execution will be skipped."
     )
     @PluginProperty
+    @DurationMin(millis = 1, message = "must be a positive duration")
     private Duration lateMaximumDelay;
 
     @Getter(AccessLevel.NONE)
@@ -390,13 +395,15 @@ public class Schedule extends AbstractTrigger implements Schedulable, TriggerOut
             variables = scheduleDates.toMap();
         }
 
-        return Optional.of(SchedulableExecutionFactory.createExecution(
-            this,
-            conditionContext,
-            triggerContext,
-            variables,
-            null
-        ));
+        return Optional.of(
+            SchedulableExecutionFactory.createExecution(
+                this,
+                conditionContext,
+                triggerContext,
+                variables,
+                null
+            )
+        );
     }
 
     /**

@@ -2,6 +2,8 @@ package io.kestra.plugin.core.kv;
 
 import java.time.Duration;
 import java.time.Instant;
+
+import org.hibernate.validator.constraints.time.DurationMin;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
@@ -18,6 +20,7 @@ import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.core.storages.kv.KVMetadata;
 import io.kestra.core.storages.kv.KVStore;
 import io.kestra.core.storages.kv.KVValueAndMetadata;
+import io.kestra.core.utils.TypeConverter;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
@@ -94,7 +97,7 @@ public class Set extends Task implements RunnableTask<VoidOutput> {
     @Schema(
         title = "Optional Time-To-Live (TTL) duration for the key-value pair. If not set, the KV pair will never be deleted from internal storage."
     )
-    private Property<Duration> ttl;
+    private Property<@DurationMin(millis = 1, message = "must be a positive duration") Duration> ttl;
 
     @Schema(
         title = "Enum representing the data type of the KV pair. If not set, the value will be stored as a string."
@@ -116,12 +119,12 @@ public class Set extends Task implements RunnableTask<VoidOutput> {
             if (renderedValue instanceof String renderedValueStr) {
                 renderedValue = switch (renderedKvType) {
                     case NUMBER -> JacksonMapper.ofJson().readValue(renderedValueStr, Number.class);
-                    case BOOLEAN -> Boolean.parseBoolean((String) renderedValue);
-                    case DATETIME -> Instant.parse(renderedValueStr);
+                    case BOOLEAN -> TypeConverter.toBoolean(renderedValueStr);
+                    case DATETIME -> TypeConverter.toInstant(renderedValueStr);
                     case DATE -> parseDate(renderedValueStr);
                     // We parse duration to make sure it's valid but we store it as a raw duration string
                     case DURATION -> {
-                        Duration.parse(renderedValueStr);
+                        TypeConverter.toDuration(renderedValueStr);
                         yield renderedValueStr;
                     }
                     case JSON -> JacksonMapper.toObject(renderedValueStr);

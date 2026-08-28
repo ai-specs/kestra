@@ -3,6 +3,8 @@ package io.kestra.core.models.assets;
 import java.time.Instant;
 import java.util.*;
 
+import org.apache.commons.lang3.ObjectUtils;
+
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 
 import io.kestra.core.models.HasUID;
@@ -31,7 +33,7 @@ public abstract class Asset implements HasUID, SoftDeletable<Asset>, Plugin {
     protected String namespace;
 
     @NotBlank
-    @Pattern(regexp = "^[a-zA-Z0-9][a-zA-Z0-9._-]*")
+    @Pattern(regexp = "^[a-zA-Z0-9][a-zA-Z0-9._:-]*")
     @Size(min = 1, max = 150)
     protected String id;
 
@@ -79,12 +81,22 @@ public abstract class Asset implements HasUID, SoftDeletable<Asset>, Plugin {
         this.deleted = deleted;
     }
 
-    public <T extends Asset> T toUpdated(T previousAsset) {
-        this.created = Optional.ofNullable(this.created).or(() -> Optional.ofNullable(previousAsset.getCreated())).orElseGet(Instant::now);
+    /**
+     * Merges this asset over {@code previousAsset}, which is {@code null} on creation.
+     *
+     * @param previousAsset the stored asset this one is merged over, or {@code null} when creating.
+     * @param allowTypeChange whether the incoming type wins over the stored one; either falls back to the other
+     *                        when null, so creation (no previous asset) keeps the incoming type either way.
+     * @return this asset, merged.
+     */
+    public <T extends Asset> T toUpdated(T previousAsset, boolean allowTypeChange) {
+        this.created = Optional.ofNullable(previousAsset).map(Asset::getCreated).or(() -> Optional.ofNullable(this.created)).orElseGet(Instant::now);
         this.updated = Instant.now();
 
-        // Type is immutable, if it was set before we keep it
-        this.type = Optional.ofNullable(previousAsset).map(Asset::getType).orElse(this.type);
+        String previousType = Optional.ofNullable(previousAsset).map(Asset::getType).orElse(null);
+        this.type = allowTypeChange
+            ? ObjectUtils.firstNonNull(this.type, previousType)
+            : ObjectUtils.firstNonNull(previousType, this.type);
         this.displayName = Optional.ofNullable(this.displayName).or(() -> Optional.ofNullable(previousAsset).map(Asset::getDisplayName)).orElse(null);
         this.description = Optional.ofNullable(this.description).or(() -> Optional.ofNullable(previousAsset).map(Asset::getDescription)).orElse(null);
         this.metadata = Optional.ofNullable(previousAsset).map(Asset::getMetadata).orElse(null) == null
@@ -102,6 +114,12 @@ public abstract class Asset implements HasUID, SoftDeletable<Asset>, Plugin {
 
     @JsonAnySetter
     public void setMetadata(String name, Object value) {
+        // `metadataList` is an ElasticSearch indexing-only projection of `metadata` (see EE ElasticSearchAssetRepository).
+        // Fresh indices exclude it from _source, but existing/upgraded indices may still return it; never fold it back
+        // into the metadata map.
+        if ("metadataList".equals(name)) {
+            return;
+        }
         metadata.put(name, value);
     }
 

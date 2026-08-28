@@ -1,5 +1,5 @@
 <template>
-    <KsSideBar id="side-menu" v-bind="$attrs" :class="{'is-collapsed': collapsed}" @contextmenu.prevent="onContextMenu">
+    <KsSideBar id="side-menu" v-bind="$attrs" :class="{'is-collapsed': collapsed}" @contextmenu="onContextMenu">
         <template #header>
             <KsIconButton
                 class="header-toggle"
@@ -8,6 +8,11 @@
             >
                 <DockLeft />
             </KsIconButton>
+            <div
+                ref="dragHandle"
+                class="menu-drag-handle"
+                aria-hidden="true"
+            />
         </template>
 
         <template v-for="(section, sIdx) in menu" :key="section.id ?? `s-${sIdx}`">
@@ -25,7 +30,7 @@
                 @update:collapsed="(value: boolean) => onSectionCollapseChange(section, value)"
             >
                 <template v-if="getSectionCollapsed(section) && sectionHasNewChild(section)" #suffix>
-                    <KsNewBadge>{{ t("new") }}</KsNewBadge>
+                    <KsNewBadge>{{ $t("new") }}</KsNewBadge>
                 </template>
                 <MenuLink
                     v-for="item in getDisplayedItems(section)"
@@ -76,6 +81,7 @@
     import type {PropType} from "vue"
     import {useRoute, RouterLink} from "vue-router"
     import {useI18n} from "vue-i18n"
+    import {usePointerSwipe} from "@vueuse/core"
     import {KsSideBar, KsSideBarSection, KsSideBarItem, KsIconButton, KsNewBadge} from "@kestra-io/design-system"
     import DockLeft from "vue-material-design-icons/DockLeft.vue"
     import SquareEditOutline from "vue-material-design-icons/SquareEditOutline.vue"
@@ -100,7 +106,7 @@
         collapsed?: boolean,
     }>(), {
         showLink: true,
-        logoTo: () => ({name: "welcome"}),
+        logoTo: () => ({name: "ai"}),
         collapsed: false,
     })
 
@@ -121,6 +127,12 @@
     const CONTEXT_MENU_HEIGHT = 60
 
     function onContextMenu(event: MouseEvent) {
+        if ((event.target as HTMLElement).closest("a[href]")) {
+            // contextmenu doesn't trigger the click listener that closes our menu, so close it explicitly here.
+            hideContextMenu()
+            return
+        }
+        event.preventDefault()
         const x = Math.max(0, Math.min(event.clientX, window.innerWidth - CONTEXT_MENU_WIDTH))
         const y = Math.max(0, Math.min(event.clientY, window.innerHeight - CONTEXT_MENU_HEIGHT))
         contextMenu.value = {visible: true, x, y}
@@ -151,8 +163,25 @@
         emit("menu-collapse", folded)
     }
 
+    const DRAG_CLOSE_THRESHOLD = 60
+    const dragHandle = ref<HTMLElement>()
+    const {direction} = usePointerSwipe(dragHandle, {
+        threshold: DRAG_CLOSE_THRESHOLD,
+        disableTextSelect: true,
+        onSwipeEnd: () => {
+            if (direction.value === "left") onCollapse(true)
+        },
+    })
+
     function isItemActive(item: MenuItem): boolean {
-        if (item.routes) return item.routes.includes($route.name)
+        if (item.routes?.includes($route.name)) {
+            const type = $route.params.type
+            if (typeof type === "string" && type && typeof item.href === "string") {
+                return item.href.split("?")[0].endsWith(`/${type}`)
+            }
+            return true
+        }
+        if (item.routes?.length) return false
         if (typeof item.href !== "string" || item.href === "/") return false
         return $route.path.startsWith(item.href)
     }
@@ -254,8 +283,35 @@
     position: absolute;
     top: var(--ks-spacing-4);
     right: var(--ks-spacing-4);
-    z-index: 1;
+    z-index: 2;
     color: var(--ks-icon-muted);
+}
+
+.menu-drag-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: var(--ks-spacing-2);
+    z-index: 1;
+    cursor: w-resize;
+    touch-action: pan-y;
+}
+
+.menu-drag-handle::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: var(--ks-border-width-thin);
+    background: var(--ks-border-focus);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.menu-drag-handle:hover::after {
+    opacity: 1;
 }
 
 .sidebar-context-menu {

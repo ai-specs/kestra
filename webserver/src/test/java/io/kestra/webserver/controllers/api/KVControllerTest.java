@@ -48,7 +48,6 @@ import jakarta.inject.Inject;
 
 import static io.kestra.core.tenant.TenantService.MAIN_TENANT;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.BDDAssertions.within;
 
 @KestraTest(resolveParameters = false)
 class KVControllerTest {
@@ -122,6 +121,37 @@ class KVControllerTest {
         assertThat(res.getResults().size()).isEqualTo(1);
         assertThat(res.getResults().getFirst().namespace()).isEqualTo(namespace);
         assertThat(res.getResults().getFirst().key()).isEqualTo(namespaceKey);
+    }
+
+    @Test
+    void listAllKeysWithUnknownSortFieldReturns422() {
+        HttpClientResponseException e = Assertions.assertThrows(
+            HttpClientResponseException.class,
+            () -> client.toBlocking().exchange(HttpRequest.GET("/api/v1/main/kv?sort=nonexistent:asc"))
+        );
+
+        assertThat(e.getStatus().getCode()).isEqualTo(422);
+        String body = e.getResponse().getBody(String.class).orElse("");
+        assertThat(body).contains("nonexistent");
+        // regression guard: the generated SQL must never reach the client (kestra-io/kestra#18490)
+        assertThat(body).doesNotContainIgnoringCase("select ");
+        assertThat(body).doesNotContainIgnoringCase(" from ");
+        assertThat(body).doesNotContainIgnoringCase("order by");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void listAllKeysSortsByUpdateDateAlias() throws IOException {
+        // updateDate is the KVEntry API field name; the real column is "updated"
+        String namespace = TestsUtils.randomNamespace();
+        KVStore kvStore = new InternalKVStore(MAIN_TENANT, namespace, storageInterface, kvMetadataStateStore);
+        kvStore.put("some-key", new KVValueAndMetadata(new KVMetadata(null, (Instant) null), "some-value"));
+
+        PagedResults<KVEntry> res = client.toBlocking().retrieve(
+            HttpRequest.GET("/api/v1/main/kv?sort=updateDate:desc"),
+            Argument.of(PagedResults.class, KVEntry.class)
+        );
+        assertThat(res.getTotal()).isEqualTo(1);
     }
 
     @Test

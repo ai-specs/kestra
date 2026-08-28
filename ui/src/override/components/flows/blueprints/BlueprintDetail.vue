@@ -8,14 +8,25 @@
             :flowGraph
             :tags
             :icons="pluginsStore.icons"
+            :loadIcon="pluginsStore.loadIcon"
             @back="goBack"
         >
-            <template #actions>
-                <router-link v-if="userCanCreate" :to="editorRoute">
-                    <KsButton type="primary" @click="trackBlueprintUse('detail')">
-                        {{ $t("blueprints.detail.openInEditor") }}
-                    </KsButton>
-                </router-link>
+            <template #actions="{hasMissingPlugins, missingTasks}">
+                <template v-if="userCanCreate">
+                    <KsTooltip
+                        v-if="hasMissingPlugins"
+                        :content="$t('blueprints.missingPlugins.card', {tasks: missingTasks.join(', ')})"
+                    >
+                        <KsButton type="primary" disabled>
+                            {{ $t(openInEditorKey) }}
+                        </KsButton>
+                    </KsTooltip>
+                    <router-link v-else :to="editorRoute">
+                        <KsButton type="primary" @click="trackBlueprintUse('detail')">
+                            {{ $t(openInEditorKey) }}
+                        </KsButton>
+                    </router-link>
+                </template>
             </template>
         </BlueprintDetailView>
     </template>
@@ -23,20 +34,12 @@
     <BlueprintEmbedView
         v-else
         :blueprint
-        :flowGraph
         :tags
         :icons="pluginsStore.icons"
+        :loadIcon="pluginsStore.loadIcon"
         :kind
         @back="goBack"
-    >
-        <template #actions>
-            <router-link v-if="userCanCreate" :to="editorRoute">
-                <KsButton type="primary" @click="trackBlueprintUse('detail')">
-                    {{ $t("blueprints.detail.openInEditor") }}
-                </KsButton>
-            </router-link>
-        </template>
-    </BlueprintEmbedView>
+    />
 </template>
 <script setup lang="ts">
     import {ref, computed, onMounted} from "vue"
@@ -87,6 +90,11 @@
     const tags = ref()
 
     const userCanCreate = computed(() => canCreate(props.kind))
+
+    const openInEditorKey = computed(() => ({
+        app: "blueprints.detail.openInAppsEditor",
+        dashboard: "blueprints.detail.openInDashboardEditor",
+    })[props.kind] ?? "blueprints.detail.openInEditor")
 
     const breadcrumb = computed(() => [
         {
@@ -155,6 +163,8 @@
     }
 
     onMounted(async () => {
+        pluginsStore.fetchIcons()
+
         const blueprintData = await blueprintsStore.getBlueprint({
             type: (props.combinedView ? props.blueprintType : route.params?.tab) as any,
             kind: props.kind as any,

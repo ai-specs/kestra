@@ -42,6 +42,16 @@ interface Cluster {
     branchType: BranchType;
 }
 
+interface FlowGraphEdge {
+    source: string;
+    target: string;
+    relation?: {
+        relationType?: string;
+        value?: string;
+    };
+    unused?: boolean;
+}
+
 export interface FlowGraph {
     nodes: MinimalNode[];
     clusters: {
@@ -51,7 +61,7 @@ export interface FlowGraph {
             uid: string;
         }[];
     }[];
-    edges: GraphEdge[];
+    edges: FlowGraphEdge[];
 }
 
 type EdgeReplacer = Record<string, string>;
@@ -261,9 +271,44 @@ export function cleanGraph(vueflowId: string) {
 
 export function flowHaveTasks(source: string): boolean {
     if (!source) return false
-    // Check if the root-level `tasks` key exists and has at least one list item
-    const match = source.match(/^tasks\s*:\s*\r?\n([\s\S]*?)(?=^\S|$(?![\r\n]))/m)
-    return match != null && /^\s+-/m.test(match[1] ?? "")
+
+    const lines = source.split(/\r?\n/)
+
+    // Phase 1: locate the root-level `tasks:` block — its start line, and its
+    // end, i.e. the next root-level key (a line starting with a non-space
+    // character) or the end of the source. Single pass, bounded, no backtracking.
+    let tasksLineIndex = -1
+    let blockEndIndex = lines.length
+    for (let i = 0; i < lines.length; i++) {
+        if (tasksLineIndex === -1) {
+            if (/^tasks\s*:\s*$/.test(lines[i])) {
+                tasksLineIndex = i
+            }
+        } else if (/^\S/.test(lines[i])) {
+            blockEndIndex = i
+            break
+        }
+    }
+    if (tasksLineIndex === -1) return false
+
+    // Phase 2: within that block, a task item starts with "- " (dash-space) and
+    // must contain at least one `id:`/`id :` line — either right after the dash
+    // on the same line, or on a line below it.
+    let sawTaskItem = false
+    for (let i = tasksLineIndex + 1; i < blockEndIndex; i++) {
+        const line = lines[i]
+
+        const dashMatch = /^\s+-\s*(.*)$/.exec(line)
+        if (dashMatch) {
+            sawTaskItem = true
+            if (/^id\s*:/.test(dashMatch[1])) {
+                return true
+            }
+        } else if (sawTaskItem && /^\s*id\s*:/.test(line)) {
+            return true
+        }
+    }
+    return false
 }
 
 export function nodeColor(node: MinimalNode, collapsed: Set<string>) {
@@ -278,7 +323,7 @@ export function nodeColor(node: MinimalNode, collapsed: Set<string>) {
 }
 
 export function haveAdd(
-    edge: GraphEdge,
+    edge: FlowGraphEdge,
     nodeByUid: Record<string, MinimalNode>,
     clustersRootTaskUids: string[],
     readOnlyUidPrefixes: string[],
@@ -325,7 +370,7 @@ export function haveAdd(
 }
 
 export function getEdgeColor(
-    edge: GraphEdge,
+    edge: FlowGraphEdge,
     nodeByUid: Record<string, MinimalNode>,
     clusterByNodeUid: Record<string, Cluster>,
 ) {
@@ -537,7 +582,7 @@ export function generateGraph(
                 sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
                 targetPosition: isHorizontal ? Position.Left : Position.Top,
                 parentNode: cluster ? cluster.uid : undefined,
-                draggable: nodeType === "task" ? !isReadOnlyTask : false,
+                draggable: false,
                 data: {
                     node: node,
                     parent: cluster ? cluster : undefined,
@@ -602,7 +647,9 @@ export function generateGraph(
                         nodeByUid[edge.target].type.endsWith("GraphTrigger") ||
                         edge.source.startsWith(TRIGGERS_NODE_UID),
                     color: edgeColor,
-                    unused: (edge as any).unused,
+                    unused: edge.unused,
+                    value: edge.relation?.value,
+                    relationType: edge.relation?.relationType,
                 },
                 style: {zIndex: 10},
                 animated: animated,
@@ -658,13 +705,13 @@ export function getTargetNodesEdges(graph: FlowGraph, nodeUid?: string) {
 }
 
 export function getNextTaskNodes(graph: FlowGraph, initialNode: MinimalNode) {
-    let edges: GraphEdge[],
+    let edges: FlowGraphEdge[],
         nextTaskNodes: MinimalNode[],
         nodeUIDs: string[] = [initialNode.uid]
     do {
         edges = nodeUIDs
             .flatMap((uid) => getTargetNodesEdges(graph, uid))
-            .filter(Boolean) as GraphEdge[]
+            .filter(Boolean) as FlowGraphEdge[]
         if (edges.length === 0) return []
         nodeUIDs = edges.map((edge) => edge.target)
         nextTaskNodes = graph.nodes.filter((node) => nodeUIDs.includes(node.uid) && node.task)

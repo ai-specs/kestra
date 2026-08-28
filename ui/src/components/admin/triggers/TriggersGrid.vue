@@ -135,7 +135,7 @@
         try {
             const [triggers] = await Promise.all([
                 pluginsStore.listTriggers(),
-                pluginsStore.fetchIcons(),
+                pluginsStore.fetchIcons().catch(() => undefined),
             ])
             allTriggers.value = triggers
         } finally {

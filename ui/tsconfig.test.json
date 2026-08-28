@@ -6,12 +6,12 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
     "types": ["vitest"]
   },
-  "rereferences": [
+  "references": [
     {"path": "./tsconfig.app.json"}
   ],
   "include": [
     ".storybook/preview.*",
-    "scripts/**/*.ts",  
+    "scripts/**/*.ts",
     "tests/fixtures/**/*.ts",
     "tests/unit/**/*.ts",
     "tests/unit/**/*.tsx",

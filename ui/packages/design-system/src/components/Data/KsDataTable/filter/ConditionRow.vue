@@ -103,6 +103,7 @@
         </template>
         <FilterKVPairs
             :modelValue="kvModel"
+            :comparator="filter.comparator"
             @update:modelValue="onKeyValue"
         />
     </KsPopover>
@@ -126,6 +127,7 @@
     import {
         Comparators,
         COMPARATOR_LABELS,
+        RANGE_COMPARATORS,
         TEXT_COMPARATORS,
         type AppliedFilter,
         type FilterKeyConfig,
@@ -171,7 +173,10 @@
         return "text"
     })
 
-    const isMulti = computed(() => keyConfig.value?.valueType === "multi-select")
+    const isMulti = computed(
+        () => keyConfig.value?.valueType === "multi-select"
+            && !RANGE_COMPARATORS.includes(props.filter.comparator),
+    )
 
     const isStatusColored = computed(() => keyConfig.value?.colored === true)
 
@@ -228,12 +233,38 @@
         })
     }
 
-    const changeComparator = (op: Comparators) =>
+    const normalizeKeyValuePairs = (values: string[]) => {
+        const pairByKey = new Map<string, string>()
+        values.forEach(pair => {
+            const separatorIndex = pair.indexOf(":")
+            if (separatorIndex <= 0 || separatorIndex === pair.length - 1) return
+            pairByKey.set(pair.slice(0, separatorIndex), pair)
+        })
+        return [...pairByKey.values()]
+    }
+
+    const changeComparator = (op: Comparators) => {
+        const wasMulti = isMulti.value
+        const willBeMulti = keyConfig.value?.valueType === "multi-select" && !RANGE_COMPARATORS.includes(op)
+        const shouldNormalizeKeyValues = keyConfig.value?.valueType === "key-value"
+            && op !== Comparators.IN
+            && op !== Comparators.NOT_IN
+            && Array.isArray(props.filter.value)
+        const normalizedKeyValues = shouldNormalizeKeyValues
+            ? normalizeKeyValuePairs(props.filter.value as string[])
+            : null
+
         emit("update", {
             ...props.filter,
             comparator: op,
             comparatorLabel: labelForComparator(op),
+            ...(normalizedKeyValues
+                ? {value: normalizedKeyValues, valueLabel: normalizedKeyValues[0] ?? ""}
+                : wasMulti !== willBeMulti
+                    ? {value: willBeMulti ? [] : "", valueLabel: ""}
+                    : {}),
         })
+    }
 
     const onText = (value: string | number | undefined) => {
         const text = value == null ? "" : String(value)
@@ -380,14 +411,14 @@
         text-overflow: ellipsis;
 
         &.placeholder {
-            color: var(--ks-text-dim);
+            color: var(--ks-placeholder-color);
         }
     }
 
     .chevron {
         flex-shrink: 0;
         color: var(--ks-icon-muted);
-        font-size: 14px;
+        font-size: var(--ks-font-size-base);
     }
 }
 

@@ -53,12 +53,23 @@ public abstract class AbstractFlow implements FlowInterface {
 
     @NotNull
     @Builder.Default
+    @Schema(
+        title = "Whether the flow is disabled.",
+        description = "A disabled flow does not run: its triggers are paused and new executions are rejected."
+    )
     boolean disabled = false;
 
     @Getter
     @NotNull
     @Builder.Default
     boolean deleted = false;
+
+    @NotNull
+    @Builder.Default
+    @Schema(
+        description = "Whether this flow revision is a draft. Draft revisions are skipped when an execution starts without an explicit revision (webhooks, schedules, subflows, manual triggers). Executions can still target a draft by passing the revision explicitly."
+    )
+    boolean draft = false;
 
     @Hidden
     @Pattern(regexp = "^[a-z0-9][a-z0-9_-]*")

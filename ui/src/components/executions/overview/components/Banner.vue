@@ -2,20 +2,20 @@
     <div class="execution-banner">
         <div class="execution-banner__content">
             <div class="execution-banner__state">
-                <ChangeExecutionStatus :execution @follow="emit('follow', $event)">
+                <ChangeExecutionStatus :execution>
                     <template #trigger="{visible, enabled}">
                         <KsExecutionStatus
                             class="execution-banner__status"
-                            :class="{'is-disabled': !enabled}"
                             :status="execution.state.current"
                             size="large"
                             :disabled="!enabled"
+                            :clickable="enabled"
                             glow
                         >
                             <template #title>
                                 <span class="status-label">
                                     {{ statusLabel }}
-                                    <component :is="visible ? ChevronUp : ChevronDown" class="chevron" />
+                                    <component v-if="enabled" :is="visible ? ChevronUp : ChevronDown" class="chevron" />
                                 </span>
                             </template>
                         </KsExecutionStatus>
@@ -24,23 +24,25 @@
             </div>
 
             <div class="execution-banner__top">
-                <span class="execution-banner__flow">{{ execution.flowId }}</span>
+                <router-link class="execution-banner__flow" :to="createLink('flows', execution)">
+                    {{ execution.flowId }}
+                </router-link>
 
                 <span class="execution-banner__id">
                     <code>{{ execution.id }}</code>
-                    <KsIconButton :tooltip="t('copy')" placement="top" @click="copyId">
+                    <KsIconButton :tooltip="$t('copy')" placement="top" @click="copyId">
                         <ContentCopy />
                     </KsIconButton>
                 </span>
 
                 <span v-if="replayed" class="execution-banner__replay">
                     <Replay />
-                    {{ t("replayed") }}
+                    {{ $t("replayed") }}
                 </span>
 
                 <span v-if="restarted" class="execution-banner__restart">
                     <Restart />
-                    {{ t("restarted") }}
+                    {{ $t("restarted") }}
                 </span>
             </div>
 
@@ -63,15 +65,15 @@
                     <template #content>
                         <div class="date-tooltip">
                             <div class="date-tooltip__row">
-                                <span class="date-tooltip__label">{{ t("created date") }}:</span>
+                                <span class="date-tooltip__label">{{ $t("created date") }}:</span>
                                 <KsDateAgo :date="createdDate" :inverted="true" :showTooltip="false" format="L LTS" />
                             </div>
                             <div v-if="scheduleDate" class="date-tooltip__row">
-                                <span class="date-tooltip__label">{{ t("scheduleDate") }}:</span>
+                                <span class="date-tooltip__label">{{ $t("scheduleDate") }}:</span>
                                 <KsDateAgo :date="scheduleDate" :inverted="true" :showTooltip="false" format="L LTS" />
                             </div>
                             <div class="date-tooltip__row">
-                                <span class="date-tooltip__label">{{ t("latest_update") }}:</span>
+                                <span class="date-tooltip__label">{{ $t("latest_update") }}:</span>
                                 <KsDateAgo :date="latestUpdate" :inverted="true" :showTooltip="false" format="L LTS" />
                             </div>
                         </div>
@@ -86,21 +88,28 @@
                 <router-link v-if="originalLink" class="meta-item" :to="originalLink">
                     <History />
                     <span>
-                        {{ t("original execution") }}:
+                        {{ $t("original execution") }}:
                         <span class="meta-item__link">{{ execution.originalId }}</span>
                     </span>
                 </router-link>
+
+                <component
+                    :is="relation"
+                    v-for="(relation, index) in executionBannerRelations"
+                    :key="index"
+                    :execution
+                />
             </div>
 
             <div class="execution-banner__actions">
                 <RunTimeline :histories="execution.state.histories ?? []" />
 
                 <KsButton :icon="ContentCopy" @click="copyLogs" link>
-                    {{ t("copy logs") }}
+                    {{ $t("copy logs") }}
                 </KsButton>
 
                 <KsButton v-if="isFailed" class="fix-with-ai" :icon="Creation" @click="fixErrorWithAi">
-                    {{ t("fix_with_ai") }}
+                    {{ $t("fix_with_ai") }}
                 </KsButton>
             </div>
         </div>
@@ -121,7 +130,7 @@
             <div class="execution-banner__stats">
                 <span v-if="execution.flowRevision !== undefined" class="footer-stat">
                     <History />
-                    {{ execution.flowRevision }} {{ t("revision") }}(s)
+                    {{ execution.flowRevision }} {{ $t("revision") }}(s)
                 </span>
                 <span class="footer-stat">
                     <ClockTimeFourOutline />
@@ -129,11 +138,11 @@
                 </span>
                 <span v-if="(execution.metadata?.attemptNumber ?? 0) > 0" class="footer-stat">
                     <GraphOutline />
-                    {{ execution.metadata.attemptNumber }} {{ t("attempt") }}(s)
+                    {{ execution.metadata.attemptNumber }} {{ $t("attempt") }}(s)
                 </span>
                 <span v-if="taskCount > 0" class="footer-stat">
                     <LayersTripleOutline />
-                    {{ completedTaskCount }}/{{ taskCount }} {{ t("task") }}(s)
+                    {{ completedTaskCount }}/{{ taskCount }} {{ $t("task") }}(s)
                 </span>
             </div>
         </div>
@@ -143,7 +152,6 @@
 <script setup lang="ts">
     import {computed} from "vue"
     import {useI18n} from "vue-i18n"
-    import {useRoute, useRouter} from "vue-router"
 
     import moment from "moment"
     import {KsExecutionStatus, State} from "@kestra-io/design-system"
@@ -153,6 +161,7 @@
     import * as Utils from "../../../../utils/utils"
     import {useToast} from "../../../../utils/toast"
     import {createLink} from "../utils/links"
+    import {executionBannerRelations} from "override/components/executions/overview/OverviewExtensions"
 
     import ChangeExecutionStatus from "../../ChangeExecutionStatus.vue"
     import SetLabels from "../../SetLabels.vue"
@@ -176,11 +185,8 @@
     import GraphOutline from "vue-material-design-icons/GraphOutline.vue"
 
     const props = defineProps<{execution: Execution}>()
-    const emit = defineEmits<{follow: [event?: unknown]}>()
 
     const {t} = useI18n({useScope: "global"})
-    const route = useRoute()
-    const router = useRouter()
     const executionsStore = useExecutionsStore()
     const toast = useToast()
 
@@ -267,18 +273,7 @@
         const prompt = errorLines
             ? `Fix the flow ${props.execution.flowId} as it generated the following error:\n${errorLines}`
             : `Fix the flow ${props.execution.flowId} as its execution failed.`
-        window.sessionStorage.setItem("kestra-ai-prompt", prompt)
-
-        router.push({
-            name: "flows/update",
-            params: {
-                namespace: props.execution.namespace,
-                id: props.execution.flowId,
-                tab: "edit",
-                tenant: route.params?.tenant,
-            },
-            query: {ai: "open"},
-        })
+        useMiscStore().promptCopilot(prompt, {title: t("ai.copilot.fixThread.execution", {id: props.execution.flowId}), newThread: true})
     }
 </script>
 
@@ -357,12 +352,6 @@
         }
 
         &__status {
-            cursor: pointer;
-
-            &.is-disabled {
-                cursor: default;
-            }
-
             .status-label {
                 display: inline-flex;
                 align-items: center;
@@ -375,6 +364,12 @@
             font-weight: 700;
             font-size: var(--ks-font-size-xl);
             color: var(--ks-text-primary);
+            text-decoration: none;
+
+            &:hover {
+                color: var(--ks-text-link);
+                text-decoration: underline;
+            }
         }
 
         &__id {

@@ -1,11 +1,16 @@
 <template>
     <ElDialog
         v-model="model"
+        :width="resolvedWidth"
+        :class="{'is-form-layout': formLayout, 'is-fill': fill}"
         v-bind="({...filteredProps(), ...$attrs} as any)"
         @close="emit('close')"
     >
         <template v-if="$slots.default" #default>
-            <slot />
+            <KsScrollbar v-if="scrollable" class="kel-dialog__scrollable-body" maxHeight="65vh">
+                <slot />
+            </KsScrollbar>
+            <slot v-else />
         </template>
         <template v-if="$slots.header" #header>
             <slot name="header" />
@@ -17,7 +22,9 @@
 </template>
 
 <script setup lang="ts">
+    import {computed} from "vue"
     import {ElDialog} from "element-plus"
+    import KsScrollbar from "../Basic/KsScrollbar.vue"
     import {useFilteredProps} from "../../utils/filteredProps"
 
     defineOptions({inheritAttrs: false})
@@ -33,8 +40,13 @@
         showClose?: boolean
         appendToBody?: boolean
         width?: string | number
+        large?: boolean
+        formLayout?: boolean
+        /** Cap the dialog to the viewport so its own body scrolls instead of the overlay dragging the whole dialog around. */
+        fill?: boolean
+        scrollable?: boolean
         top?: string
-        beforeClose?: (done: () => void) => void    
+        beforeClose?: (done: () => void) => void
     }>(), {
         title: undefined,
         lockScroll: undefined,
@@ -42,9 +54,15 @@
         closeOnPressEscape: undefined,
         showClose: undefined,
         width: undefined,
+        large: false,
+        formLayout: false,
+        fill: false,
+        scrollable: false,
         top: undefined,
         beforeClose: undefined,
     })
+
+    const resolvedWidth = computed(() => props.width ?? (props.large ? "min(750px, 90vw)" : "min(500px, 90vw)"))
 
     const emit = defineEmits<{
         close: []
@@ -56,7 +74,7 @@
         footer?(): unknown
     }>()
 
-    const filteredProps = useFilteredProps(props)
+    const filteredProps = useFilteredProps(props, ["width", "large", "formLayout", "fill", "scrollable"])
 </script>
 
 <style lang="scss">
@@ -67,6 +85,11 @@
         --kel-dialog-bg-color: var(--ks-bg-elevated);
         border: 1px solid var(--ks-border-default);
         border-radius: var(--ks-radius-xl);
+
+        .kel-form-item__label {
+            font-size: var(--ks-font-size-md);
+            font-weight: var(--ks-font-weight-semibold);
+        }
 
         .kel-dialog__header {
             font-size: var(--ks-font-size-base);
@@ -90,16 +113,55 @@
             padding-bottom: var(--kel-dialog-padding-primary);
         }
 
+        .kel-dialog__scrollable-body {
+            margin-right: calc(var(--kel-dialog-padding-primary) * -1);
+            padding-right: var(--kel-dialog-padding-primary);
+
+            .kel-scrollbar__view {
+                overflow-x: hidden;
+            }
+        }
+
         .kel-dialog__footer {
             border-top: 1px solid var(--ks-border-default);
             margin-left: calc(var(--kel-dialog-padding-primary) * -1);
             margin-bottom: calc(var(--kel-dialog-padding-primary) * -1);
             padding-bottom: var(--kel-dialog-padding-primary);
             padding-right: var(--kel-dialog-padding-primary);
+            padding-left: var(--kel-dialog-padding-primary);
             width: calc(100% + var(--kel-dialog-padding-primary) * 2);
             background-color: var(--ks-bg-base);
             border-bottom-left-radius: var(--ks-radius-xl);
             border-bottom-right-radius: var(--ks-radius-xl);
+        }
+
+        &.is-fill {
+            --kel-dialog-fill-gutter: 2vh;
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - var(--kel-dialog-margin-top, 15vh) - var(--kel-dialog-fill-gutter));
+            margin-bottom: var(--kel-dialog-fill-gutter);
+            overflow: hidden;
+
+            .kel-dialog__body {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-height: 0;
+                overflow: hidden;
+            }
+        }
+
+        &.is-form-layout form {
+            padding: var(--ks-spacing-4);
+            padding-bottom: 0;
+            display: flex;
+            flex-direction: column;
+            gap: var(--ks-spacing-4);
+
+            .kel-form-item {
+                margin-bottom: 0;
+            }
         }
     }
 </style>

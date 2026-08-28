@@ -14,7 +14,7 @@
             <div class="filter-toolbar__search">
                 <KsSearch
                     v-model="searchText"
-                    :placeholder="$t('pluginPage.search')"
+                    :placeholder="$t('pluginPage.search', {count: totalPlugins})"
                     clearable
                 />
             </div>
@@ -82,9 +82,10 @@
                         </template>
                     </div>
                 </template>
-                <KsPluginCard
+                <PluginCard
                     :iconCls="hasIcon(plugin.subGroup) ? plugin.subGroup : plugin.group"
                     :icons
+                    :loadIcon="pluginsStore.loadIcon"
                     :title="plugin.title.capitalize()"
                     :description="plugin.description"
                     :categories="plugin.categories"
@@ -101,10 +102,12 @@
     import {ref, computed, markRaw, onMounted, watch, type Component} from "vue"
     import {useI18n} from "vue-i18n"
     import {useRoute, useRouter} from "vue-router"
-    import {KsPluginCard, KsSearch, KsAlert, KsSkeleton} from "@kestra-io/design-system"
+    import {KsSearch, KsAlert, KsSkeleton} from "@kestra-io/design-system"
+    import PluginCard from "./PluginCard.vue"
     import {isEntryAPluginElementPredicate, isPluginMatched, type Plugin, type PluginElement} from "../../utils/pluginUtils"
     import {usePluginsStore} from "../../stores/plugins"
     import {usePluginsEnrichmentStore} from "../../stores/pluginsEnrichment"
+    import {usePluginsCount} from "../../composables/usePluginsCount"
     import {useMiscStore} from "override/stores/misc"
     import useRouteContext from "../../composables/useRouteContext"
     import TopNavBar from "../../components/layout/TopNavBar.vue"
@@ -122,6 +125,7 @@
     const pluginsStore = usePluginsStore()
     const miscStore = useMiscStore()
     const enrichmentStore = usePluginsEnrichmentStore()
+    const {totalPlugins} = usePluginsCount()
 
     const title = computed(() => t("plugins.names"))
     const routeInfo = computed(() => ({title: title.value, breadcrumb: undefined}))
@@ -293,6 +297,7 @@
 
     onMounted(() => {
         loadPluginIcons()
+        pluginsStore.fetchIcons()
         miscStore.loadConfigs()
         pluginsStore.ensurePlugins().catch((err) => {
             console.error("Failed to load plugins", err)

@@ -10,7 +10,11 @@
         :lang="!forceEditor ? extensionToMonacoLang : 'json'"
         readOnly
         inline
-        :options="{wordWrap, fullHeight: false}"
+        :options="{
+            wordWrap,
+            fullHeight: false,
+            customHeight: 14,
+        }"
         :navbar="false"
         class="position-relative"
     >
@@ -35,13 +39,15 @@
 </template>
 
 <script setup lang="ts">
-    import {ref, computed} from "vue"
+    import {ref, computed, defineAsyncComponent} from "vue"
     import Wrap from "vue-material-design-icons/Wrap.vue"
     import CopyToClipboard from "../layout/CopyToClipboard.vue"
     import {KsMarkdown, KsEditor} from "@kestra-io/design-system"
     import {useEditorBindings} from "../../composables/useEditorBindings"
     import ListPreview from "../ListPreview.vue"
-    import PdfPreview from "../PdfPreview.vue"
+
+    // Async so pdfjs-dist (~417 kB) is fetched only when an output actually is a PDF.
+    const PdfPreview = defineAsyncComponent(() => import("../PdfPreview.vue"))
 
     export interface Preview {
         truncated?: boolean;
@@ -83,3 +89,9 @@
         return `data:image/${props.extension};base64,${props.content}`
     })
 </script>
+
+<style scoped lang="scss">
+    :deep( .editor-absolute-container) {
+        top: 4px;
+    }
+</style>

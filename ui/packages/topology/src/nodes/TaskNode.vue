@@ -6,7 +6,7 @@
         :state="state"
         :class="classes"
         :icons="icons"
-        :iconComponent="iconComponent"
+        :loadIcon="loadIcon"
         @mouseover="emit(EVENTS.MOUSE_OVER, $event)"
         @mouseleave="emit(EVENTS.MOUSE_LEAVE)"
     >
@@ -37,7 +37,7 @@
                 <component :is="statusStyle.icon" class="status-tag__icon" />
                 <span v-if="statusStyle.label" class="status-tag__text">{{ $t(statusStyle.label) }}</span>
                 <span v-else class="status-tag__text">
-                    <Duration :histories="histories" :interval="100" />
+                    <Duration :histories="histories" :interval="100" :attemptCount="taskRuns[0]?.attempts?.length" :subject="taskId" />
                 </span>
             </span>
         </template>
@@ -67,6 +67,8 @@
     } from "../injectionKeys"
 
     import TextBoxSearch from "vue-material-design-icons/TextBoxSearch.vue"
+    import LocationExit from "vue-material-design-icons/LocationExit.vue"
+    import PlayBoxMultiple from "vue-material-design-icons/PlayBoxMultiple.vue"
     import AlertOutline from "vue-material-design-icons/AlertOutline.vue"
     import SendLock from "vue-material-design-icons/SendLock.vue"
     import InformationOutline from "vue-material-design-icons/InformationOutline.vue"
@@ -117,6 +119,7 @@
     interface TaskRun {
         id: string
         taskId: string;
+        parentTaskRunId?: string;
         state: {
             current: [string, string];
             duration?: string;
@@ -124,7 +127,9 @@
         };
         outputs?: {
             executionId?: string;
-        };
+        } & Record<string, unknown>;
+        attempts?: unknown[];
+        value?: string;
     }
 
     interface ExpandData {
@@ -138,10 +143,11 @@
         targetPosition?: Position;
         id: string;
         icons?: Record<string, unknown>;
-        iconComponent?: object;
+        loadIcon?: (cls: string) => Promise<unknown>;
         enableSubflowInteraction?: boolean;
         playgroundEnabled: boolean;
         playgroundReadyToStart: boolean;
+        replayEnabled?: boolean;
         customActions?: Record<string, CustomActionConfig>;
         showDetails?: Record<string, ShowDetailsConfig>;
     }>(), {
@@ -149,7 +155,8 @@
         targetPosition: Position.Left,
         enableSubflowInteraction: true,
         icons: undefined,
-        iconComponent: undefined,
+        loadIcon: undefined,
+        replayEnabled: false,
         customActions: () => ({}),
         showDetails: () => ({}),
     })
@@ -163,6 +170,8 @@
         (event: typeof EVENTS.EXPAND, data: any): void;
         (event: typeof EVENTS.OPEN_LINK, data: any): void;
         (event: typeof EVENTS.SHOW_LOGS, data: any): void;
+        (event: typeof EVENTS.SHOW_OUTPUTS, data: any): void;
+        (event: typeof EVENTS.REPLAY_TASK, data: any): void;
         (event: typeof EVENTS.MOUSE_OVER, data: any): void;
         (event: typeof EVENTS.MOUSE_LEAVE): void;
         (event: typeof EVENTS.ADD_ERROR, data: { task: any }): void;
@@ -217,6 +226,16 @@
         return taskRunList.value.filter(
             (t: TaskRun) => t.taskId === Utils.afterLastDot(props.data.node.uid),
         )
+    })
+
+    // The task's own taskruns plus any dynamically-generated child taskruns (e.g. Ansible
+    // plays/tasks) so "show task logs" surfaces their logs too, not just the task's root logs.
+    const taskRunsWithDynamicChildren = computed(() => {
+        const ids = new Set(taskRuns.value.map((t: TaskRun) => t.id))
+        const children = taskRunList.value.filter(
+            (t: TaskRun) => t.parentTaskRunId && ids.has(t.parentTaskRunId),
+        )
+        return [...taskRuns.value, ...children]
     })
 
     const state = computed(() => {
@@ -333,7 +352,15 @@
                 key: "logs",
                 label: t("show task logs"),
                 icon: TextBoxSearch,
-                onClick: () => emit(EVENTS.SHOW_LOGS, {id: taskId.value, execution: taskExecution.value, taskRuns: taskRuns.value}),
+                onClick: () => emit(EVENTS.SHOW_LOGS, {id: taskId.value, execution: taskExecution.value, taskRuns: taskRunsWithDynamicChildren.value}),
+            })
+        }
+        if (taskExecution.value) {
+            list.push({
+                key: "outputs",
+                label: t("show task outputs"),
+                icon: LocationExit,
+                onClick: () => emit(EVENTS.SHOW_OUTPUTS, {id: taskId.value, execution: taskExecution.value, taskRuns: taskRuns.value}),
             })
         }
         if (dataWithLink.value.link) {
@@ -386,6 +413,15 @@
                 onClick: () => emit(EVENTS.DELETE, {id: taskId.value, section: SECTIONS.TASKS}),
             })
         }
+        if (props.replayEnabled && taskExecution.value && taskRuns.value.length > 0) {
+            list.push({
+                key: "replay",
+                label: t("replay"),
+                icon: PlayBoxMultiple,
+                divided: true,
+                onClick: () => emit(EVENTS.REPLAY_TASK, {id: taskId.value, execution: taskExecution.value, taskRuns: taskRuns.value}),
+            })
+        }
 
         return list
     })
@@ -414,7 +450,7 @@
     width: 1rem;
     padding: .1rem;
     margin: 6px;
-    font-size: .8rem;
+    font-size: var(--ks-font-size-sm);
 }
 
 button.playground-button {
@@ -448,6 +484,8 @@ button.playground-button {
 
 .runner-badge {
     align-self: flex-start;
+    max-width: 100%;
+    margin-bottom: var(--ks-spacing-1);
     padding: 0 var(--ks-spacing-2);
     border-radius: var(--ks-radius-base);
     background-color: var(--ks-bg-tag);

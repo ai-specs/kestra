@@ -14,14 +14,14 @@
                 :icon="ArrowExpand"
                 link
             >
-                {{ t("see timeline") }}
+                {{ $t("see timeline") }}
             </KsButton>
         </template>
 
         <div class="run-timeline">
             <div class="run-timeline__header">
-                <span class="run-timeline__title">{{ t("run timeline") }}</span>
-                <KsIconButton :tooltip="t('close')" placement="top" @click="visible = false">
+                <span class="run-timeline__title">{{ $t("run timeline") }}</span>
+                <KsIconButton :tooltip="$t('close')" placement="top" @click="visible = false">
                     <Close />
                 </KsIconButton>
             </div>
@@ -43,9 +43,8 @@
 
 <script setup lang="ts">
     import {ref} from "vue"
-    import {useI18n} from "vue-i18n"
 
-    import moment from "moment"
+    import {date as dateFilter} from "../../../../utils/filters"
     import {KsExecutionStatus} from "@kestra-io/design-system"
 
     import ArrowExpand from "vue-material-design-icons/ArrowExpand.vue"
@@ -55,7 +54,6 @@
 
     defineProps<{histories: Histories[]}>()
 
-    const {t} = useI18n({useScope: "global"})
 
     const POPPER_STYLE = {
         padding: "0",
@@ -67,7 +65,7 @@
 
     const visible = ref(false)
 
-    const formatDate = (date: string) => moment(date).format("YYYY-MM-DD HH:mm:ss.SSS")
+    const formatDate = (date: string) => dateFilter(date, "iso")
 </script>
 
 <style scoped lang="scss">

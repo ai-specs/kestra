@@ -21,8 +21,9 @@
 <script setup lang="ts">
     import {ref, computed, onMounted, watch} from "vue"
     import {useRoute} from "vue-router"
+    import {useI18n} from "vue-i18n"
     import AiIcon from "vue-material-design-icons/Creation.vue"
-    import {useFlowStore} from "../stores/flow"
+    import {useMiscStore} from "override/stores/misc"
 
     interface ErrorItem {
         path?: string;
@@ -50,13 +51,14 @@
         onClose: null,
     })
 
+    const {t} = useI18n()
     const route = useRoute()
-    const flowStore = useFlowStore()
+    const miscStore = useMiscStore()
     const markdownRenderer = ref<string | undefined>(undefined)
 
     const isFlowContext = computed(() => {
-        const routeName = route?.name
-        return routeName === "flows/update" || routeName === "flows/create"
+        const routeName = String(route?.name ?? "")
+        return routeName.startsWith("flows/update") || routeName === "flows/create"
     })
 
     const renderMarkdown = (): string => {
@@ -77,18 +79,14 @@
         const fullErrorMessage = [errorMessage, errorItems].filter(Boolean).join("\n\n")
         const prompt = `Fix the following error in the flow:\n${fullErrorMessage}`
 
-        try {
-            window.sessionStorage.setItem("kestra-ai-prompt", prompt)
-        } catch (err) {
-            console.warn("AI prompt not persisted to sessionStorage:", err)
-        }
-
         // Close the notification
         if (props.onClose) {
             props.onClose()
         }
 
-        flowStore.setOpenAiCopilot(true)
+        const flowId = route.params?.id
+        const title = flowId ? t("ai.copilot.fixThread.flow", {id: flowId}) : t("ai.copilot.fixThread.generic")
+        miscStore.promptCopilot(prompt, {title, newThread: true})
     }
 
     // Watch for changes in message

@@ -3,6 +3,7 @@ package io.kestra.controller.grpc.services;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -19,6 +20,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.slf4j.event.Level;
 
 import io.kestra.controller.grpc.WorkerJobResponse;
 import io.kestra.core.contexts.KestraContext;
@@ -26,21 +29,32 @@ import io.kestra.core.exceptions.DeserializationException;
 import io.kestra.core.executor.WorkerJobRunningStateStore;
 import io.kestra.core.metrics.MetricRegistry;
 import io.kestra.core.models.executions.ExecutionKilled;
+import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.executions.TaskRun;
+import io.kestra.core.models.flows.State;
 import io.kestra.core.queues.BroadcastQueueInterface;
 import io.kestra.core.queues.DispatchQueueInterface;
 import io.kestra.core.queues.KeyedDispatchQueueInterface;
 import io.kestra.core.queues.QueueException;
 import io.kestra.core.queues.QueueSubscriber;
+import io.kestra.core.runners.LogEntryEmitter;
+import io.kestra.core.runners.RunContextLoggerFactory;
 import io.kestra.core.runners.WorkerJob;
 import io.kestra.core.runners.WorkerJobEvent;
 import io.kestra.core.runners.WorkerTask;
+import io.kestra.core.runners.WorkerTaskData;
 import io.kestra.core.runners.WorkerTaskResult;
+import io.kestra.core.runners.WorkerTrigger;
+import io.kestra.core.runners.WorkerTriggerData;
+import io.kestra.core.runners.configuration.LoggingConfiguration;
+import io.kestra.core.scheduler.events.TriggerEvaluated;
 import io.kestra.core.scheduler.queue.TriggerEventQueue;
 import io.kestra.core.server.ClusterEvent;
 import io.kestra.core.utils.Either;
 import io.kestra.core.worker.WorkerGroups;
 import io.kestra.core.worker.WorkerQueues;
+import io.kestra.plugin.core.log.Log;
+import io.kestra.plugin.core.trigger.Schedule;
 
 import io.grpc.stub.StreamObserver;
 import io.micrometer.core.instrument.search.Search;
@@ -71,6 +85,7 @@ class WorkerJobDispatcherTest {
     private WorkerJobDispatcher dispatcher;
     private TriggerEventQueue mockTriggerEventQueue = mock(TriggerEventQueue.class);
     private MetricRegistry mockMetricRegistry = mock(MetricRegistry.class);
+    private LogEntryEmitter mockLogEntryEmitter = mock(LogEntryEmitter.class);
 
     // Captures for verifying interactions
     private List<MockQueueSubscriber> createdSubscribers;
@@ -91,6 +106,7 @@ class WorkerJobDispatcherTest {
         mockResultQueue = mock(DispatchQueueInterface.class);
         mockTriggerEventQueue = mock(TriggerEventQueue.class);
         mockMetricRegistry = mock(MetricRegistry.class);
+        mockLogEntryEmitter = mock(LogEntryEmitter.class);
         createdSubscribers = new ArrayList<>();
 
         // Mock workerQueueTags to return well-formed tag arrays.
@@ -155,7 +171,9 @@ class WorkerJobDispatcherTest {
 
     private WorkerJobDispatcher buildDispatcher(List<WorkerLifecycleListener> listeners) {
         return new WorkerJobDispatcher(
-            mockQueue, mockStateStore, mockKillQueue, mockClusterEventQueue, mockResultQueue, mockTriggerEventQueue, mockMetricRegistry, mock(MetadataChangeListener.class), new WorkerQueueResolver.Default(), listeners
+            mockQueue, mockStateStore, mockKillQueue, mockClusterEventQueue, mockResultQueue, mockTriggerEventQueue, mockMetricRegistry, mock(MetadataChangeListener.class),
+            new WorkerQueueResolver.Default(), listeners,
+            new RunContextLoggerFactory(mockLogEntryEmitter, new LoggingConfiguration(null))
         );
     }
 
@@ -206,6 +224,36 @@ class WorkerJobDispatcherTest {
         when(mockTask.getType()).thenReturn("task");
         when(mockTask.getTaskRun()).thenReturn(taskRun);
         return new WorkerJobEvent(workerGroup, mockTask);
+    }
+
+    private WorkerTask createWorkerTask(String taskRunId) {
+        return WorkerTask.builder()
+            .taskRun(
+                TaskRun.builder()
+                    .id(taskRunId)
+                    .tenantId("main")
+                    .namespace("io.kestra.test")
+                    .flowId("flow-1")
+                    .taskId("task-1")
+                    .executionId("exec-1")
+                    .state(new State())
+                    .build()
+            )
+            .task(Log.builder().id("task-1").type(Log.class.getName()).build())
+            .data(new WorkerTaskData(Map.of(), List.of(), null, null))
+            .build();
+    }
+
+    private WorkerTrigger createWorkerTrigger(String triggerId) {
+        return WorkerTrigger.builder()
+            .trigger(Schedule.builder().id(triggerId).type(Schedule.class.getName()).build())
+            .data(
+                new WorkerTriggerData(
+                    "main", "io.kestra.test", "flow-1", null, 1, null, null,
+                    Map.of(), List.of(), null, Map.of()
+                )
+            )
+            .build();
     }
 
     private MockQueueSubscriber getSubscriberForGroup(String group) {
@@ -398,6 +446,23 @@ class WorkerJobDispatcherTest {
             // Then
             assertThat(subscriber.resumeCount.get()).isEqualTo(resumesBefore);
         }
+
+        @Test
+        void shouldPauseSubscriptionWhenPermitsDropToZero() {
+            // Given - a worker that advertised capacity, so its subscription is resumed
+            WorkerStreamContext<WorkerJobResponse> context = createWorkerContext("worker-1", WORKER_GROUP_A, 10);
+            dispatcher.registerWorker(context);
+            dispatcher.onPermitsReceived(context, 5);
+            MockQueueSubscriber subscriber = getSubscriberForGroup(WORKER_GROUP_A);
+            assertThat(subscriber.isPaused.get()).isFalse();
+
+            // When - the worker drains itself to zero (maintenance / cordon, or a full queue)
+            dispatcher.onPermitsReceived(context, 0);
+
+            // Then - the subscription is paused so the controller stops dispatching to it
+            assertThat(context.getAvailablePermits()).isZero();
+            assertThat(subscriber.isPaused.get()).isTrue();
+        }
     }
 
     @Nested
@@ -459,6 +524,63 @@ class WorkerJobDispatcherTest {
             verify(context.getResponseObserver()).onNext(any(WorkerJobResponse.class));
             assertThat(context.getInFlightCount()).isEqualTo(1);
             assertThat(context.getAvailablePermits()).isEqualTo(4);
+        }
+
+        @Test
+        void shouldEmitTaskLogWhenPayloadExceedsWorkerInboundLimit() throws QueueException {
+            // Given
+            WorkerStreamContext<WorkerJobResponse> context = createWorkerContext("worker-1", WORKER_GROUP_A, 10);
+            context.addPermits(5);
+            context.setMaxInboundMessageSize(64);
+            dispatcher.registerWorker(context);
+
+            MockQueueSubscriber subscriber = getSubscriberForGroup(WORKER_GROUP_A);
+            WorkerJobEvent event = new WorkerJobEvent(WORKER_GROUP_A, createWorkerTask("taskrun-1"));
+
+            // When
+            subscriber.deliverJob(event);
+
+            // Then
+            ArgumentCaptor<LogEntry> captor = ArgumentCaptor.forClass(LogEntry.class);
+            verify(mockLogEntryEmitter).emits(captor.capture());
+
+            LogEntry logEntry = captor.getValue();
+            assertThat(logEntry.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(logEntry.getTaskRunId()).isEqualTo("taskrun-1");
+            assertThat(logEntry.getExecutionId()).isEqualTo("exec-1");
+            assertThat(logEntry.getAttemptNumber()).isZero();
+            assertThat(logEntry.getMessage())
+                .contains("64 bytes")
+                .contains("kestra.grpc.max-inbound-message-size");
+
+            verify(mockResultQueue).emit(any(WorkerTaskResult.class));
+            verify(context.getResponseObserver(), never()).onNext(any(WorkerJobResponse.class));
+        }
+
+        @Test
+        void shouldEmitTriggerLogWhenPayloadExceedsWorkerInboundLimit() {
+            // Given
+            WorkerStreamContext<WorkerJobResponse> context = createWorkerContext("worker-1", WORKER_GROUP_A, 10);
+            context.addPermits(5);
+            context.setMaxInboundMessageSize(64);
+            dispatcher.registerWorker(context);
+
+            MockQueueSubscriber subscriber = getSubscriberForGroup(WORKER_GROUP_A);
+            WorkerJobEvent event = new WorkerJobEvent(WORKER_GROUP_A, createWorkerTrigger("trigger-1"));
+
+            // When
+            subscriber.deliverJob(event);
+
+            // Then
+            ArgumentCaptor<LogEntry> captor = ArgumentCaptor.forClass(LogEntry.class);
+            verify(mockLogEntryEmitter).emits(captor.capture());
+
+            LogEntry logEntry = captor.getValue();
+            assertThat(logEntry.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(logEntry.getTriggerId()).isEqualTo("trigger-1");
+            assertThat(logEntry.getMessage()).contains("kestra.grpc.max-inbound-message-size");
+
+            verify(mockTriggerEventQueue).send(any(TriggerEvaluated.class));
         }
 
         @Test
@@ -655,15 +777,15 @@ class WorkerJobDispatcherTest {
                     final String workerId = "worker-" + i;
                     final WorkerStreamContext<WorkerJobResponse> context = createWorkerContext(workerId, WORKER_GROUP_A, 10);
                     executor.submit(() ->
-                        {
-                            try {
-                                dispatcher.registerWorker(context);
-                            } catch (Exception e) {
-                                errors.incrementAndGet();
-                            } finally {
-                                latch.countDown();
-                            }
-                        });
+                    {
+                        try {
+                            dispatcher.registerWorker(context);
+                        } catch (Exception e) {
+                            errors.incrementAndGet();
+                        } finally {
+                            latch.countDown();
+                        }
+                    });
 
                     executor.submit(() ->
                     {
@@ -1160,8 +1282,11 @@ class WorkerJobDispatcherTest {
         // (least-loaded) worker simulates losing the permit CAS race to a
         // concurrent dispatch on another Worker Queue. The dispatcher must fall
         // through to the next candidate instead of pausing the subscription.
-        var subs = List.of(new io.kestra.core.worker.QueueSubscription(
-            WORKER_GROUP_A, io.kestra.core.worker.QueueSubscription.NO_RESERVATION));
+        var subs = List.of(
+            new io.kestra.core.worker.QueueSubscription(
+                WORKER_GROUP_A, io.kestra.core.worker.QueueSubscription.NO_RESERVATION
+            )
+        );
 
         @SuppressWarnings("unchecked")
         StreamObserver<WorkerJobResponse> obs1 = mock(StreamObserver.class);
@@ -1169,14 +1294,16 @@ class WorkerJobDispatcherTest {
         StreamObserver<WorkerJobResponse> obs2 = mock(StreamObserver.class);
 
         WorkerStreamContext<WorkerJobResponse> ctx1 = new WorkerStreamContext<>(
-            "worker-1", "", subs, 10, obs1) {
+            "worker-1", "", subs, 10, obs1
+        ) {
             @Override
             public boolean tryConsumePermit() {
                 return false; // simulate concurrent steal between filter and CAS
             }
         };
         WorkerStreamContext<WorkerJobResponse> ctx2 = createMultiGroupWorkerContext(
-            "worker-2", "", subs, 10);
+            "worker-2", "", subs, 10
+        );
 
         ctx1.setPermits(5);
         ctx2.setPermits(5);
@@ -1202,8 +1329,11 @@ class WorkerJobDispatcherTest {
         // (another dispatch grabbed the last bucket slot between filter and
         // reserve). The dispatcher must restore the consumed permit and fall
         // through to the next candidate.
-        var subs = List.of(new io.kestra.core.worker.QueueSubscription(
-            WORKER_GROUP_A, io.kestra.core.worker.QueueSubscription.NO_RESERVATION));
+        var subs = List.of(
+            new io.kestra.core.worker.QueueSubscription(
+                WORKER_GROUP_A, io.kestra.core.worker.QueueSubscription.NO_RESERVATION
+            )
+        );
 
         @SuppressWarnings("unchecked")
         StreamObserver<WorkerJobResponse> obs1 = mock(StreamObserver.class);
@@ -1211,14 +1341,16 @@ class WorkerJobDispatcherTest {
         StreamObserver<WorkerJobResponse> obs2 = mock(StreamObserver.class);
 
         WorkerStreamContext<WorkerJobResponse> ctx1 = new WorkerStreamContext<>(
-            "worker-1", "", subs, 10, obs1) {
+            "worker-1", "", subs, 10, obs1
+        ) {
             @Override
             public String tryReserveBucket(String workerQueueId) {
                 return null; // simulate concurrent reservation took the last slot
             }
         };
         WorkerStreamContext<WorkerJobResponse> ctx2 = createMultiGroupWorkerContext(
-            "worker-2", "", subs, 10);
+            "worker-2", "", subs, 10
+        );
 
         ctx1.setPermits(5);
         ctx2.setPermits(5);
@@ -1463,9 +1595,13 @@ class WorkerJobDispatcherTest {
         dispatcher.registerWorker(context);
 
         // When — a disconnect event targets a worker not connected here
-        clusterEventConsumer.accept(Either.left(new ClusterEvent(
-            ClusterEvent.EventType.WORKER_DISCONNECT_REQUESTED, LocalDateTime.now(), "unknown-worker"
-        )));
+        clusterEventConsumer.accept(
+            Either.left(
+                new ClusterEvent(
+                    ClusterEvent.EventType.WORKER_DISCONNECT_REQUESTED, LocalDateTime.now(), "unknown-worker"
+                )
+            )
+        );
 
         // Then — no effect on connected workers
         assertThat(dispatcher.getActiveWorkerCount()).isEqualTo(1);
@@ -1636,14 +1772,15 @@ class WorkerJobDispatcherTest {
         StreamObserver<WorkerJobResponse> obsA = ctxA.getResponseObserver();
         StreamObserver<WorkerJobResponse> obsB = ctxB.getResponseObserver();
 
-        io.kestra.core.worker.MetadataChangePayload payload =
-            new io.kestra.core.worker.MetadataChangePayload(
-                io.kestra.core.worker.MetadataChangePayload.Type.NAMESPACE,
-                "tenant-a", "prod.team");
+        io.kestra.core.worker.MetadataChangePayload payload = new io.kestra.core.worker.MetadataChangePayload(
+            io.kestra.core.worker.MetadataChangePayload.Type.NAMESPACE,
+            "tenant-a", "prod.team"
+        );
 
         // When
         dispatcher.broadcastToAllWorkers(
-            new io.kestra.core.worker.WorkerBroadcastEvent.MetadataChangeEvent(payload));
+            new io.kestra.core.worker.WorkerBroadcastEvent.MetadataChangeEvent(payload)
+        );
 
         // Then — each worker's underlying StreamObserver should have received an onNext
         verify(obsA).onNext(any(WorkerJobResponse.class));

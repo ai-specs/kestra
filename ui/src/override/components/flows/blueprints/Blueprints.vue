@@ -1,11 +1,13 @@
 <template>
     <DemoBlueprints v-if="tab === 'custom'" />
+    <DemoDashboards v-else-if="kind === 'dashboard'" blueprints />
+    <DemoApps v-else-if="kind === 'app'" blueprints />
     <template v-else>
         <TopNavBar v-if="!embed" :title="routeInfo.title" />
         <section
             v-bind="$attrs"
             class="main-container"
-            :class="{'blueprints-margin': !combinedView, 'detail-view': !!selectedBlueprintId}"
+            :class="{'blueprints-margin': !combinedView, 'detail-view': !!selectedBlueprintId, 'full-container': !embed}"
         >
             <BlueprintDetail
                 v-if="selectedBlueprintId"
@@ -35,6 +37,8 @@
     import BlueprintDetail from "override/components/flows/blueprints/BlueprintDetail.vue"
     import BlueprintsBrowser from "../../../../components/flows/blueprints/BlueprintsBrowser.vue"
     import DemoBlueprints from "../../../../components/demo/Blueprints.vue"
+    import DemoDashboards from "../../../../components/demo/Dashboards.vue"
+    import DemoApps from "../../../../components/demo/Apps.vue"
 
     import useRouteContext from "../../../../composables/useRouteContext"
     import {useRouteTabsStore} from "../../../../stores/routeTabs"
@@ -86,6 +90,13 @@
             name: "dashboard-community",
             title: t("blueprints.dashboards"),
             route: {name: "blueprints", params: {kind: "dashboard", tab: "community"}},
+            locked: true,
+        },
+        {
+            name: "app-community",
+            title: t("blueprints.apps"),
+            route: {name: "blueprints", params: {kind: "app", tab: "community"}},
+            locked: true,
         },
     ])
 
