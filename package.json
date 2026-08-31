@@ -1,0 +1,16 @@
+{
+  "name": "app-kestra",
+  "version": "2.0.0-SNAPSHOT",
+  "private": true,
+  "description": "dsh-monorepo wrapper for the Kestra (Java/Gradle) submodule",
+  "scripts": {
+    "dev": "./gradlew build -x test -x integrationTest -x testCodeCoverageReport",
+    "start": "make start-standalone-local",
+    "build": "./gradlew build -x test -x integrationTest -x testCodeCoverageReport",
+    "build:exec": "./gradlew executableJar",
+    "test": "./gradlew test",
+    "sync-upstream": "git fetch upstream && git merge upstream/develop",
+    "docker:up": "cd ../.. && docker compose up -d",
+    "docker:down": "cd ../.. && docker compose down"
+  }
+}
