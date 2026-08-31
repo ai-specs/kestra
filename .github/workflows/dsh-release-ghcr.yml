@@ -15,6 +15,12 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      rebuild_base:
+        description: '强制重建基础镜像 kestra-base（默认复用已存在的）'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,6 +28,9 @@ permissions:
 
 env:
   PLATFORMS: linux/amd64,linux/arm64
+  # 基础镜像滚动 tag：内容只随 Dockerfile.base / 构建参数变化，
+  # 存在即复用，不随 kestra 版本号变化；需要重建时手动 dispatch 并勾选 rebuild_base
+  BASE_TAG: jre25-py
 
 jobs:
   build-and-publish:
@@ -49,7 +58,7 @@ jobs:
           {
             echo "version=${VERSION}"
             echo "owner=${OWNER_LC}"
-            echo "base_image=${REGISTRY_LC}/${OWNER_LC}/kestra-base:${VERSION}"
+            echo "base_image=${REGISTRY_LC}/${OWNER_LC}/kestra-base:${BASE_TAG}"
             echo "image=${REGISTRY_LC}/${OWNER_LC}/kestra"
             echo "extra_tags=${EXTRA_TAGS}"
           } >> "$GITHUB_OUTPUT"
@@ -92,7 +101,21 @@ jobs:
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+      - name: Resolve base image (reuse if exists)
+        id: base
+        run: |
+          BASE="${{ steps.vars.outputs.base_image }}"
+          FORCE="${{ inputs.rebuild_base || 'false' }}"
+          if [ "${FORCE}" != "true" ] && docker manifest inspect "${BASE}" > /dev/null 2>&1; then
+            echo "rebuild=false" >> "$GITHUB_OUTPUT"
+            echo "基础镜像已存在，复用: ${BASE}"
+          else
+            echo "rebuild=true" >> "$GITHUB_OUTPUT"
+            echo "将构建基础镜像: ${BASE} (force=${FORCE})"
+          fi
+
       - name: Build & push base image (Dockerfile.base)
+        if: steps.base.outputs.rebuild == 'true'
         run: |
           docker buildx build \
             --platform "${PLATFORMS}" \
@@ -102,6 +125,21 @@ jobs:
             -t "${{ steps.vars.outputs.base_image }}" \
             --push \
             .
+
+      - name: Record base image digest
+        run: |
+          DIGEST=$(docker buildx imagetools inspect "${{ steps.vars.outputs.base_image }}" --format '{{json .Manifest.Digest}}')
+          echo "base_digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "基础镜像 digest: ${DIGEST}"
+          {
+            echo "## dsh Kestra 镜像已发布到 GHCR"
+            echo ""
+            echo "版本: \`${{ steps.vars.outputs.version }}\`"
+            echo "镜像: \`${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}\`"
+            echo "基础镜像: \`${{ steps.vars.outputs.base_image }}\` (rebuild=${{ steps.base.outputs.rebuild }})"
+            echo "基础镜像 digest: ${DIGEST}"
+            echo "平台: \`${PLATFORMS}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build & push kestra image (Dockerfile, BASE_IMAGE = local base)
         run: |
@@ -116,14 +154,3 @@ jobs:
             ${TAGS} \
             --push \
             .
-
-      - name: Job summary
-        run: |
-          {
-            echo "## dsh Kestra 镜像已发布到 GHCR"
-            echo ""
-            echo "版本: \`${{ steps.vars.outputs.version }}\`"
-            echo "镜像: \`${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}\`"
-            echo "基础镜像: \`${{ steps.vars.outputs.base_image }}\`"
-            echo "平台: \`${PLATFORMS}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
