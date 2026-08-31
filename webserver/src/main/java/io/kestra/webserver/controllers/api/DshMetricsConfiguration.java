@@ -1,34 +1,38 @@
 package io.kestra.webserver.controllers.api;
 
-import io.micronaut.context.annotation.Property;
-import jakarta.inject.Singleton;
+import io.micronaut.context.annotation.Singleton;
+import io.micronaut.context.env.PropertyResolver;
+
+import java.util.Optional;
 
 /**
  * Connection settings for the dsh observation center queries. Defaults match
- * the dsh-monorepo docker-compose PostgreSQL; override via properties when the
- * dsh tables live elsewhere.
+ * the dsh-monorepo docker-compose PostgreSQL; override via the
+ * `dsh.metrics.jdbc-*` properties when the dsh tables live elsewhere.
  */
 @Singleton
 public class DshMetricsConfiguration {
 
-    @Property(name = "dsh.metrics.jdbc-url")
-    private String jdbcUrl;
+    private final PropertyResolver resolver;
 
-    @Property(name = "dsh.metrics.jdbc-username")
-    private String username;
-
-    @Property(name = "dsh.metrics.jdbc-password")
-    private String password;
+    public DshMetricsConfiguration(PropertyResolver resolver) {
+        this.resolver = resolver;
+    }
 
     public String jdbcUrl() {
-        return jdbcUrl != null ? jdbcUrl : "jdbc:postgresql://postgres:5432/kestra";
+        return resolver.getProperty("dsh.metrics.jdbc-url", String.class).orElse("jdbc:postgresql://postgres:5432/kestra");
     }
 
     public String username() {
-        return username != null ? username : "kestra";
+        return resolver.getProperty("dsh.metrics.jdbc-username", String.class).orElse("kestra");
     }
 
     public String password() {
-        return password != null ? password : "k3str4";
+        return resolver.getProperty("dsh.metrics.jdbc-password", String.class).orElse("k3str4");
+    }
+
+    /** Escape hatch for callers that need Optional semantics. */
+    public Optional<String> jdbcUrlOptional() {
+        return resolver.getProperty("dsh.metrics.jdbc-url", String.class);
     }
 }
