@@ -19,11 +19,14 @@
 **其余 21 个上游继承工作流全部在 GitHub Actions 页面被停用（Disabled）**，列表见第 3 节。
 每个文件头部也加了 `NOTE (dsh)` 注释块指向本文档。
 
-> **注意（2026-08-31 更新）**：21 个停用工作流中的 `pre-release.yml` 已被**裁剪为 test-only**
-> （`78dc6e6fe2`：移除依赖缺失 secrets 的 `build-artifacts` / `publish-maven` /
-> `generate-configuration-schema` / `publish-github` 等发布 job，仅保留 backend / frontend /
-> design-system 测试与 otel 收尾）。因此若重新启用 Pre Release，它只会跑测试、不会因缺 secrets
-> 失败；其余 20 个上游工作流未裁剪，重新启用后仍可能因缺 secrets 在运行期失败，需先补 secrets。
+> **注意（2026-08-31 更新）**：21 个停用工作流中的 `pre-release.yml` 与 `main-build.yml`
+> 均已**裁剪为 test-only**（`pre-release` 见 `78dc6e6fe2`；`main-build` 见本次提交 git log）：
+> 移除依赖缺失 secrets 的发布/联动 job（build-artifacts、publish-maven、publish-github、
+> publish-develop-docker、publish-develop-maven、generate-configuration-schema、trigger-ee、
+> end 等），仅保留 backend / frontend / design-system 测试与 otel 收尾。
+> 三个测试 job 实测全绿（2026-08-31），因此重新启用这两个工作流**只跑测试、整体成功、
+> 不再因缺 secrets 失败**。其余 19 个上游工作流未裁剪，重新启用后仍可能因缺 secrets 在
+> 运行期失败，需先补 secrets 或按同样方式裁剪。
 
 ## 2. 为什么停用
 
@@ -36,7 +39,7 @@
 
 | 工作流 | 文件 | 上游用途 |
 |---|---|---|
-| Main Workflow | `main-build.yml` | 上游主 CI：后端/前端/设计系统测试 + 发布 develop 版 Docker/Maven + schema 生成 |
+| Main Workflow | `main-build.yml` | 上游主 CI；**已裁剪为 test-only**（2026-08-31，移除依赖缺 secrets 的发布/联动 job，仅保留测试，见第 1 节说明） |
 | E2E tests scheduling | `e2e-scheduling.yml` | 每天 + 每次 push develop 跑 kestra E2E 套件 |
 | Pull Request Workflow | `pull-request.yml` | PR 触发的主 CI |
 | Pull Request - Delete Docker | `pull-request-cleanup.yml` | PR 关闭后清理镜像 |
@@ -84,5 +87,10 @@
 - 2026-08-31：`main-build.yml` 连续 3 次 `Startup failure`（Invalid workflow file），根因见第 2 节；同日将仓库默认 workflow 权限改为 `Read and write permissions`，并在 Actions 页面停用上述 21 个工作流。
 - 2026-08-31（晚些）后续演进：
   - `pre-release.yml` 裁剪为 test-only（`78dc6e6fe2`，drop secret-dependent publish jobs）；
+  - `main-build.yml` 裁剪为 test-only（移除 publish-develop-docker / publish-develop-maven /
+    generate-configuration-schema / trigger-ee / end 等依赖缺失凭据的 job，仅保留测试 + otel，
+    见 git log）；
   - `dsh-release-ghcr.yml` 新增按触发来源分流的 concurrency（`c9393ab041`，用户授权）：tag 并行不取消、非 tag（develop）新任务取代旧任务；
   - `plugin-modal` submodule 移除为并行 agent 有意为之并保留（`75b010aa0d` 说明 commit）。
+  - 关于"跑通"的定义：上游工作流重新启用后应**整体成功（全绿）**——即先把依赖缺 secrets
+    的环节裁剪掉再启用，而不是"测试通过、发布 job 失败也接受"。
