@@ -1,38 +1,40 @@
 package io.kestra.webserver.controllers.api;
 
-import io.micronaut.context.annotation.Singleton;
-import io.micronaut.context.env.PropertyResolver;
-
-import java.util.Optional;
+import io.micronaut.context.annotation.Value;
+import jakarta.inject.Singleton;
 
 /**
- * Connection settings for the dsh observation center queries. Defaults match
- * the dsh-monorepo docker-compose PostgreSQL; override via the
- * `dsh.metrics.jdbc-*` properties when the dsh tables live elsewhere.
+ * Connection settings for the dsh observation center queries. The values are
+ * provided by the deployment configuration (docker-compose KESTRA_CONFIGURATION:
+ * dsh.metrics.jdbc-url / jdbc-username / jdbc-password) and must point at the
+ * database holding the dsh_metrics table written by plugin-deepseek-harness.
  */
 @Singleton
 public class DshMetricsConfiguration {
 
-    private final PropertyResolver resolver;
+    private final String jdbcUrl;
+    private final String username;
+    private final String password;
 
-    public DshMetricsConfiguration(PropertyResolver resolver) {
-        this.resolver = resolver;
+    public DshMetricsConfiguration(
+        @Value("${dsh.metrics.jdbc-url}") String jdbcUrl,
+        @Value("${dsh.metrics.jdbc-username}") String username,
+        @Value("${dsh.metrics.jdbc-password}") String password
+    ) {
+        this.jdbcUrl = jdbcUrl;
+        this.username = username;
+        this.password = password;
     }
 
     public String jdbcUrl() {
-        return resolver.getProperty("dsh.metrics.jdbc-url", String.class).orElse("jdbc:postgresql://postgres:5432/kestra");
+        return jdbcUrl;
     }
 
     public String username() {
-        return resolver.getProperty("dsh.metrics.jdbc-username", String.class).orElse("kestra");
+        return username;
     }
 
     public String password() {
-        return resolver.getProperty("dsh.metrics.jdbc-password", String.class).orElse("k3str4");
-    }
-
-    /** Escape hatch for callers that need Optional semantics. */
-    public Optional<String> jdbcUrlOptional() {
-        return resolver.getProperty("dsh.metrics.jdbc-url", String.class);
+        return password;
     }
 }
