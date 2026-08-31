@@ -41,12 +41,14 @@ jobs:
           - cache-tag: latest-slim
             tags: |
               ghcr.io/ai-specs/kestra-base:latest-slim
+              ghcr.io/ai-specs/kestra-base:latest-jre25-slim
             jre: '25'
             with-python: 'false'
             description: 'dsh kestra base image (slim) — JRE 25 + uv pre-installed'
           - cache-tag: latest
             tags: |
               ghcr.io/ai-specs/kestra-base:latest
+              ghcr.io/ai-specs/kestra-base:latest-jre25
             jre: '25'
             with-python: 'true'
             description: 'dsh kestra base image — JRE 25 + uv + Python + kestra pip pre-installed'
