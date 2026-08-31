@@ -1,0 +1,129 @@
+# dsh-monorepo: 打 tag 后自动纯源码构建并发布镜像到 ghcr.io
+#
+# 触发：push v* 标签，或在 Actions 页面手动 workflow_dispatch
+# 产物：
+#   ghcr.io/<owner>/kestra:<tag>   (+ latest，仅 tag 触发时)
+#   ghcr.io/<owner>/kestra-base:<tag>   （本地构建的基础镜像，多架构）
+#
+# 构建链（与本地验证一致，无 kestra/kestra 官方镜像参与）：
+#   ui(npm ci+build) -> ./gradlew executableJar -> cp 到 docker/app/kestra
+#   -> Dockerfile.base (JRE 25, WITH_PYTHON=true) -> Dockerfile (BASE_IMAGE=本地 base)
+name: dsh Release to GHCR
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  build-and-publish:
+    name: Build from source & push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Compute image names and version
+        id: vars
+        run: |
+          OWNER_LC=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          REGISTRY_LC="ghcr.io"
+          EXTRA_TAGS=""
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            EXTRA_TAGS="${REGISTRY_LC}/${OWNER_LC}/kestra:latest"
+          else
+            VERSION="dev-$(git rev-parse --short HEAD)"
+          fi
+          {
+            echo "version=${VERSION}"
+            echo "owner=${OWNER_LC}"
+            echo "base_image=${REGISTRY_LC}/${OWNER_LC}/kestra-base:${VERSION}"
+            echo "image=${REGISTRY_LC}/${OWNER_LC}/kestra"
+            echo "extra_tags=${EXTRA_TAGS}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build frontend
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Gradle executableJar
+        run: ./gradlew executableJar --no-daemon --console=plain
+
+      - name: Stage executable into image context (official build-docker-from-exec flow)
+        run: |
+          cp build/executable/* docker/app/kestra
+          chmod +x docker/app/kestra
+          ls -lh docker/app/kestra
+
+      - name: Setup QEMU (arm64 cross build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build & push base image (Dockerfile.base)
+        run: |
+          docker buildx build \
+            --platform "${PLATFORMS}" \
+            -f Dockerfile.base \
+            --build-arg "JRE_VERSION=25" \
+            --build-arg "WITH_PYTHON=true" \
+            -t "${{ steps.vars.outputs.base_image }}" \
+            --push \
+            .
+
+      - name: Build & push kestra image (Dockerfile, BASE_IMAGE = local base)
+        run: |
+          TAGS="-t ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}"
+          if [ -n "${{ steps.vars.outputs.extra_tags }}" ]; then
+            TAGS="${TAGS} -t ${{ steps.vars.outputs.extra_tags }}"
+          fi
+          docker buildx build \
+            --platform "${PLATFORMS}" \
+            -f Dockerfile \
+            --build-arg "BASE_IMAGE=${{ steps.vars.outputs.base_image }}" \
+            ${TAGS} \
+            --push \
+            .
+
+      - name: Job summary
+        run: |
+          {
+            echo "## dsh Kestra 镜像已发布到 GHCR"
+            echo ""
+            echo "版本: \`${{ steps.vars.outputs.version }}\`"
+            echo "镜像: \`${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}\`"
+            echo "基础镜像: \`${{ steps.vars.outputs.base_image }}\`"
+            echo "平台: \`${PLATFORMS}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
