@@ -1,0 +1,18 @@
+# 插件 submodule 是源码工作树，不进镜像；运行时通过 docker-compose volume 挂载 jar 到 /app/plugins
+plugins/
+locals/
+
+# 构建产物与依赖
+build/
+*/build/
+ui/node_modules/
+node_modules/
+.gradle/
+
+# 版本控制与本地文件
+.git/
+.gitmodules
+.agents/
+.claude/
+.cursor/
+.DS_Store
