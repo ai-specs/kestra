@@ -1,6 +1,5 @@
-# 插件 submodule 是源码工作树，不进镜像；运行时通过 docker-compose volume 挂载 jar 到 /app/plugins
+# 插件 submodule 是源码工作树，不进镜像；定制插件 jar 放 locals/plugins/ 会被烘焙进 /app/plugins
 plugins/
-locals/
 
 # 构建产物与依赖
 build/
