@@ -1,0 +1,93 @@
+# dsh-monorepo: 构建并推送 kestra-base 基础镜像到 GHCR（对齐上游 global-push-base-image.yml 模式）
+#
+# 与版本发布完全解耦：每日定时重建（跟进 eclipse-temurin/apt/python 包更新）+ 手动触发。
+# 发布工作流 dsh-release-ghcr.yml 只消费 ghcr.io/<owner>/kestra-base:latest，不构建 base。
+#
+# 变体命名沿用上游约定（不随 kestra 版本号变化）：
+#   latest        = JRE 25 + uv + Python + kestra pip
+#   latest-slim   = JRE 25 + uv（无 Python）
+name: dsh Build and Push Base Image
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      uv-version:
+        description: 'uv version to install'
+        type: string
+        required: false
+        default: '0.6.17'
+      dry-run:
+        description: 'Build only, do not push'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build kestra-base (${{ matrix.variant.cache-tag }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        variant:
+          - cache-tag: latest-slim
+            tags: |
+              ghcr.io/ai-specs/kestra-base:latest-slim
+            jre: '25'
+            with-python: 'false'
+            description: 'dsh kestra base image (slim) — JRE 25 + uv pre-installed'
+          - cache-tag: latest
+            tags: |
+              ghcr.io/ai-specs/kestra-base:latest
+            jre: '25'
+            with-python: 'true'
+            description: 'dsh kestra base image — JRE 25 + uv + Python + kestra pip pre-installed'
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ inputs.dry-run != true }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/ai-specs/kestra-base
+          labels: |
+            org.opencontainers.image.title=kestra-base
+            org.opencontainers.image.description=${{ matrix.variant.description }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.base
+          platforms: linux/amd64,linux/arm64
+          push: ${{ inputs.dry-run != true }}
+          tags: ${{ matrix.variant.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            UV_VERSION=${{ inputs.uv-version || '0.6.17' }}
+            JRE_VERSION=${{ matrix.variant.jre }}
+            WITH_PYTHON=${{ matrix.variant.with-python }}
+          cache-from: type=registry,ref=ghcr.io/ai-specs/kestra-base:${{ matrix.variant.cache-tag }}
+          cache-to: type=inline
