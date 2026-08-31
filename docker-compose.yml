@@ -20,8 +20,15 @@ services:
       retries: 10
 
   kestra:
-    image: kestra/kestra:latest
-    pull_policy: always
+    # dsh-monorepo：本地纯源码构建（不使用 kestra/kestra 官方镜像）。
+    # 链路：Dockerfile.base -> kestra-base:2.0.0-jre25 -> (executableJar 暂存 docker/app/kestra) -> Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: kestra-base:2.0.0-jre25
+    image: dsh-kestra:2.0.0-snapshot
+    pull_policy: never
     # Kestra, by default, has a termination grace period of 5m. We need to wait a little more to be sure no active tasks are running.
     stop_grace_period: 6m
     # Note that this setup with a root user is intended for development purpose.
@@ -41,10 +48,10 @@ services:
             username: kestra
             password: k3str4
         kestra:
-          # server:
-          #   basic-auth:
-          #     username: admin@kestra.io # it must be a valid email address
-          #     password: Admin1234! # it must be at least 8 characters long with uppercase letter and a number
+          server:
+            basic-auth:
+              username: admin@kestra.io # it must be a valid email address
+              password: Admin1234! # it must be at least 8 characters long with uppercase letter and a number
           repository:
             type: postgres
           storage:
@@ -58,7 +65,8 @@ services:
               path: /tmp/kestra-wd/tmp
           url: http://localhost:8080/
     ports:
-      - "8080:8080"
+      # 宿主 8080 已被 meta-agent-monorepo 的 kestra 占用，dsh 栈改用 18080
+      - "18080:8080"
       # The following is the management port, not exposed by default.
       # Note that exposing the management port is intended for development purpose as this port is un-authenticated by default
       # and expose sensitive information and actions.
