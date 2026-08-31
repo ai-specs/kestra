@@ -64,7 +64,7 @@ public class DshMetricsController {
     ) throws Exception {
         StringBuilder sql = new StringBuilder(
             "SELECT count(*), coalesce(avg(task_completion_rate), 0), coalesce(avg(tool_error_rate), 0), "
-                + "coalesce(percentile_cont(0.99) WITHIN GROUP (ORDER BY p99_latency_ms), 0), coalesce(sum(token_usage), 0) "
+                + "coalesce(percentile_disc(0.99) WITHIN GROUP (ORDER BY p99_latency_ms), 0), coalesce(max(p99_latency_ms), 0), coalesce(sum(token_usage), 0) "
                 + "FROM dsh_metrics WHERE 1=1");
         List<Object> params = new ArrayList<>();
         if (sinceHours > 0) { sql.append(" AND created_at > now() - (? || ' hours')::interval"); params.add(String.valueOf(sinceHours)); }
@@ -77,7 +77,8 @@ public class DshMetricsController {
                 double completion = rs.getDouble(2);
                 double toolError = rs.getDouble(3);
                 long p99 = (long) rs.getDouble(4);
-                long tokens = rs.getLong(5);
+                long worst = rs.getLong(5);
+                long tokens = rs.getLong(6);
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("sessions", sessions);
                 result.put("taskCompletionRate", completion);
@@ -85,6 +86,7 @@ public class DshMetricsController {
                 result.put("toolErrorRate", toolError);
                 result.put("toolErrorRatePercent", toolError * 100);
                 result.put("p99LatencyMs", p99);
+                result.put("worstP99LatencyMs", worst);
                 result.put("tokenUsageTotal", tokens);
                 result.put("targets", Map.of(
                     "taskCompletionRatePercent", 95.0,
