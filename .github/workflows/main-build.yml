@@ -3,10 +3,9 @@
 # 依赖本 fork 未配置外部凭据的发布/联动环节（publish-develop-docker /
 # publish-develop-maven / generate-configuration-schema / trigger-ee / end）
 # 已整体移除，仅保留三个纯测试 job 与 otel 收尾。
-# 三个测试 job 实测全绿（2026-08-31），整体跑通不再因缺 secrets 失败。
-# 已在 GitHub Actions 页面停用 (Disabled)。当本仓库代码相对上游发生大的变化时，
-# 应重新启用本工作流（届时只跑测试；镜像发布请走 dsh-release-ghcr.yml）。
-# 详见 .github/workflows/UPSTREAM-WORKFLOWS.md
+# 三个测试 job 实测全绿（2026-08-31），整体成功。
+# 保持启用（2026-08-31，用户授权）：develop push / workflow_dispatch 自动跑测试。
+# 镜像发布请走 dsh-release-ghcr.yml。
 # ---------------------------------------------------------------------------
 name: Main Workflow
 

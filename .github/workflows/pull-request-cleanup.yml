@@ -2,7 +2,7 @@
 # NOTE (dsh): 本工作流为上游 kestra-io 继承、与 dsh 镜像构建/发布任务无关，
 # 已在 GitHub Actions 页面停用 (Disabled)，运行列表中看不到它是正常的。
 # 当本仓库代码相对上游发生大的变化时，应重新启用本工作流并跑通完整流程。
-# 详见 .github/workflows/UPSTREAM-WORKFLOWS.md
+# 启用前先确认其 job 不依赖本 fork 未配置的 secrets（否则运行期会失败）。
 # ---------------------------------------------------------------------------
 name: Pull Request - Delete Docker
 
