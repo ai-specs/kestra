@@ -19,3 +19,6 @@
 [submodule "plugins/plugin-scripts"]
 	path = plugins/plugin-scripts
 	url = git@github.com:ai-specs/plugin-scripts.git
+[submodule "plugins/plugin-deepseek-harness"]
+	path = plugins/plugin-deepseek-harness
+	url = git@github.com:ai-specs/plugin-deepseek-harness.git
