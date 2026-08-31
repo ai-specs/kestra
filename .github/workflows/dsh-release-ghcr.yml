@@ -18,6 +18,19 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# ---------------------------------------------------------------------------
+# concurrency：按触发来源分流（2026-08-31 用户授权新增，原因见 git log）
+# - tag 触发（如 v2.0.0-dsh.2）：每个 tag 独立 group + cancel-in-progress=false，
+#   各 tag 的构建发布互不取消、保持并行 —— 与历史行为完全一致（"不动"）。
+# - 非 tag 触发（workflow_dispatch 选 develop 等开发场景）：同 group +
+#   cancel-in-progress=true，新任务自动取代旧任务（develop 迭代频繁，
+#   避免旧构建堆积 / 重复发布过期镜像）。
+# 若对策略有疑问，先看 git log（commit message 含授权与原因说明），勿随意回退。
+# ---------------------------------------------------------------------------
+concurrency:
+  group: ${{ startsWith(github.ref, 'refs/tags/') && format('{0}-tag-{1}', github.workflow, github.ref) || format('{0}-non-tag-{1}', github.workflow, github.ref) }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 permissions:
   contents: read
   packages: write

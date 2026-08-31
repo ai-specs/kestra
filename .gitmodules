@@ -10,9 +10,6 @@
 [submodule "plugins/plugin-kestra"]
 	path = plugins/plugin-kestra
 	url = git@github.com:ai-specs/plugin-kestra.git
-[submodule "plugins/plugin-modal"]
-	path = plugins/plugin-modal
-	url = git@github.com:ai-specs/plugin-modal.git
 [submodule "plugins/plugin-openai"]
 	path = plugins/plugin-openai
 	url = git@github.com:ai-specs/plugin-openai.git
