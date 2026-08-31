@@ -5,7 +5,8 @@
 # 已整体移除，仅保留三个纯测试 job 与 otel 收尾。
 # 三个测试 job 实测全绿（2026-08-31），整体成功。
 # 保持启用（2026-08-31，用户授权）：develop push / workflow_dispatch 自动跑测试。
-# 镜像发布请走 dsh-release-ghcr.yml。
+# 镜像发布请走 dsh-release-ghcr.yml。otel-export-trace 依赖本 fork 未配置的
+# OTLP secrets 会失败，已移除。
 # ---------------------------------------------------------------------------
 name: Main Workflow
 
@@ -64,22 +65,3 @@ jobs:
       GITHUB_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       OTLP_ENDPOINT: ${{ secrets.OTLP_ENDPOINT }}
       OTLP_HEADERS: ${{ secrets.OTLP_HEADERS }}
-
-  otel-export-trace:
-    name: OpenTelemetry - Export Trace
-    runs-on: ubuntu-latest
-    if: always()
-    needs: [ backend-tests, frontend-tests, design-system-frontend-tests ]
-    env:
-      OTLP_ENDPOINT: ${{ secrets.OTLP_ENDPOINT }}
-    steps:
-      - name: OpenTelemetry - Export trace
-        uses: kestra-io/actions/actions/otel-collect@main
-        if: ${{ env.OTLP_ENDPOINT != '' }}
-        with:
-          mode: export-all
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          otlp-endpoint: ${{ secrets.OTLP_ENDPOINT }}
-          otlp-headers: "${{ secrets.OTLP_HEADERS }}"
-          logs-enabled: 'true'
-          service-name: "Github Actions - ${{ github.repository }} - ${{ github.workflow }}"
