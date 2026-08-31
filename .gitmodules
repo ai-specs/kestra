@@ -1,0 +1,24 @@
+[submodule "plugins/plugin-ai"]
+	path = plugins/plugin-ai
+	url = git@github.com:ai-specs/plugin-ai.git
+[submodule "plugins/plugin-deepseek"]
+	path = plugins/plugin-deepseek
+	url = git@github.com:ai-specs/plugin-deepseek.git
+[submodule "plugins/plugin-serdes"]
+	path = plugins/plugin-serdes
+	url = git@github.com:ai-specs/plugin-serdes.git
+[submodule "plugins/plugin-kestra"]
+	path = plugins/plugin-kestra
+	url = git@github.com:ai-specs/plugin-kestra.git
+[submodule "plugins/plugin-modal"]
+	path = plugins/plugin-modal
+	url = git@github.com:ai-specs/plugin-modal.git
+[submodule "plugins/plugin-openai"]
+	path = plugins/plugin-openai
+	url = git@github.com:ai-specs/plugin-openai.git
+[submodule "plugins/plugin-notifications"]
+	path = plugins/plugin-notifications
+	url = git@github.com:ai-specs/plugin-notifications.git
+[submodule "plugins/plugin-scripts"]
+	path = plugins/plugin-scripts
+	url = git@github.com:ai-specs/plugin-scripts.git
