@@ -94,6 +94,13 @@ jobs:
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+      - name: Record base image digest (audit)
+        id: base-digest
+        run: |
+          DIGEST=$(docker buildx imagetools inspect "${{ steps.vars.outputs.base_image }}" --format '{{json .Manifest.Digest}}')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "本次发布使用的 kestra-base digest: ${DIGEST}"
+
       - name: Build & push kestra image (Dockerfile, BASE_IMAGE = kestra-base:latest)
         run: |
           TAGS="-t ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}"
@@ -116,5 +123,6 @@ jobs:
             echo "版本: \`${{ steps.vars.outputs.version }}\`"
             echo "镜像: \`${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}\`"
             echo "基础镜像: \`${{ steps.vars.outputs.base_image }}\`（由 dsh-push-base-image.yml 维护）"
+            echo "基础镜像 digest（审计）: ${{ steps.base-digest.outputs.digest }}"
             echo "平台: \`${PLATFORMS}\`"
           } >> "$GITHUB_STEP_SUMMARY"
