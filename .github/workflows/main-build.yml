@@ -1,12 +1,13 @@
 # ---------------------------------------------------------------------------
-# NOTE (dsh): 上游 kestra-io 继承的 Main Workflow 的裁剪版（test-only）。
-# 依赖本 fork 未配置外部凭据的发布/联动环节（publish-develop-docker /
-# publish-develop-maven / generate-configuration-schema / trigger-ee / end）
-# 已整体移除，仅保留三个纯测试 job 与 otel 收尾。
+# NOTE (dsh): 上游 kestra-io 继承的 Main Workflow 的裁剪版。
+# 依赖本 fork 未配置外部凭据的发布/联动环节（publish-develop-maven /
+# generate-configuration-schema / trigger-ee / end）已整体移除；保留三个纯测试
+# job + publish-develop-ghcr（参考上游 publish-develop-docker 模式：三个测试
+# job 全通过后，发布 develop 版镜像到 ghcr.io/ai-specs/kestra:dev-<sha>）。
 # 三个测试 job 实测全绿（2026-08-31），整体成功。
-# 保持启用（2026-08-31，用户授权）：develop push / workflow_dispatch 自动跑测试。
-# 镜像发布请走 dsh-release-ghcr.yml。otel-export-trace 依赖本 fork 未配置的
-# OTLP secrets 会失败，已移除。
+# 保持启用（2026-08-31，用户授权）：develop push / workflow_dispatch 自动跑测试，
+# 测试通过后自动发布 develop 镜像；tag release 发布仍走 dsh-release-ghcr.yml。
+# otel-export-trace 依赖本 fork 未配置的 OTLP secrets 会失败，已移除。
 # ---------------------------------------------------------------------------
 name: Main Workflow
 
@@ -65,3 +66,86 @@ jobs:
       GITHUB_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       OTLP_ENDPOINT: ${{ secrets.OTLP_ENDPOINT }}
       OTLP_HEADERS: ${{ secrets.OTLP_HEADERS }}
+
+  publish-develop-ghcr:
+    name: Publish develop image to GHCR
+    needs: [backend-tests, frontend-tests, design-system-frontend-tests]
+    if: "!failure() && !cancelled() && github.ref == 'refs/heads/develop'"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Compute image names and version
+        id: vars
+        run: |
+          OWNER_LC=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          REGISTRY_LC="ghcr.io"
+          VERSION="dev-$(git rev-parse --short HEAD)"
+          {
+            echo "version=${VERSION}"
+            echo "owner=${OWNER_LC}"
+            echo "base_image=${REGISTRY_LC}/${OWNER_LC}/kestra-base:latest"
+            echo "image=${REGISTRY_LC}/${OWNER_LC}/kestra"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build frontend
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Gradle executableJar
+        run: ./gradlew executableJar --no-daemon --console=plain
+
+      - name: Stage executable into image context (official build-docker-from-exec flow)
+        run: |
+          cp build/executable/* docker/app/kestra
+          chmod +x docker/app/kestra
+          ls -lh docker/app/kestra
+
+      - name: Setup QEMU (arm64 cross build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build & push kestra image (Dockerfile, BASE_IMAGE = kestra-base:latest)
+        run: |
+          TAGS="-t ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}"
+          docker buildx build \
+            --platform "linux/amd64,linux/arm64" \
+            -f Dockerfile \
+            --build-arg "BASE_IMAGE=${{ steps.vars.outputs.base_image }}" \
+            ${TAGS} \
+            --push \
+            .
+
+      - name: Job summary
+        run: |
+          {
+            echo "## dsh Kestra develop 镜像已发布到 GHCR"
+            echo "版本: \`${{ steps.vars.outputs.version }}\`"
+            echo "镜像: \`${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}\`"
+            echo "基础镜像: \`${{ steps.vars.outputs.base_image }}\`（由 dsh-push-base-image.yml 维护）"
+          } >> "$GITHUB_STEP_SUMMARY"

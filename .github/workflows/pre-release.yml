@@ -3,6 +3,7 @@
 # 上游的发布环节（build-artifacts / publish-maven / generate-configuration-schema /
 # publish-github）依赖本 fork 未配置的外部凭据（GCP_SERVICE_ACCOUNT、Sonatype 全套、
 # SLACK_WEBHOOK_URL），已整体移除，仅保留三个纯测试 job 作验证用途。
+# otel-export-trace 收尾 job 依赖本 fork 未配置的 OTLP secrets 会失败，已移除。
 # backend-tests / frontend-tests 所需的可选 token（CODECOV/SONAR/GCP）未配置时
 # 由共享工作流自行降级，不影响 run 结果。
 # 该工作流定位为纯测试用途，平时维持 Disabled，仅在需要跑测试时启用。
@@ -48,22 +49,3 @@ jobs:
     if: ${{ github.event.inputs.skip-test == 'false' || github.event.inputs.skip-test == '' }}
     secrets:
       GITHUB_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  otel-export-trace:
-    name: OpenTelemetry - Export Trace
-    runs-on: ubuntu-latest
-    if: always()
-    needs: [ backend-tests, frontend-tests, design-system-frontend-tests ]
-    env:
-      OTLP_ENDPOINT: ${{ secrets.OTLP_ENDPOINT }}
-    steps:
-      - name: OpenTelemetry - Export trace
-        uses: kestra-io/actions/actions/otel-collect@main
-        if: ${{ env.OTLP_ENDPOINT != '' }}
-        with:
-          mode: export-all
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          otlp-endpoint: ${{ secrets.OTLP_ENDPOINT }}
-          otlp-headers: "${{ secrets.OTLP_HEADERS }}"
-          logs-enabled: 'true'
-          service-name: "Github Actions - ${{ github.repository }} - ${{ github.workflow }}"
