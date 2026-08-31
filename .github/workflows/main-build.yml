@@ -2,11 +2,12 @@
 # NOTE (dsh): 上游 kestra-io 继承的 Main Workflow 的裁剪版。
 # 依赖本 fork 未配置外部凭据的发布/联动环节（publish-develop-maven /
 # generate-configuration-schema / trigger-ee / end）已整体移除；保留三个纯测试
-# job + publish-develop-ghcr（参考上游 publish-develop-docker 模式：三个测试
-# job 全通过后，发布 develop 版镜像到 ghcr.io/ai-specs/kestra:dev-<sha>）。
+# job + publish-ghcr（参考上游 publish-develop-docker 模式：三个测试 job 全通过
+# 后发布镜像到 ghcr.io/ai-specs/kestra：develop push 发 dev-<sha>，tag v* 发对应
+# 版本并更新 latest）。原独立工作流 dsh-release-ghcr.yml 已删除（2026-09-01，
+# 用户授权），tag 与 develop 均走本流程、无独立发布任务。
 # 三个测试 job 实测全绿（2026-08-31），整体成功。
-# 保持启用（2026-08-31，用户授权）：develop push / workflow_dispatch 自动跑测试，
-# 测试通过后自动发布 develop 镜像；tag release 发布仍走 dsh-release-ghcr.yml。
+# 保持启用（2026-08-31 用户授权）：develop push / tag v* / workflow_dispatch。
 # otel-export-trace 依赖本 fork 未配置的 OTLP secrets 会失败，已移除。
 # ---------------------------------------------------------------------------
 name: Main Workflow
@@ -16,6 +17,8 @@ on:
     branches:
       - releases/*
       - develop
+    tags:
+      - 'v*'
 
   workflow_dispatch:
     inputs:
@@ -67,10 +70,10 @@ jobs:
       OTLP_ENDPOINT: ${{ secrets.OTLP_ENDPOINT }}
       OTLP_HEADERS: ${{ secrets.OTLP_HEADERS }}
 
-  publish-develop-ghcr:
-    name: Publish develop image to GHCR
+  publish-ghcr:
+    name: Publish image to GHCR
     needs: [backend-tests, frontend-tests, design-system-frontend-tests]
-    if: "!failure() && !cancelled() && github.ref == 'refs/heads/develop'"
+    if: "!failure() && !cancelled() && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/'))"
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -84,12 +87,19 @@ jobs:
         run: |
           OWNER_LC=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
           REGISTRY_LC="ghcr.io"
-          VERSION="dev-$(git rev-parse --short HEAD)"
+          EXTRA_TAGS=""
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            EXTRA_TAGS="${REGISTRY_LC}/${OWNER_LC}/kestra:latest"
+          else
+            VERSION="dev-$(git rev-parse --short HEAD)"
+          fi
           {
             echo "version=${VERSION}"
             echo "owner=${OWNER_LC}"
             echo "base_image=${REGISTRY_LC}/${OWNER_LC}/kestra-base:latest"
             echo "image=${REGISTRY_LC}/${OWNER_LC}/kestra"
+            echo "extra_tags=${EXTRA_TAGS}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Setup JDK 25
@@ -130,9 +140,19 @@ jobs:
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+      - name: Record base image digest (audit)
+        id: base-digest
+        run: |
+          DIGEST=$(docker buildx imagetools inspect "${{ steps.vars.outputs.base_image }}" --format '{{json .Manifest.Digest}}')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "本次发布使用的 kestra-base digest: ${DIGEST}"
+
       - name: Build & push kestra image (Dockerfile, BASE_IMAGE = kestra-base:latest)
         run: |
           TAGS="-t ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}"
+          if [ -n "${{ steps.vars.outputs.extra_tags }}" ]; then
+            TAGS="${TAGS} -t ${{ steps.vars.outputs.extra_tags }}"
+          fi
           docker buildx build \
             --platform "linux/amd64,linux/arm64" \
             -f Dockerfile \
@@ -144,8 +164,11 @@ jobs:
       - name: Job summary
         run: |
           {
-            echo "## dsh Kestra develop 镜像已发布到 GHCR"
+            echo "## dsh Kestra 镜像已发布到 GHCR"
+            echo ""
             echo "版本: \`${{ steps.vars.outputs.version }}\`"
             echo "镜像: \`${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.version }}\`"
             echo "基础镜像: \`${{ steps.vars.outputs.base_image }}\`（由 dsh-push-base-image.yml 维护）"
+            echo "基础镜像 digest（审计）: ${{ steps.base-digest.outputs.digest }}"
+            echo "平台: \`linux/amd64,linux/arm64\`"
           } >> "$GITHUB_STEP_SUMMARY"
