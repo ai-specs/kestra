@@ -1,0 +1,33 @@
+dependencies {
+    // Kestra server (BasicAuthService as OIDC user source) + core migration APIs
+    implementation project(":webserver")
+    // MigrationScript interface (core) + SQL migration base class (jdbc) + Postgres gating
+    implementation project(":core")
+    implementation project(":jdbc")
+    // Unwrap Micronaut Data proxied DataSource outside a @Connectable context (same class the
+    // migration runner uses).
+    implementation "io.micronaut.data:micronaut-data-connection-jdbc"
+
+    // OIDC/OAuth2 SDK (official Nimbus 11.38.2, see docs/oidc-provider-research.md)
+    implementation "com.nimbusds:oauth2-oidc-sdk:11.38.2"
+
+    // Micronaut HTTP + Jackson (managed by platform BOM)
+    implementation "io.micronaut:micronaut-http-server-netty"
+    implementation "io.micronaut:micronaut-http-client"
+    implementation "com.fasterxml.jackson.core:jackson-databind"
+
+    // Kestra self-bootstrap OIDC client (Micronaut Security OAuth2). Only activated when
+    // `micronaut.security.oauth2.enabled=true` is configured; does not alter upstream auth logic.
+    implementation "io.micronaut.security:micronaut-security-oauth2"
+    implementation "io.micronaut.security:micronaut-security-jwt"
+
+    // test
+    testImplementation project(path: ':core', configuration: 'testArtifacts')
+    testImplementation project(':tests')
+    testImplementation "org.junit.jupiter:junit-jupiter-params"
+    testImplementation "org.awaitility:awaitility"
+    testImplementation "org.testcontainers:testcontainers:1.21.4"
+    testImplementation "org.testcontainers:junit-jupiter:1.21.4"
+    testImplementation "org.testcontainers:postgresql:1.21.4"
+    testImplementation "org.postgresql:postgresql"
+}
