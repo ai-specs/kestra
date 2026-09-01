@@ -104,6 +104,8 @@ public class DshApprovalController {
             if (!"PENDING".equals(currentStatus)) {
                 throw new IllegalStateException("ticket is not PENDING (current: " + currentStatus + ")");
             }
+            // dsh.docx：审批唤醒是单事务原子操作——同一事务中更新审批状态和会话阶段
+            connection.setAutoCommit(false);
             try (PreparedStatement ps = connection.prepareStatement(
                 "UPDATE dsh_approval SET status = ?, approver = ?, comment = ?, decided_at = now() WHERE id = ?::uuid")) {
                 ps.setString(1, approved ? "APPROVED" : "REJECTED");
@@ -119,6 +121,7 @@ public class DshApprovalController {
                     ps.executeUpdate();
                 }
             }
+            connection.commit();
         }
         return HttpResponse.ok(read(approvalId));
     }

@@ -58,6 +58,8 @@ public class DshGatewayController {
     public HttpResponse<String> forward(
         @Parameter(description = "dsh gateway token", in = ParameterIn.HEADER)
         @Header(value = "X-Dsh-Gateway-Token") String gatewayTokenHeader,
+        @Parameter(description = "dsh session id, propagated as trace id across the whole chain (dsh.docx 第十五章)")
+        @Header(value = "X-Dsh-Trace-Id") String traceId,
         @Parameter(description = "Target system alias") String system,
         @Parameter(description = "Business path inside the target system") String path,
         @Parameter(description = "Raw query string forwarded to the target") @QueryValue(defaultValue = "") String query,
@@ -65,7 +67,7 @@ public class DshGatewayController {
     ) throws Exception {
         String expected = configuration.gatewayToken();
         if (!expected.equals(gatewayTokenHeader)) {
-            LOG.info("[dsh-gateway] DENIED system={} path={} status=401", system, path);
+            LOG.info("[dsh-gateway] DENIED system={} path={} status=401 traceId={}", system, path, traceId);
             return HttpResponse.unauthorized().body("{\"error\":\"unauthorized\"}");
         }
 
@@ -81,6 +83,7 @@ public class DshGatewayController {
             .timeout(Duration.ofSeconds(configuration.timeoutSeconds()))
             .header("Content-Type", "application/json")
             .header("Authorization", configuration.systemAuthorization())
+            .header("X-Dsh-Trace-Id", traceId == null ? "" : traceId)
             .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body))
             .build();
 
