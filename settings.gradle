@@ -27,6 +27,7 @@ include 'queue'
 include 'queue-jdbc'
 
 include 'webserver'
+include 'oidc-provider'
 include 'executor'
 include 'scheduler'
 include 'worker'

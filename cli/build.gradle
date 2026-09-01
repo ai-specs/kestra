@@ -65,6 +65,7 @@ dependencies {
     implementation project(":executor")
     implementation project(":scheduler")
     implementation project(":webserver")
+    implementation project(":oidc-provider")
     implementation project(":worker")
     implementation project(":worker-controller")
     implementation project(":indexer")
