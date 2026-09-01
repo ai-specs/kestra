@@ -175,9 +175,9 @@ public class OidcLoginController {
     }
 
     /**
-     * The {@code kestra-self} redirect target: consume the authorization code server-side (the
-     * browser session is the BASIC_AUTH cookie established at the login form, the code only
-     * proves this authorization round completed) and land on the UI, logged in.
+     * Legacy self-bootstrap redirect target ({@code /oidc/callback}), kept for redirect URIs
+     * registered before the Micronaut-conventional path existed. The canonical target
+     * ({@code /oauth/callback/kestra-oidc}) lives in {@link OidcOAuthCallbackController}.
      */
     @Get("/callback")
     public HttpResponse<?> callback(@io.micronaut.http.annotation.QueryValue Optional<String> code,

@@ -39,13 +39,11 @@ public class OidcAuthorizationExceptionHandler {
 
     @Error(global = true)
     public HttpResponse<?> handle(HttpRequest<?> request, AuthorizationException exception) {
-        // Only a request that explicitly accepts HTML is a browser navigation; API clients
-        // (no Accept / application/json) get a plain 401.
-        if (request.getHeaders().contains(HttpHeaders.ACCEPT)) {
-            String accept = request.getHeaders().get(HttpHeaders.ACCEPT);
-            if (accept.contains("text/html") || accept.contains("*/*")) {
-                return HttpResponse.temporaryRedirect(URI.create(LOGIN_URL));
-            }
+        // Only a navigation that explicitly accepts HTML is a browser (many API clients default
+        // to Accept: */*, so that alone must NOT trigger a redirect — they get a plain 401).
+        String accept = request.getHeaders().get(HttpHeaders.ACCEPT);
+        if (accept != null && accept.contains("text/html")) {
+            return HttpResponse.temporaryRedirect(URI.create(LOGIN_URL));
         }
         return HttpResponse.status(HttpStatus.UNAUTHORIZED);
     }
