@@ -15,15 +15,15 @@ import jakarta.inject.Singleton;
  * {@code /oidc/callback}.
  *
  * <p>
- * The Micronaut OAuth2 client registers its routes under the configurable template
- * {@code /oauth/callback/{name}} whenever ANY native client (third-party IdP included) is
- * configured. A controller of ours on that same variable-pattern path would collide
- * (ambiguous route at startup), so the self-bootstrap callback must live under the
- * provider's own {@code /oidc/**} namespace — which also keeps it inside the
- * {@code isAnonymous()} whitelist. This migration folds every earlier seed value
- * (both {@code /oidc/callback} and the interim {@code /oauth/callback/kestra-oidc})
- * into the canonical {@code /oidc/callback}, freeing {@code /oauth/**} entirely for the
- * framework's native client.
+ * The Micronaut OAuth2 client registers its routes under the PathSegment template
+ * {@code /oauth/callback{/provider}} whenever ANY native client (third-party IdP included) is
+ * configured — that template matches the bare {@code /oauth/callback} root and any depth of
+ * sub-path, so the ENTIRE {@code /oauth/**} namespace is off-limits to provider controllers.
+ * The self-bootstrap callback therefore lives under the provider's own {@code /oidc/**}
+ * namespace, which also keeps it inside the {@code isAnonymous()} whitelist. This migration
+ * folds every earlier seed value (both {@code /oidc/callback} and the interim
+ * {@code /oauth/callback/kestra-oidc}) into the canonical {@code /oidc/callback}, freeing
+ * {@code /oauth/**} entirely for the framework's native client.
  */
 @Singleton
 @Requires(property = "kestra.repository.type", value = "postgres")

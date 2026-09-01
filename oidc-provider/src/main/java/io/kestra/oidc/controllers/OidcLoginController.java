@@ -182,9 +182,10 @@ public class OidcLoginController {
      *
      * <p>
      * The path deliberately lives under the provider's own {@code /oidc/**} namespace: the
-     * {@code /oauth/callback/{name}} namespace belongs to the framework's native OAuth2 client
-     * (registered as soon as ANY client — third-party IdPs included — is configured), and a
-     * provider controller on that same variable pattern would be an ambiguous route.
+     * framework's native OAuth2 client registers {@code /oauth/callback{/provider}} (a
+     * PathSegment template — it matches the bare {@code /oauth/callback} root AND any depth
+     * of sub-path, not just one segment) as soon as ANY client — third-party IdPs included —
+     * is configured, so nothing of ours may live anywhere under {@code /oauth/**}.
      */
     @Get("/callback")
     public HttpResponse<?> callback(@io.micronaut.http.annotation.QueryValue Optional<String> code,
