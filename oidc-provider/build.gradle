@@ -1,5 +1,6 @@
 dependencies {
-    // Kestra server (BasicAuthService as OIDC user source) + core migration APIs
+    // Kestra server module — shared HTTP surface only. The OIDC user source is the module's own
+    // account system (kestra.oidc.admin-*, OidcSessionService); BasicAuthService is NOT used.
     implementation project(":webserver")
     // MigrationScript interface (core) + SQL migration base class (jdbc) + Postgres gating
     implementation project(":core")
@@ -16,8 +17,12 @@ dependencies {
     implementation "io.micronaut:micronaut-http-client"
     implementation "com.fasterxml.jackson.core:jackson-databind"
 
-    // Kestra self-bootstrap OIDC client (Micronaut Security OAuth2). Only activated when
-    // `micronaut.security.oauth2.enabled=true` is configured; does not alter upstream auth logic.
+    // RESERVED, currently unused: the native Micronaut OAuth2/OIDC client for a future
+    // framework-level bootstrap (or third-party IdP onboarding). Nothing in this module
+    // activates it today — the live bootstrap is OidcLoginController + JWT cookie; enabling the
+    // native client registers /oauth/login{/provider} + /oauth/callback{/provider} (PathSegment
+    // templates), which is why nothing of ours may live under /oauth/**.
+    // micronaut-security-jwt IS used: JwtTokenGenerator issues the Kestra session cookie.
     implementation "io.micronaut.security:micronaut-security-oauth2"
     implementation "io.micronaut.security:micronaut-security-jwt"
 
