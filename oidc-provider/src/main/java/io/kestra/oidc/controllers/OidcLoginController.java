@@ -175,9 +175,16 @@ public class OidcLoginController {
     }
 
     /**
-     * Legacy self-bootstrap redirect target ({@code /oidc/callback}), kept for redirect URIs
-     * registered before the Micronaut-conventional path existed. The canonical target
-     * ({@code /oauth/callback/kestra-oidc}) lives in {@link OidcOAuthCallbackController}.
+     * The canonical {@code kestra-self} redirect target: consume the authorization code
+     * server-side — the browser session is the {@code oidc_session} cookie established at the
+     * login form, the code only proves this authorization round completed — and land on the UI,
+     * logged in.
+     *
+     * <p>
+     * The path deliberately lives under the provider's own {@code /oidc/**} namespace: the
+     * {@code /oauth/callback/{name}} namespace belongs to the framework's native OAuth2 client
+     * (registered as soon as ANY client — third-party IdPs included — is configured), and a
+     * provider controller on that same variable pattern would be an ambiguous route.
      */
     @Get("/callback")
     public HttpResponse<?> callback(@io.micronaut.http.annotation.QueryValue Optional<String> code,
