@@ -11,7 +11,8 @@ import java.util.Optional;
 import io.kestra.oidc.OidcConfiguration;
 import io.kestra.oidc.services.OidcAuthorizationCodeService;
 import io.kestra.oidc.services.OidcClientService;
-import io.kestra.webserver.services.BasicAuthService;
+import io.kestra.oidc.services.OidcSessionService;
+import io.kestra.oidc.services.OidcUserService;
 
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.http.HttpRequest;
@@ -26,6 +27,8 @@ import io.micronaut.http.cookie.Cookie;
 import io.micronaut.http.cookie.SameSite;
 import io.micronaut.scheduling.TaskExecutors;
 import io.micronaut.scheduling.annotation.ExecuteOn;
+import io.micronaut.security.authentication.Authentication;
+import io.micronaut.security.token.jwt.generator.JwtTokenGenerator;
 import jakarta.inject.Inject;
 
 /**
@@ -33,16 +36,15 @@ import jakarta.inject.Inject;
  * self-bootstrap land on, plus the {@code kestra-self} client's authorization-code callback.
  *
  * <p>
- * This is the piece that lets the BROWSER complete the whole flow without touching upstream
- * auth code: {@code BasicAuthService} already accepts a {@code BASIC_AUTH} cookie as a valid
- * session, and the upstream login endpoint already issues exactly that cookie pair. This
- * controller serves an HTML login form at {@code /oidc/login} (the {@code kestra.oidc.login-url}
- * target the authorize endpoint redirects to), validates credentials through the same
- * {@link BasicAuthService#validateCredentials}, and issues the identical cookie pair — so one
- * login simultaneously authenticates the OIDC authorize endpoint and the Kestra UI/API.
+ * This is the piece that lets the BROWSER complete the whole flow. The provider deliberately does
+ * <b>not</b> use Kestra's Basic Auth (Basic Auth re-sends credentials on every request and is
+ * banned here). A successful {@code POST /oidc/login} validates against the configured
+ * {@code kestra.oidc.admin-username}/{@code admin-password} through {@link OidcUserService} and
+ * returns a single opaque {@code oidc_session} cookie from {@link OidcSessionService}. The
+ * authorize endpoint then resolves the user from that session cookie alone.
  *
  * <p>
- * {@code GET /oidc/self-login} then makes Kestra a client of its own provider: it redirects to
+ * {@code GET /oidc/self-login} makes Kestra a client of its own provider: it redirects to
  * {@code /oidc/authorize} for the seeded {@code kestra-self} client, and
  * {@code GET /oidc/callback} consumes the returned code server-side before landing on the UI.
  */
@@ -60,19 +62,25 @@ public class OidcLoginController {
     private final OidcConfiguration configuration;
     private final OidcAuthorizationCodeService authCodeService;
     private final OidcClientService clientService;
-    private final Optional<BasicAuthService> basicAuthService;
+    private final OidcUserService userService;
+    private final OidcSessionService sessionService;
+    private final Optional<JwtTokenGenerator> jwtTokenGenerator;
 
     @Inject
     public OidcLoginController(
         OidcConfiguration configuration,
         OidcAuthorizationCodeService authCodeService,
         OidcClientService clientService,
-        Optional<BasicAuthService> basicAuthService
+        OidcUserService userService,
+        OidcSessionService sessionService,
+        Optional<JwtTokenGenerator> jwtTokenGenerator
     ) {
         this.configuration = configuration;
         this.authCodeService = authCodeService;
         this.clientService = clientService;
-        this.basicAuthService = basicAuthService;
+        this.userService = userService;
+        this.sessionService = sessionService;
+        this.jwtTokenGenerator = jwtTokenGenerator;
     }
 
     // ------------------------------------------------------------------ login page
@@ -90,9 +98,16 @@ public class OidcLoginController {
     }
 
     /**
-     * Validate the submitted credentials and, on success, set the BASIC_AUTH cookie pair
-     * (identical attributes to the upstream login endpoint) and redirect back to {@code from}
-     * (303 so a browser refresh does not re-post the password).
+     * Validate the submitted credentials and, on success, create a provider session and set the
+     * {@code oidc_session} cookie (HttpOnly, SameSite=Strict) then redirect back to {@code from}
+     * (303 so a browser refresh does not re-post the password). Credentials are exchanged for the
+     * session cookie once and never re-sent on later requests.
+     *
+     * <p>
+     * When Kestra runs with Micronaut Security enabled (its own UI/API auth), a JWT cookie is
+     * also issued here — the same login therefore authenticates the OIDC authorize endpoint
+     * (via {@code oidc_session}) and the Kestra UI/API (via the {@code JWT} cookie that
+     * SecurityFilter validates). Neither involves Basic Auth.
      */
     @Post("/login")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
@@ -101,18 +116,35 @@ public class OidcLoginController {
         String password = form.get("password");
         String from = sanitizeFrom(form.get("from"));
 
-        boolean valid = basicAuthService
-            .map(service -> service.validateCredentials(username == null ? "" : username.trim(), password))
-            .orElse(false);
+        String subject = username == null ? "" : username.trim();
+        boolean valid = userService.validateCredentials(subject, password);
         if (!valid) {
             return HttpResponse.ok(loginPageHtml(from, true))
                 .contentType(MediaType.TEXT_HTML_TYPE)
                 .status(io.micronaut.http.HttpStatus.UNAUTHORIZED);
         }
 
-        return HttpResponse.seeOther(URI.create(from))
-            .cookie(authCookie(request, username.trim(), password))
-            .cookie(authFlagCookie(request));
+        String sessionId = sessionService.create(subject);
+        io.micronaut.http.MutableHttpResponse<?> response = HttpResponse.seeOther(URI.create(from))
+            .cookie(sessionService.sessionCookie(request, sessionId));
+        jwtTokenGenerator.ifPresent(generator -> generator
+            .generateToken(
+                Authentication.build(subject, configuration.getDefaultRoles()),
+                Math.toIntExact(configuration.getSessionTtl().toSeconds()))
+            .ifPresent(token -> response.cookie(jwtCookie(request, token))));
+        return response;
+    }
+
+    /**
+     * The {@code JWT} cookie Kestra's Micronaut SecurityFilter validates (default cookie name).
+     * Same attributes as the session cookie: HttpOnly, SameSite=Strict, TLS-only when applicable.
+     */
+    private static Cookie jwtCookie(HttpRequest<?> request, String token) {
+        return Cookie.of("JWT", token)
+            .path("/")
+            .httpOnly(true)
+            .secure(request.isSecure())
+            .sameSite(SameSite.Strict);
     }
 
     // ------------------------------------------------------------------ self-bootstrap
@@ -189,24 +221,6 @@ public class OidcLoginController {
         byte[] bytes = new byte[24];
         new SecureRandom().nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    }
-
-    /** {@code BASIC_AUTH} session cookie with the exact attributes the upstream login endpoint issues. */
-    private static Cookie authCookie(HttpRequest<?> request, String username, String password) {
-        return Cookie.of(BasicAuthService.BASIC_AUTH_COOKIE_NAME, BasicAuthService.encodeToken(username, password))
-            .path("/")
-            .httpOnly(true)
-            .secure(request.isSecure())
-            .sameSite(SameSite.Strict);
-    }
-
-    /** The non-HttpOnly flag cookie the UI reads to know it is logged in. */
-    private static Cookie authFlagCookie(HttpRequest<?> request) {
-        return Cookie.of(BasicAuthService.BASIC_AUTH_FLAG_COOKIE_NAME, "true")
-            .path("/")
-            .httpOnly(false)
-            .secure(request.isSecure())
-            .sameSite(SameSite.Strict);
     }
 
     // ------------------------------------------------------------------ page

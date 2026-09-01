@@ -1,7 +1,5 @@
 package io.kestra.oidc;
 
-import java.util.Optional;
-
 import javax.sql.DataSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,6 +8,7 @@ import io.kestra.jdbc.migration.AbstractSQLMigrationScript;
 import io.kestra.oidc.services.OidcAuthorizationCodeService;
 import io.kestra.oidc.services.OidcClientService;
 import io.kestra.oidc.services.OidcJwkService;
+import io.kestra.oidc.services.OidcSessionService;
 import io.kestra.oidc.services.OidcTokenService;
 import io.kestra.oidc.services.OidcUserService;
 
@@ -60,7 +59,7 @@ public abstract class OidcPostgresTestBase {
         clientService = new OidcClientService(dataSource, objectMapper);
         authCodeService = new OidcAuthorizationCodeService(dataSource, objectMapper, configuration);
         tokenService = new OidcTokenService(dataSource, objectMapper, configuration, jwkService);
-        userService = new OidcUserService(Optional.empty(), configuration);
+        userService = new OidcUserService(new OidcSessionService(configuration), configuration);
     }
 
     @AfterAll

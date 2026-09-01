@@ -100,4 +100,35 @@ public class OidcConfiguration {
     public void setLoginUrl(String loginUrl) {
         this.loginUrl = loginUrl;
     }
+
+    /**
+     * The provider's own administrator account used by the IdP login form
+     * ({@code POST /oidc/login}). This is an independent credential store — it has nothing to do
+     * with Kestra's Basic Auth. Basic Auth is deliberately not used anywhere in this provider:
+     * credentials are submitted once through the login form and exchanged for a server-side
+     * session cookie, never re-sent on every request.
+     */
+    public String getAdminUsername() {
+        return adminUsername;
+    }
+
+    public void setAdminUsername(String adminUsername) {
+        this.adminUsername = adminUsername;
+    }
+
+    public String getAdminPassword() {
+        return adminPassword;
+    }
+
+    public void setAdminPassword(String adminPassword) {
+        this.adminPassword = adminPassword;
+    }
+
+    public Duration getSessionTtl() {
+        return sessionTtl;
+    }
+
+    public void setSessionTtl(Duration sessionTtl) {
+        this.sessionTtl = sessionTtl;
+    }
 }

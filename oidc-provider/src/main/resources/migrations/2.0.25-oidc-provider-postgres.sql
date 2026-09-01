@@ -93,7 +93,7 @@ VALUES ('nacos',
         '["openid","profile","email"]'::jsonb),
        ('kestra-self',
         'kestra-self-secret-change-me',
-        '["http://localhost:18080/oidc/callback"]'::jsonb,
+        '["http://localhost:18080/oauth/callback/kestra-oidc"]'::jsonb,
         '["authorization_code","client_credentials","refresh_token"]'::jsonb,
         '["openid","profile","email"]'::jsonb)
 ON CONFLICT (client_id) DO NOTHING;

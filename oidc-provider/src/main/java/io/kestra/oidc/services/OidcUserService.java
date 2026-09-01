@@ -1,12 +1,13 @@
 package io.kestra.oidc.services;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.Optional;
 
 import com.nimbusds.oauth2.sdk.OAuth2Error;
 
 import io.kestra.oidc.OidcConfiguration;
-import io.kestra.webserver.services.BasicAuthService;
 
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.http.HttpRequest;
@@ -14,57 +15,79 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
 /**
- * Resolves the OIDC user from the Kestra existing user system (Basic Auth user).
+ * Resolves the OIDC user from the provider's own login session.
  *
  * <p>
- * In this OSS fork there is no multi-user/role table: the single configured Basic Auth user is the
- * OIDC user source. Its username (an email) becomes the {@code sub}/{@code name}/{@code email}
- * claims, and the configured {@code kestra.oidc.default-roles} become the {@code roles} claim.
- *
- * <p>
- * {@link BasicAuthService} is injected as {@link Optional} because it is only active when Micronaut
- * Security is not enabled; when the Kestra self-bootstrap flips security on, no authenticated user
- * can be resolved and the authorize endpoint will fall back to a login redirect.
+ * This provider deliberately does <b>not</b> use Kestra's Basic Auth at all (Basic Auth re-sends
+ * {@code username:password} with every request, which is why it is banned here). Instead:
+ * <ul>
+ *   <li>{@code POST /oidc/login} validates the credentials against the configured
+ *       {@code kestra.oidc.admin-username}/{@code admin-password} and creates a server-side
+ *       {@link OidcSessionService session};</li>
+ *   <li>{@link #authenticatedUser(HttpRequest)} resolves the user from the {@code oidc_session}
+ *       cookie only.</li>
+ * </ul>
+ * The username (an email) becomes the {@code sub}/{@code name}/{@code email} claims, and the
+ * configured {@code kestra.oidc.default-roles} become the {@code roles} claim.
  */
 @Singleton
 @Requires(property = "kestra.oidc.enabled", notEquals = "false")
 public class OidcUserService {
 
-    /** An OIDC user resolved from the Kestra user system. */
+    /** An OIDC user resolved from the provider's login session. */
     public record OidcUser(String sub, String name, String email, List<String> roles) {}
 
-    private final Optional<BasicAuthService> basicAuthService;
+    private final OidcSessionService sessionService;
     private final OidcConfiguration configuration;
 
     @Inject
-    public OidcUserService(Optional<BasicAuthService> basicAuthService, OidcConfiguration configuration) {
-        this.basicAuthService = basicAuthService;
+    public OidcUserService(OidcSessionService sessionService, OidcConfiguration configuration) {
+        this.sessionService = sessionService;
         this.configuration = configuration;
     }
 
     /**
-     * Returns the authenticated user for the request, or empty when the user is not logged into
-     * Kestra.
+     * Validates a username/password against the provider's configured administrator account using
+     * a constant-time comparison. Used by the IdP login form — credentials are submitted once and
+     * exchanged for a session cookie, never re-sent on later requests.
+     */
+    public boolean validateCredentials(String username, String password) {
+        if (username == null || password == null
+            || configuration.getAdminUsername() == null
+            || configuration.getAdminPassword() == null) {
+            return false;
+        }
+        boolean userOk = constantTimeEquals(
+            username.trim(),
+            configuration.getAdminUsername()
+        );
+        boolean passOk = constantTimeEquals(
+            password,
+            configuration.getAdminPassword()
+        );
+        return userOk && passOk;
+    }
+
+    /**
+     * Returns the authenticated user for the request, resolved from the {@code oidc_session}
+     * cookie — empty when the browser has not logged into the provider.
      */
     public Optional<OidcUser> authenticatedUser(HttpRequest<?> request) {
-        if (basicAuthService.isEmpty()) {
+        Optional<String> sessionId = sessionService.sessionIdFrom(request);
+        if (sessionId.isEmpty()) {
             return Optional.empty();
         }
-        BasicAuthService service = basicAuthService.get();
-        if (!service.isAuthenticated(request)) {
+        Optional<String> subject = sessionService.subject(sessionId.get());
+        if (subject.isEmpty()) {
             return Optional.empty();
         }
-        String username = service.credentials().getUsername();
-        if (username == null || username.isBlank()) {
-            return Optional.empty();
-        }
-        OidcUser user = new OidcUser(
+        String username = subject.get();
+        return Optional.of(new OidcUser(
             username,
             username,
             username,
             configuration.getDefaultRoles()
-        );
-        return Optional.of(user);
+        ));
     }
 
     /** Same as {@link #authenticatedUser(HttpRequest)} but throws {@code access_denied} when absent. */
@@ -75,10 +98,16 @@ public class OidcUserService {
 
     /**
      * Rebuilds a user profile from a known subject (e.g. the subject stored in an authorization
-     * code or refresh token). Since the Kestra OSS user system is a single Basic Auth user, the
-     * subject (username/email) maps back to the configured default roles.
+     * code or refresh token). The provider's user directory is the configured administrator
+     * account, so any subject maps back to the configured default roles.
      */
     public OidcUser bySubject(String subject) {
         return new OidcUser(subject, subject, subject, configuration.getDefaultRoles());
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        byte[] aa = a.getBytes(StandardCharsets.UTF_8);
+        byte[] bb = b.getBytes(StandardCharsets.UTF_8);
+        return MessageDigest.isEqual(aa, bb);
     }
 }
