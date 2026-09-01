@@ -25,7 +25,11 @@ public class OidcConfiguration {
     private Duration authorizationCodeTtl = Duration.ofMinutes(5);
     private Duration accessTokenTtl = Duration.ofHours(1);
     private Duration refreshTokenTtl = Duration.ofDays(30);
-    private String loginUrl = "/ui/login";
+    private String loginUrl = "/oidc/login";
+    /** The provider's own administrator account (independent from Kestra's Basic Auth). */
+    private String adminUsername = "admin@kestra.io";
+    private String adminPassword = "Admin1234!";
+    private Duration sessionTtl = Duration.ofHours(8);
 
     public boolean isEnabled() {
         return enabled;
