@@ -14,27 +14,39 @@ import io.micronaut.http.HttpStatus;
 import io.micronaut.http.annotation.RequestFilter;
 import io.micronaut.http.annotation.ServerFilter;
 import io.micronaut.http.filter.FilterPatternStyle;
-import io.micronaut.http.filter.ServerFilterPhase;
 
 import jakarta.inject.Inject;
 
 /**
- * Guards the dsh ecosystem APIs ({@code /api/v1/dsh/**}) with a token issued by this OIDC
- * Provider — the same IdP that authenticates the Kestra UI and Nacos SSO.
+ * Guards the dsh ecosystem APIs with a token issued by this OIDC Provider — the same IdP that
+ * authenticates the Kestra UI and Nacos SSO.
  *
  * <p>
- * Callers (dsh (PC) plugins, scripts, dsh-ui backends) obtain an access token from
- * {@code POST /oidc/token} — the machine-to-machine path is the {@code client_credentials}
- * grant for the seeded {@code dsh} client — and present it as {@code Authorization: Bearer …}.
- * Validation is the provider's own {@link OidcTokenService#validateAccessToken}: RS256 signature
- * against the published JWK, issuer, expiry, revocation and token type.
+ * Protected surfaces:
+ * <ul>
+ *   <li>{@code /api/v1/dsh/**} — sessions/approvals/metrics/gateway (callers: dsh (PC) plugins,
+ *       dsh-ui's BFF, scripts); the gateway endpoints additionally require
+ *       {@code X-Dsh-Gateway-Token};</li>
+ *   <li>{@code /api/v1/executions/dsh/**} — triggering flows in the {@code dsh} namespace (the
+ *       AIAgent execution plane), so dsh-ui can start tasks with its provider token without a
+ *       Kestra admin session.</li>
+ * </ul>
  *
  * <p>
- * The path stays {@code isAnonymous()} in the Micronaut {@code intercept-url-map} (Kestra session
- * cookies are a browser concern); this filter is the authoritative check. The gateway endpoints
- * additionally keep their {@code X-Dsh-Gateway-Token} — two independent factors, as before.
+ * Callers obtain an access token from {@code POST /oidc/token} — the machine-to-machine path is
+ * the {@code client_credentials} grant for the seeded {@code dsh} client; dsh-ui uses the
+ * authorization-code flow with the same client. Validation is the provider's own
+ * {@link OidcTokenService#validateAccessToken}: RS256 signature against the published JWK,
+ * issuer, expiry, revocation and token type.
+ *
+ * <p>
+ * Known limitation: browser sessions (the Kestra UI console) hold a JWT cookie, not a provider
+ * token — triggering {@code dsh}-namespace flows from the Kestra console requires a Bearer token
+ * (dsh-ui and scripts are the designated trigger surfaces). A principal-based fallback was
+ * rejected: Micronaut populates a principal for ANONYMOUS requests too, which silently disabled
+ * the guard.
  */
-@ServerFilter(patternStyle = FilterPatternStyle.ANT, value = "/api/v1/dsh/**")
+@ServerFilter(patternStyle = FilterPatternStyle.ANT, value = {"/api/v1/dsh/**", "/api/v1/executions/dsh/**"})
 @Requires(property = "kestra.oidc.enabled", notEquals = "false")
 public class OidcBearerAuthFilter {
 
@@ -51,16 +63,16 @@ public class OidcBearerAuthFilter {
     @Nullable
     public HttpResponse<?> filter(@NonNull HttpRequest<?> request) {
         String authorization = request.getHeaders().get(HttpHeaders.AUTHORIZATION);
-        if (authorization != null && authorization.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length())) {
-            String token = authorization.substring(BEARER_PREFIX.length()).trim();
-            try {
-                tokenService.validateAccessToken(token);
-                return null; // authenticated — proceed
-            } catch (Exception e) {
-                return unauthorized("invalid_token", e.getMessage());
-            }
+        if (authorization == null || !authorization.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length())) {
+            return unauthorized("missing_token", "Authorization: Bearer <oidc access token> is required (POST /oidc/token, grant_type=client_credentials)");
         }
-        return unauthorized("missing_token", "Authorization: Bearer <oidc access token> is required on /api/v1/dsh/** (POST /oidc/token, grant_type=client_credentials)");
+        String token = authorization.substring(BEARER_PREFIX.length()).trim();
+        try {
+            tokenService.validateAccessToken(token);
+            return null; // provider-issued Bearer token — authenticated
+        } catch (Exception e) {
+            return unauthorized("invalid_token", e.getMessage());
+        }
     }
 
     /** RFC 6750 style 401: challenge header plus a machine-readable reason. */

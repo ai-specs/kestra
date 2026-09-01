@@ -1,7 +1,14 @@
 package io.kestra.webserver.controllers.api;
 
 import io.micronaut.http.HttpResponse;
-import io.micronaut.http.HttpStatus;
+
+import io.kestra.core.executor.command.ExecutionCommand;
+import io.kestra.core.executor.command.Resume;
+import io.kestra.core.models.executions.Execution;
+import io.kestra.core.queues.DispatchQueueInterface;
+import io.kestra.core.services.ExecutionService;
+import io.kestra.core.tenant.TenantService;
+import io.kestra.plugin.core.flow.Pause;import io.micronaut.http.HttpStatus;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.Post;
@@ -40,6 +47,15 @@ public class DshApprovalController {
     }
 
     private final DshMetricsConfiguration configuration;
+
+    @jakarta.inject.Inject
+    protected DispatchQueueInterface<ExecutionCommand> executionCommandQueue;
+
+    @jakarta.inject.Inject
+    protected ExecutionService executionService;
+
+    @jakarta.inject.Inject
+    protected TenantService tenantService;
 
     public DshApprovalController(DshMetricsConfiguration configuration) {
         this.configuration = configuration;
@@ -92,16 +108,18 @@ public class DshApprovalController {
         if (!isUuid(approvalId)) {
             return HttpResponse.badRequest().body(Map.of("error", "approvalId must be a valid UUID: " + approvalId));
         }
+        String payload = null;
         try (Connection connection = open()) {
             String currentStatus;
             String sessionId;
             try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT status, session_id::text, approvers FROM dsh_approval WHERE id = ?::uuid")) {
+                "SELECT status, session_id::text, approvers, payload::text FROM dsh_approval WHERE id = ?::uuid")) {
                 ps.setString(1, approvalId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) throw new IllegalArgumentException("dsh approval ticket not found: " + approvalId);
                     currentStatus = rs.getString(1);
                     sessionId = rs.getString(2);
+                    payload = rs.getString(4);
                     java.sql.Array approversArr = rs.getArray(3);
                     if (approversArr != null) {
                         List<String> approvers = List.of((String[]) approversArr.getArray());
@@ -133,7 +151,27 @@ public class DshApprovalController {
             }
             connection.commit();
         }
+        // dsh.docx 审批唤醒：会话恢复之外，同时唤醒挂起（PAUSED）的 Kestra 执行——
+        // DshApproval CREATE 把 executionId 写进 payload，这里据此发 Resume 命令。
+        if (approved) {
+            resumePausedExecution(payload);
+        }
         return HttpResponse.ok(read(approvalId));
+    }
+
+    /** Best-effort resume of the paused execution referenced by the ticket payload. */
+    private void resumePausedExecution(String payload) {
+        try {
+            String executionId = io.kestra.core.serializers.JacksonMapper
+                .toMap(payload == null ? "{}" : payload).get("executionId") instanceof String s ? s : null;
+            if (executionId == null) return;
+            Execution execution = executionService.getExecutionIfPause(tenantService.resolveTenant(), executionId, true);
+            executionCommandQueue.emit(Resume.from(execution, Pause.Resumed.now()));
+            LOG.info("[dsh-approval] resumed paused execution {} after approval", executionId);
+        } catch (Exception e) {
+            // 工单不引用执行、或执行并未挂起（如已终态/超时路径）——按设计静默跳过
+            LOG.debug("[dsh-approval] resume skipped: {}", e.getMessage());
+        }
     }
 
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DshApprovalController.class);
