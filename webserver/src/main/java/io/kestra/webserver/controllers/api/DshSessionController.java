@@ -1,6 +1,7 @@
 package io.kestra.webserver.controllers.api;
 
 import io.micronaut.http.annotation.Body;
+import io.micronaut.http.HttpResponse;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.PathVariable;
@@ -33,6 +34,13 @@ import java.util.Set;
 @ExecuteOn(TaskExecutors.IO)
 public class DshSessionController {
 
+    private static final java.util.regex.Pattern UUID_PATTERN =
+        java.util.regex.Pattern.compile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", 2);
+
+    private static boolean isUuid(String value) {
+        return value != null && UUID_PATTERN.matcher(value.toLowerCase()).matches();
+    }
+
     private static final Set<String> PHASES = Set.of("CREATED", "RUNNING", "PENDING_APPROVAL", "COMPLETED", "FAILED");
 
     private static final Map<String, Set<String>> TRANSITIONS = Map.of(
@@ -57,10 +65,13 @@ public class DshSessionController {
      */
     @Put("/{sessionId}")
     @Operation(summary = "Upsert a dsh session snapshot (dsh PC → Kestra session sync)")
-    public Map<String, Object> upsert(
+    public HttpResponse<Map<String, Object>> upsert(
         @Parameter(description = "The dsh session id") @PathVariable("sessionId") String sessionId,
         @Body SessionSnapshot snapshot
     ) throws Exception {
+        if (!isUuid(sessionId)) {
+            return HttpResponse.badRequest(Map.of("error", "sessionId must be a valid UUID: " + sessionId));
+        }
         String phase = snapshot.phase() == null ? "RUNNING" : snapshot.phase().toUpperCase();
         if (!PHASES.contains(phase)) {
             throw new IllegalArgumentException("unknown phase: " + phase);
@@ -101,7 +112,7 @@ public class DshSessionController {
             }
             connection.commit();
         }
-        return read(sessionId);
+        return HttpResponse.ok(read(sessionId));
     }
 
     /** Read the current session snapshot (dsh-ui ←会话查看). */

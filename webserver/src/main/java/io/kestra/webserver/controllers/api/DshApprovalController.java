@@ -32,6 +32,13 @@ import java.util.Map;
 @ExecuteOn(TaskExecutors.IO)
 public class DshApprovalController {
 
+    private static final java.util.regex.Pattern UUID_PATTERN =
+        java.util.regex.Pattern.compile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", 2);
+
+    private static boolean isUuid(String value) {
+        return value != null && UUID_PATTERN.matcher(value.toLowerCase()).matches();
+    }
+
     private final DshMetricsConfiguration configuration;
 
     public DshApprovalController(DshMetricsConfiguration configuration) {
@@ -82,6 +89,9 @@ public class DshApprovalController {
     }
 
     private HttpResponse<?> doDecide(String approvalId, boolean approved, String approver, String comment) throws Exception {
+        if (!isUuid(approvalId)) {
+            return HttpResponse.badRequest().body(Map.of("error", "approvalId must be a valid UUID: " + approvalId));
+        }
         try (Connection connection = open()) {
             String currentStatus;
             String sessionId;
