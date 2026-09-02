@@ -63,8 +63,7 @@ public class DshGatewayController {
         @Parameter(description = "Raw query string forwarded to the target") @QueryValue(defaultValue = "") String query,
         @Body String body
     ) throws Exception {
-        // 鉴权：OidcBearerAuthFilter（Bearer + aud=dsh 受众校验）——静态 X-Dsh-Gateway-Token
-        // 第二因子已退役（BasicAuth 时代遗留；受众隔离取代其作用）。
+        // 鉴权：OidcBearerAuthFilter（Bearer + aud=dsh 受众校验）。
         String base = configuration.systemBaseUrl(system);
         if (base == null) {
             LOG.info("[dsh-gateway] DENIED system={} path={} status=404 (unknown system)", system, path);

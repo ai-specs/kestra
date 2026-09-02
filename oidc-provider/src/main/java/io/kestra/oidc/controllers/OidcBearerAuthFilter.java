@@ -25,8 +25,7 @@ import jakarta.inject.Inject;
  * Protected surfaces:
  * <ul>
  *   <li>{@code /api/v1/dsh/**} — sessions/approvals/metrics/gateway (callers: dsh (PC) plugins,
- *       dsh-ui's BFF, scripts); the gateway endpoints additionally require
- *       {@code X-Dsh-Gateway-Token};</li>
+ *       dsh-ui's BFF, scripts); gateway endpoints share the same Bearer guard;</li>
  *   <li>{@code /api/v1/executions/dsh/**} — triggering flows in the {@code dsh} namespace (the
  *       AIAgent execution plane), so dsh-ui can start tasks with its provider token without a
  *       Kestra admin session.</li>
@@ -56,7 +55,7 @@ public class OidcBearerAuthFilter {
      * The only audience allowed on the dsh ecosystem APIs: the {@code dsh} OIDC client
      * (authorization-code for dsh-ui, client_credentials for dsh(PC)/scripts). A token minted
      * for another client (e.g. the nacos config client) must not reach these surfaces — the
-     * audience check replaces the retired static X-Dsh-Gateway-Token factor.
+     * audience check is the sole gateway authorization factor.
      */
     private static final String REQUIRED_AUDIENCE = "dsh";
 
