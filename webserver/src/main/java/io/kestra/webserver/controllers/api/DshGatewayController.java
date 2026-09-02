@@ -47,7 +47,7 @@ public class DshGatewayController {
     /**
      * Forward a business call to an enterprise system (OA/CRM/ERP).
      *
-     * @param authorization dsh gateway token: "Bearer <dsh.gateway.token>"
+     * @param authorization Provider-issued Bearer token (aud=dsh, enforced by OidcBearerAuthFilter)
      * @param system target system alias registered in the configuration (e.g. enterprise)
      * @param path business path inside the target system, e.g. crm/customer
      * @param query optional raw query string forwarded to the target
@@ -56,8 +56,6 @@ public class DshGatewayController {
     @Post(uri = "/{system}/{path:.*}")
     @Operation(summary = "Authenticated proxy for enterprise system business calls (audited)")
     public HttpResponse<String> forward(
-        @Parameter(description = "dsh gateway token", in = ParameterIn.HEADER)
-        @Header(value = "X-Dsh-Gateway-Token") String gatewayTokenHeader,
         @Parameter(description = "dsh session id, propagated as trace id across the whole chain (dsh.docx 第十五章)")
         @Header(value = "X-Dsh-Trace-Id") String traceId,
         @Parameter(description = "Target system alias") String system,
@@ -65,12 +63,8 @@ public class DshGatewayController {
         @Parameter(description = "Raw query string forwarded to the target") @QueryValue(defaultValue = "") String query,
         @Body String body
     ) throws Exception {
-        String expected = configuration.gatewayToken();
-        if (!expected.equals(gatewayTokenHeader)) {
-            LOG.info("[dsh-gateway] DENIED system={} path={} status=401 traceId={}", system, path, traceId);
-            return HttpResponse.unauthorized().body("{\"error\":\"unauthorized\"}");
-        }
-
+        // 鉴权：OidcBearerAuthFilter（Bearer + aud=dsh 受众校验）——静态 X-Dsh-Gateway-Token
+        // 第二因子已退役（BasicAuth 时代遗留；受众隔离取代其作用）。
         String base = configuration.systemBaseUrl(system);
         if (base == null) {
             LOG.info("[dsh-gateway] DENIED system={} path={} status=404 (unknown system)", system, path);
@@ -96,16 +90,13 @@ public class DshGatewayController {
     @Singleton
     public static class DshGatewayConfiguration {
 
-        private final String gatewayToken;
         private final String enterpriseBaseUrl;
         private final String enterpriseToken;
 
         public DshGatewayConfiguration(
-            @io.micronaut.context.annotation.Value("${dsh.gateway.token}") String gatewayToken,
             @io.micronaut.context.annotation.Value("${dsh.gateway.systems.enterprise.base-url}") String enterpriseBaseUrl,
             @io.micronaut.context.annotation.Value("${dsh.gateway.enterprise-token}") String enterpriseToken
         ) {
-            this.gatewayToken = gatewayToken;
             this.enterpriseBaseUrl = enterpriseBaseUrl;
             this.enterpriseToken = enterpriseToken;
         }
@@ -118,10 +109,6 @@ public class DshGatewayController {
         /** Authorization header used when calling the enterprise system. */
         public String systemAuthorization() {
             return "Bearer " + enterpriseToken;
-        }
-
-        public String gatewayToken() {
-            return gatewayToken;
         }
 
         public int timeoutSeconds() {

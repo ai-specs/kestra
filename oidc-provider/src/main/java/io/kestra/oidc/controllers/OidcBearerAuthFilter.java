@@ -52,6 +52,14 @@ public class OidcBearerAuthFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
+    /**
+     * The only audience allowed on the dsh ecosystem APIs: the {@code dsh} OIDC client
+     * (authorization-code for dsh-ui, client_credentials for dsh(PC)/scripts). A token minted
+     * for another client (e.g. the nacos config client) must not reach these surfaces — the
+     * audience check replaces the retired static X-Dsh-Gateway-Token factor.
+     */
+    private static final String REQUIRED_AUDIENCE = "dsh";
+
     private final OidcTokenService tokenService;
 
     @Inject
@@ -68,8 +76,11 @@ public class OidcBearerAuthFilter {
         }
         String token = authorization.substring(BEARER_PREFIX.length()).trim();
         try {
-            tokenService.validateAccessToken(token);
-            return null; // provider-issued Bearer token — authenticated
+            var claims = tokenService.validateAccessToken(token);
+            if (!REQUIRED_AUDIENCE.equals(claims.getAudience() == null ? null : claims.getAudience().stream().findFirst().orElse(null))) {
+                return unauthorized("invalid_audience", "this token's audience is not '" + REQUIRED_AUDIENCE + "' (minted for another client)");
+            }
+            return null; // provider-issued, dsh-audience Bearer token — authenticated
         } catch (Exception e) {
             return unauthorized("invalid_token", e.getMessage());
         }

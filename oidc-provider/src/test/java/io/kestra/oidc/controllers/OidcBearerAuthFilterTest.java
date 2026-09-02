@@ -46,6 +46,19 @@ class OidcBearerAuthFilterTest extends OidcPostgresTestBase {
     }
 
     @Test
+    void tokenMintedForAnotherClientIsRejectedByAudience() {
+        // nacos 客户端的 token（aud=nacos）不得访问 dsh 生态 API——取代旧静态网关 token 的隔离作用
+        String nacosToken = tokenService.issueAccessToken(
+            new ClientID("nacos"), "nacos", "nacos", "nacos",
+            List.of("admin"), new Scope("openid")).getValue();
+        MutableHttpRequest<?> request = HttpRequest.GET("/api/v1/dsh/gateway/enterprise/crm/query")
+            .header("Authorization", "Bearer " + nacosToken);
+        HttpResponse<?> response = filter.filter(request);
+        assertThat(response.getStatus().getCode(), is(401));
+        assertThat(response.header("WWW-Authenticate"), startsWith("Bearer error=\"invalid_audience\""));
+    }
+
+    @Test
     void missingTokenIsRejectedWithChallenge() {
         HttpResponse<?> response = filter.filter(HttpRequest.GET("/api/v1/dsh/sessions"));
         assertThat(response.getStatus().getCode(), is(401));
