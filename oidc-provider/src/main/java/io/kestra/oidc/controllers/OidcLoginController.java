@@ -135,6 +135,9 @@ public class OidcLoginController {
                 Authentication.build(subject, userService.bySubject(subject).roles()),
                 Math.toIntExact(configuration.getSessionTtl().toSeconds()))
             .ifPresent(token -> response.cookie(jwtCookie(request, token))));
+        // UI 的 SPA 引导守卫读这个非 HttpOnly 标志 cookie 判定「已登录」（上游 OSS 语义：
+        // utils/basicAuth isLoggedIn）；没有它即使 JWT 已落地，/ui/ 仍会被路由到登录页。
+        response.cookie(uiAuthFlagCookie(request));
         return response;
     }
 
@@ -146,6 +149,19 @@ public class OidcLoginController {
         return Cookie.of("JWT", token)
             .path("/")
             .httpOnly(true)
+            .secure(request.isSecure())
+            .sameSite(SameSite.Strict);
+    }
+
+    /**
+     * Non-HttpOnly mirror of the login state, same contract as Kestra's Basic Auth flag cookie
+     * ({@code kestraBasicAuthenticated}): the UI's boot guard reads it client-side to decide the
+     * browser is logged in before it loads the authenticated configuration. Carries no credentials.
+     */
+    private static Cookie uiAuthFlagCookie(HttpRequest<?> request) {
+        return Cookie.of("kestraBasicAuthenticated", "true")
+            .path("/")
+            .httpOnly(false)
             .secure(request.isSecure())
             .sameSite(SameSite.Strict);
     }

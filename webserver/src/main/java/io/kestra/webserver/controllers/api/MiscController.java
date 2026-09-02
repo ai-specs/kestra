@@ -72,6 +72,16 @@ public class MiscController {
     @Inject
     Optional<BasicAuthService> basicAuthService = Optional.empty();
 
+    /**
+     * Whether an authentication method is configured for the instance. Under the dsh OIDC
+     * deployment {@code micronaut.security.enabled=true} and {@link BasicAuthService} is
+     * deliberately absent (Basic Auth is banned there), yet the UI's OSS boot guard routes to
+     * the basic-auth setup wizard unless it reads {@code isBasicAuthInitialized=true} from
+     * /configs and /configs/login — so a security-enabled server reports itself as configured.
+     */
+    @io.micronaut.context.annotation.Value("${micronaut.security.enabled:false}")
+    protected boolean securityEnabled;
+
     @Inject
     Optional<AiServiceManager> aiServiceManager = Optional.empty();
 
@@ -184,7 +194,8 @@ public class MiscController {
     }
 
     private boolean isBasicAuthInitialized() {
-        return basicAuthService.map(BasicAuthService::isBasicAuthInitialized).orElse(false);
+        // OIDC deployment (security enabled, BasicAuthService absent) counts as configured auth.
+        return basicAuthService.map(BasicAuthService::isBasicAuthInitialized).orElse(securityEnabled);
     }
 
     @Get("/{tenant}/usages/all")
@@ -233,9 +244,12 @@ public class MiscController {
     @ExecuteOn(TaskExecutors.IO)
     @Operation(tags = { "Misc" }, summary = "Retrieve the instance configuration.", description = "Global endpoint available to all users.")
     public List<String> getBasicAuthConfigErrors() {
-        return basicAuthService
-            .orElseThrow(() -> new IllegalStateException("basicAuthService bean is required in OSS"))
-            .validationErrors();
+        // Under the OIDC deployment there is no Basic Auth to validate: report no errors
+        // instead of failing — the UI's boot guard probes this endpoint best-effort.
+        if (basicAuthService.isEmpty()) {
+            return List.of();
+        }
+        return basicAuthService.get().validationErrors();
     }
 
     @Post("/login")
