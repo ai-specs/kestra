@@ -1,3 +1,15 @@
+# dsh-monorepo app-kestra standalone 最小参考 compose（Kestra + PostgreSQL）
+#
+# 与根目录 docker-compose.yml 保持同一组默认值（kestra/kestra/k3str4、18080/18081），
+# 全部经 ${VAR:-default} 参数化：不设环境变量时行为与硬编码一致；设了即可覆盖。
+# 本文件不自动加载根目录 .env（compose 只读「本文件同目录」的 .env），如需共享
+# 根 .env 的覆盖值，两种方式任选：
+#   · 仓库根目录执行  bun run up:standalone / down:standalone（已用 --env-file .env 指向根 .env）
+#   · app-kestra 目录执行  docker compose --env-file ../.env up -d
+# 或先 export 对应变量（CI/脚本场景）。
+#
+# 完整企业侧栈（含 Nacos/dsh-ui/dsh(PC)/mock-enterprise）请用根目录 docker-compose.yml。
+
 volumes:
   postgres-data:
     driver: local
@@ -10,9 +22,9 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql
     environment:
-      POSTGRES_DB: kestra
-      POSTGRES_USER: kestra
-      POSTGRES_PASSWORD: k3str4
+      POSTGRES_DB: ${POSTGRES_DB:-kestra}
+      POSTGRES_USER: ${POSTGRES_USER:-kestra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-k3str4}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
       interval: 30s
@@ -43,26 +55,26 @@ services:
       KESTRA_CONFIGURATION: |
         datasources:
           postgres:
-            url: jdbc:postgresql://postgres:5432/kestra
+            url: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-kestra}
             driverClassName: org.postgresql.Driver
-            username: kestra
-            password: k3str4
+            username: ${POSTGRES_USER:-kestra}
+            password: ${POSTGRES_PASSWORD:-k3str4}
         dsh:
           metrics:
-            jdbc-url: jdbc:postgresql://postgres:5432/kestra
-            jdbc-username: kestra
-            jdbc-password: k3str4
+            jdbc-url: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-kestra}
+            jdbc-username: ${POSTGRES_USER:-kestra}
+            jdbc-password: ${POSTGRES_PASSWORD:-k3str4}
           gateway:
-            token: dsh-gateway-token
-            enterprise-token: dsh-enterprise-token
+            token: ${DSH_GATEWAY_TOKEN:-dsh-gateway-token}
+            enterprise-token: ${ENTERPRISE_TOKEN:-dsh-enterprise-token}
             systems:
               enterprise:
                 base-url: http://mock-enterprise:9000
         kestra:
           server:
             basic-auth:
-              username: admin@kestra.io # it must be a valid email address
-              password: Admin1234! # it must be at least 8 characters long with uppercase letter and a number
+              username: ${KESTRA_OIDC_ADMIN_USER:-admin@kestra.io} # it must be a valid email address
+              password: ${KESTRA_OIDC_ADMIN_PASSWORD:-Admin1234!} # it must be at least 8 characters long with uppercase letter and a number
           repository:
             type: postgres
           storage:
@@ -74,10 +86,10 @@ services:
           tasks:
             tmp-dir:
               path: /tmp/kestra-wd/tmp
-          url: http://localhost:8080/
+          url: ${KESTRA_URL:-http://localhost:8080/}
     ports:
-      - "18080:8080"
-      - "18081:8081"   # management: /prometheus 含 dsh_ 指标
+      - "${KESTRA_PORT:-18080}:8080"
+      - "${KESTRA_MANAGEMENT_PORT:-18081}:8081"   # management: /prometheus 含 dsh_ 指标
       # The following is the management port, not exposed by default.
       # Note that exposing the management port is intended for development purpose as this port is un-authenticated by default
       # and expose sensitive information and actions.
