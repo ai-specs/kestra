@@ -175,13 +175,22 @@ public class OidcProviderController {
             return authorizeError(redirectUri, state, OAuth2Error.INVALID_SCOPE);
         }
 
+        // Public clients (no client_secret — dsh-ui mobile / dsh-pc) MUST use PKCE with S256:
+        // the code verifier is their only proof of possession at the token endpoint (RFC 7636,
+        // OAuth 2.1). Confidential clients may still send the challenge, but it stays optional.
+        CodeChallenge codeChallenge = authRequest.getCodeChallenge();
+        CodeChallengeMethod codeChallengeMethod = authRequest.getCodeChallengeMethod();
+        if (clientService.isPublic(client)
+            && (codeChallenge == null || codeChallengeMethod != CodeChallengeMethod.S256)) {
+            return authorizeError(redirectUri, state, OAuth2Error.INVALID_REQUEST
+                .appendDescription(": public clients must use PKCE (code_challenge_method=S256)"));
+        }
+
         Optional<OidcUserService.OidcUser> user = userService.authenticatedUser(request);
         if (user.isEmpty()) {
             return redirectToLogin(request);
         }
 
-        CodeChallenge codeChallenge = authRequest.getCodeChallenge();
-        CodeChallengeMethod codeChallengeMethod = authRequest.getCodeChallengeMethod();
         AuthorizationCode code = authCodeService.create(
             client.clientId(),
             user.get().sub(),
@@ -215,13 +224,21 @@ public class OidcProviderController {
             HTTPRequest nimbus = NimbusHttpAdapter.toNimbusFormPost(request, form, ContentType.APPLICATION_URLENCODED);
             TokenRequest tokenRequest = TokenRequest.parse(nimbus);
 
-            ClientID clientId = authenticateClient(tokenRequest);
+            ClientID clientId = authenticateClient(tokenRequest, form);
             OidcClientService.OidcClient client = clientService.require(clientId.getValue());
 
             AuthorizationGrant grant = tokenRequest.getAuthorizationGrant();
             String grantType = grant.getType().getValue();
             if (!clientService.isGrantTypeAllowed(client, grantType)) {
                 throw new OidcException(OAuth2Error.UNAUTHORIZED_CLIENT.appendDescription(": grant type not enabled for this client"));
+            }
+
+            // Public clients prove possession with PKCE, not a secret: the authorization code was
+            // issued with their S256 challenge, so the verifier is mandatory here.
+            if (clientService.isPublic(client)
+                && grant instanceof AuthorizationCodeGrant publicGrant
+                && publicGrant.getCodeVerifier() == null) {
+                throw new OidcException(OAuth2Error.INVALID_GRANT.appendDescription(": PKCE code_verifier is required for public clients"));
             }
 
             if (grant instanceof AuthorizationCodeGrant authorizationCodeGrant) {
@@ -456,11 +473,29 @@ public class OidcProviderController {
     // Helpers
     // ------------------------------------------------------------------------
 
-    /** Authenticates the client from the token request; throws {@code invalid_client} otherwise. */
-    private ClientID authenticateClient(TokenRequest tokenRequest) {
+    /**
+     * Authenticates the client from the token request; throws {@code invalid_client} otherwise.
+     *
+     * <p>
+     * Confidential clients use {@code client_secret_basic}/{@code client_secret_post}. Public
+     * clients (stored with an empty secret — dsh-ui mobile, dsh-pc) send no client authentication
+     * at all and identify themselves with the {@code client_id} form parameter; their proof of
+     * possession is the PKCE verifier, enforced per-grant in {@link #token}.
+     */
+    private ClientID authenticateClient(TokenRequest tokenRequest, Map<String, String> form) {
         ClientAuthentication authentication = tokenRequest.getClientAuthentication();
         if (authentication == null) {
-            throw new OidcException(OAuth2Error.INVALID_CLIENT.appendDescription(": client authentication required"));
+            String explicitClientId = form.get("client_id");
+            if (explicitClientId == null || explicitClientId.isBlank()) {
+                throw new OidcException(OAuth2Error.INVALID_CLIENT.appendDescription(
+                    ": client authentication required (or client_id for public clients)"));
+            }
+            OidcClientService.OidcClient client = clientService.require(explicitClientId);
+            if (!clientService.isPublic(client)) {
+                throw new OidcException(OAuth2Error.INVALID_CLIENT.appendDescription(
+                    ": confidential clients must authenticate with client_secret (basic/post)"));
+            }
+            return client.clientId();
         }
         ClientID clientId = authentication.getClientID();
         Secret secret = null;

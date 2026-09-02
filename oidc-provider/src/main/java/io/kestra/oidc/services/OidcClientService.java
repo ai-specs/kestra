@@ -90,6 +90,17 @@ public class OidcClientService {
         return constantTimeEquals(client.get().clientSecret(), clientSecret);
     }
 
+    /**
+     * A public client ({@code token_endpoint_auth_method=none}) is stored with an EMPTY secret:
+     * it cannot keep credentials safe (browser / mobile app / user PC), so it authenticates with
+     * PKCE (S256) instead — dsh-ui (mobile) and dsh-pc (user PC) are seeded this way. Confidential
+     * clients (nacos, dsh service, kestra-self) keep a real secret and use
+     * {@code client_secret_basic}/{@code client_secret_post}.
+     */
+    public boolean isPublic(OidcClient client) {
+        return client.clientSecret() == null || client.clientSecret().isBlank();
+    }
+
     /** Checks that the client may use the given grant type. */
     public boolean isGrantTypeAllowed(OidcClient client, String grantType) {
         return client.grantTypes().contains(grantType);

@@ -30,6 +30,19 @@ public class OidcConfiguration {
     private String adminUsername = "admin@kestra.io";
     private String adminPassword = "Admin1234!";
     private Duration sessionTtl = Duration.ofHours(8);
+    /** Additional IdP accounts beyond the administrator (dsh.docx: IdP 维护独立账号体系). */
+    private List<OidcUserAccount> users = List.of();
+    /**
+     * Browser origins allowed to call the dsh ecosystem APIs (CORS preflight on
+     * {@code /api/v1/dsh/**} is answered by OidcBearerAuthFilter itself — the generic CORS
+     * filter ordering interacts badly with the route guard, and the dsh surfaces must stay
+     * deterministic). dsh-ui H5 builds live on these origins.
+     */
+    private List<String> corsAllowedOrigins = List.of(
+        "http://localhost:13010",
+        "http://127.0.0.1:13010",
+        "http://localhost:5173"
+    );
 
     public boolean isEnabled() {
         return enabled;
@@ -130,5 +143,55 @@ public class OidcConfiguration {
 
     public void setSessionTtl(Duration sessionTtl) {
         this.sessionTtl = sessionTtl;
+    }
+
+    public List<OidcUserAccount> getUsers() {
+        return users;
+    }
+
+    public void setUsers(List<OidcUserAccount> users) {
+        this.users = users == null ? List.of() : users;
+    }
+
+    public List<String> getCorsAllowedOrigins() {
+        return corsAllowedOrigins;
+    }
+
+    public void setCorsAllowedOrigins(List<String> corsAllowedOrigins) {
+        this.corsAllowedOrigins = corsAllowedOrigins == null ? List.of() : corsAllowedOrigins;
+    }
+
+    /**
+     * One IdP account: username (= the OIDC {@code sub}), password and the roles mapped into the
+     * {@code roles} claim (session ownership and approval authorization derive from the sub).
+     */
+    public static class OidcUserAccount {
+        private String username;
+        private String password;
+        private List<String> roles = List.of("user");
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+
+        public List<String> getRoles() {
+            return roles;
+        }
+
+        public void setRoles(List<String> roles) {
+            this.roles = roles == null ? List.of("user") : roles;
+        }
     }
 }

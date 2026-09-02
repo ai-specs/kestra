@@ -47,25 +47,32 @@ public class OidcUserService {
     }
 
     /**
-     * Validates a username/password against the provider's configured administrator account using
-     * a constant-time comparison. Used by the IdP login form — credentials are submitted once and
-     * exchanged for a session cookie, never re-sent on later requests.
+     * Validates a username/password against the configured IdP accounts (the administrator plus
+     * any {@code kestra.oidc.users} entries) using constant-time comparisons. Used by the IdP
+     * login form — credentials are submitted once and exchanged for a session cookie, never
+     * re-sent on later requests.
      */
     public boolean validateCredentials(String username, String password) {
-        if (username == null || password == null
-            || configuration.getAdminUsername() == null
-            || configuration.getAdminPassword() == null) {
+        if (username == null || password == null) {
             return false;
         }
-        boolean userOk = constantTimeEquals(
-            username.trim(),
-            configuration.getAdminUsername()
-        );
-        boolean passOk = constantTimeEquals(
-            password,
-            configuration.getAdminPassword()
-        );
-        return userOk && passOk;
+        if (matches(configuration.getAdminUsername(), configuration.getAdminPassword(), username, password)) {
+            return true;
+        }
+        for (OidcConfiguration.OidcUserAccount account : configuration.getUsers()) {
+            if (matches(account.getUsername(), account.getPassword(), username, password)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean matches(String expectedUser, String expectedPassword, String username, String password) {
+        if (expectedUser == null || expectedPassword == null) {
+            return false;
+        }
+        return constantTimeEquals(expectedUser.trim(), username)
+            && constantTimeEquals(expectedPassword, password);
     }
 
     /**
@@ -98,10 +105,16 @@ public class OidcUserService {
 
     /**
      * Rebuilds a user profile from a known subject (e.g. the subject stored in an authorization
-     * code or refresh token). The provider's user directory is the configured administrator
-     * account, so any subject maps back to the configured default roles.
+     * code or refresh token). The provider's user directory is the configured account list, so a
+     * known subject maps back to its own roles, the administrator (or an unknown service subject,
+     * e.g. a client-credentials client id) to the configured default roles.
      */
     public OidcUser bySubject(String subject) {
+        for (OidcConfiguration.OidcUserAccount account : configuration.getUsers()) {
+            if (account.getUsername() != null && account.getUsername().trim().equals(subject)) {
+                return new OidcUser(subject, subject, subject, account.getRoles());
+            }
+        }
         return new OidcUser(subject, subject, subject, configuration.getDefaultRoles());
     }
 

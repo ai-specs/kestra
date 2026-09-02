@@ -127,9 +127,12 @@ public class OidcLoginController {
         String sessionId = sessionService.create(subject);
         io.micronaut.http.MutableHttpResponse<?> response = HttpResponse.seeOther(URI.create(from))
             .cookie(sessionService.sessionCookie(request, sessionId));
+        // Kestra UI 的 JWT cookie 角色必须与该账号在 IdP 的角色一致（bySubject：
+        // kestra.oidc.users 里的角色；管理员/未知主体回落 defaultRoles）——
+        // 否则普通用户登录后会被当成 admin。
         jwtTokenGenerator.ifPresent(generator -> generator
             .generateToken(
-                Authentication.build(subject, configuration.getDefaultRoles()),
+                Authentication.build(subject, userService.bySubject(subject).roles()),
                 Math.toIntExact(configuration.getSessionTtl().toSeconds()))
             .ifPresent(token -> response.cookie(jwtCookie(request, token))));
         return response;
