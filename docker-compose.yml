@@ -76,7 +76,6 @@ services:
               path: /tmp/kestra-wd/tmp
           url: http://localhost:8080/
     ports:
-      # 宿主 8080 已被 meta-agent-monorepo 的 kestra 占用，dsh 栈改用 18080
       - "18080:8080"
       - "18081:8081"   # management: /prometheus 含 dsh_ 指标
       # The following is the management port, not exposed by default.
