@@ -2548,7 +2548,12 @@
         "confirmRemove": "Remove {user} from role {role}?",
         "remove": "Remove",
         "memberAdded": "{user} added to {role}",
-        "memberRemoved": "{user} removed from {role}"
+        "memberRemoved": "{user} removed from {role}",
+        "descriptions": {
+          "admin": "dsh ecosystem admin: Kestra user/role management + Nacos global admin + dsh data full access",
+          "user": "dsh ecosystem regular user: Kestra normal features + dsh data scoped to self",
+          "authenticated": "identity-only, no authorization (machine identity default)"
+        }
       },
       "project": {
         "title": "Project",
@@ -2559,6 +2564,8 @@
         "projectInfo": "Project Info",
         "name": "Project Name",
         "description": "Description",
+        "projectDescription": "DSH Ecosystem — Default project containing all dsh applications: Kestra, Nacos, dsh PC/mobile",
+        "defaultProject": "Default Project",
         "createdAt": "Created At",
         "clientId": "Client ID",
         "clientType": "Type",
@@ -2572,6 +2579,7 @@
         "user": "User",
         "role": "Role",
         "noMembers": "No members",
+        "noApplications": "No applications",
         "viewMembers": "View members"
       }
     }

@@ -39,7 +39,7 @@ function polishPluralIndex(choice: number, choicesLength: number): number {
 }
 
 export function setupI18n(options: {locale: Locales} = {locale: "en"}) {
-  const i18n = createI18n<false>({...options, pluralRules: {pl: polishPluralIndex}})
+  const i18n = createI18n<false>({...options, fallbackLocale: "en", pluralRules: {pl: polishPluralIndex}})
   setI18nLanguage(i18n, options.locale)
   globalI18n.value = i18n.global
   return i18n

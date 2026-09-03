@@ -2548,7 +2548,12 @@
         "confirmRemove": "将 {user} 移出角色 {role}？",
         "remove": "移除",
         "memberAdded": "{user} 已加入 {role}",
-        "memberRemoved": "{user} 已移出 {role}"
+        "memberRemoved": "{user} 已移出 {role}",
+        "descriptions": {
+          "admin": "dsh 生态系统管理员：Kestra 用户/角色管理 + Nacos 全局管理员 + dsh 数据完全访问",
+          "user": "dsh 生态系统普通用户：Kestra 常规功能 + dsh 数据仅限本人",
+          "authenticated": "仅身份认证，无授权（机器身份默认）"
+        }
       },
       "project": {
         "title": "项目",
@@ -2559,6 +2564,8 @@
         "projectInfo": "项目信息",
         "name": "项目名称",
         "description": "描述",
+        "projectDescription": "DSH 生态系统 —— 包含所有 dsh 应用的默认项目：Kestra、Nacos、dsh PC端/手机端",
+        "defaultProject": "默认项目",
         "createdAt": "创建时间",
         "clientId": "客户端 ID",
         "clientType": "类型",
@@ -2572,6 +2579,7 @@
         "user": "用户",
         "role": "角色",
         "noMembers": "暂无成员",
+        "noApplications": "暂无应用",
         "viewMembers": "查看成员"
       }
     }

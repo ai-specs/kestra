@@ -6,7 +6,7 @@
         <div class="project-header">
             <div class="project-title-row">
                 <h1 class="project-name">{{ projectName }}</h1>
-                <KsTag type="success" size="small" effect="light">Default Project</KsTag>
+                <KsTag type="success" size="small" effect="light">{{ t("dsh.project.defaultProject") }}</KsTag>
             </div>
             <p class="project-desc">{{ projectDesc }}</p>
         </div>
@@ -56,7 +56,7 @@
                                 </div>
                             </div>
                             <div v-if="clients.length === 0 && !loading" class="empty-state">
-                                No applications
+                                {{ t("dsh.project.noApplications") }}
                             </div>
                         </div>
                     </div>
@@ -74,7 +74,11 @@
                                 </KsTag>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn prop="description" :label="t('dsh.project.description')" min-width="300" />
+                        <KsTableColumn :label="t('dsh.project.description')" min-width="300">
+                            <template #default="{row}">
+                                {{ roleDescription(row.roleName, row.description) }}
+                            </template>
+                        </KsTableColumn>
                         <KsTableColumn prop="memberCount" :label="t('dsh.project.memberCount')" width="100" align="center" />
                         <KsTableColumn :label="t('actions')" width="150">
                             <template #default="{row}">
@@ -203,7 +207,7 @@
         projectId: string;
     }
 
-    const {t} = useI18n({useScope: "global"})
+    const {t, te} = useI18n({useScope: "global"})
     const routeInfo = computed(() => ({title: t("dsh.project.title")}))
     useRouteContext(routeInfo)
 
@@ -211,7 +215,7 @@
 
     // 默认 dsh 项目信息
     const projectName = "dsh"
-    const projectDesc = "DSH Ecosystem — Default project containing all dsh applications: Kestra, Nacos, dsh PC/mobile"
+    const projectDesc = computed(() => t("dsh.project.projectDescription"))
     const projectCreatedAt = "2026-09-03"
 
     const activeTab = ref("summary")
@@ -249,6 +253,12 @@
         if (role === "admin") return "danger"
         if (role === "authenticated") return "info"
         return "primary"
+    }
+
+    /** Returns the localized role description; falls back to the API-provided description. */
+    function roleDescription(roleName: string, fallback: string) {
+        const key = `dsh.roles.descriptions.${roleName}`
+        return te(key) ? t(key) : fallback
     }
 
     async function api(url: string, options: RequestInit = {}) {
