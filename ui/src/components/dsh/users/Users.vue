@@ -56,7 +56,7 @@
                     <KsTag
                         v-for="role in (row.roles || [])"
                         :key="role"
-                        :type="role === 'admin' ? 'danger' : 'primary'"
+                        :type="role === 'admin' ? 'danger' : (role === 'authenticated' ? 'info' : 'primary')"
                         size="small"
                         effect="light"
                         class="user-role-tag"
@@ -110,7 +110,7 @@
         >
             <KsForm label-position="top" class="user-form">
                 <KsFormItem v-if="!editing" :label="t('dsh.users.type')" required>
-                    <KsSelect v-model="form.type" class="user-type-select" data-test="user-form-type">
+                    <KsSelect v-model="form.type" class="user-type-select" data-test="user-form-type" @change="onTypeChange">
                         <KsOption :label="t('dsh.users.human')" value="human" />
                         <KsOption :label="t('dsh.users.machine')" value="machine" />
                     </KsSelect>
@@ -212,7 +212,7 @@
     const loading = ref(false)
     const search = ref("")
     const typeFilter = ref("")
-    const availableRoles = ["admin", "user"]
+    const availableRoles = ["admin", "user", "authenticated"]
 
     const dialogVisible = ref(false)
     const editing = ref<UserRow | null>(null)
@@ -291,6 +291,8 @@
         form.description = ""
         form.secret = ""
         form.type = "human"
+        // A human defaults to the least-privilege "user" role; a machine defaults to the
+        // identity-only "authenticated" role (never implicit admin).
         form.roles = ["user"]
         form.userState = "ACTIVE"
     }
@@ -299,6 +301,14 @@
         editing.value = null
         resetForm()
         dialogVisible.value = true
+    }
+
+    // When creating, switching the identity type re-defaults the roles to the type's
+    // least-privilege default (human -> "user", machine -> "authenticated"). The admin can
+    // still explicitly grant admin afterwards via the roles select.
+    function onTypeChange() {
+        if (editing.value) return
+        form.roles = form.type === "machine" ? ["authenticated"] : ["user"]
     }
 
     function openEdit(row: UserRow) {
@@ -452,6 +462,11 @@
         display: flex;
         gap: var(--ks-spacing-2);
         align-items: center;
+        /* Kestra's global `main > section.full-container > *` sets flex:1 1 0% on every
+           direct child, stretching this toolbar to fill the whole vertical space (the
+           search box/button then sit on top of a huge blank area). Keep it at content
+           height so only the table below grows. */
+        flex: 0 0 auto;
     }
 
     .user-search {

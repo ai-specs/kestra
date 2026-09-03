@@ -7,7 +7,7 @@
                 <div class="panel-title">{{ t("dsh.roles.title") }}</div>
                 <KsMenu :default-active="selectedRole" class="role-menu" data-test="role-menu" @select="onRoleSelect">
                     <KsMenuItem v-for="role in roleNames" :key="role" :index="role">
-                        <KsTag :type="role === 'admin' ? 'danger' : 'primary'" size="small" effect="light">
+                        <KsTag :type="role === 'admin' ? 'danger' : (role === 'authenticated' ? 'info' : 'primary')" size="small" effect="light">
                             {{ role }}
                         </KsTag>
                         <span class="role-count">{{ countByRole(role) }}</span>

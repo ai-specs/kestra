@@ -68,6 +68,18 @@ public class OidcUserService {
     public static final String TYPE_HUMAN = "human";
     public static final String TYPE_MACHINE = "machine";
 
+    /**
+     * The built-in "identity-only" role. An identity holding only this role has been
+     * authenticated by the IdP but carries no authorisation (mirrors ZITADEL's implicit
+     * {@code authenticated} role, made explicit here so it is visible and manageable in the
+     * directory). Machine identities default to it instead of falling back to
+     * {@code default-roles} ({@code admin}) so a new service account is least-privilege by
+     * default; a consumer that really needs elevated rights (e.g. the dsh service reading the
+     * full observation centre, or Nacos mapping the {@code roles} claim to its own admin) is
+     * granted {@code admin} explicitly.
+     */
+    public static final String AUTHENTICATED_ROLE = "authenticated";
+
     /** A user-directory row exposed by the admin API (no auth-method detail). */
     public record UserRow(
         String username,
@@ -390,8 +402,17 @@ public class OidcUserService {
         }
         String userState = request.userState() == null || request.userState().isBlank()
             ? "ACTIVE" : request.userState().trim().toUpperCase();
-        List<String> roles = request.roles() == null || request.roles().isEmpty()
-            ? configuration.getDefaultRoles() : new ArrayList<>(request.roles());
+        // Least-privilege by default: a machine (service account) that only needs to be
+        // authenticated gets the identity-only "authenticated" role, never an implicit admin
+        // from default-roles. A human still falls back to the configured default roles.
+        List<String> roles;
+        if (TYPE_MACHINE.equals(type)) {
+            roles = request.roles() == null || request.roles().isEmpty()
+                ? new ArrayList<>(List.of(AUTHENTICATED_ROLE)) : new ArrayList<>(request.roles());
+        } else {
+            roles = request.roles() == null || request.roles().isEmpty()
+                ? configuration.getDefaultRoles() : new ArrayList<>(request.roles());
+        }
         String hash = request.password() == null || request.password().isBlank()
             ? null : BCrypt.hashpw(request.password(), BCrypt.gensalt(10));
 
