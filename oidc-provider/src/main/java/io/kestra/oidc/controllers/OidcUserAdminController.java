@@ -141,6 +141,13 @@ public class OidcUserAdminController {
 
     // ------------------------------------------------------------------ authorisation (权限控制)
 
+    /** Lists project-scoped roles with descriptions and member counts (default dsh project). */
+    @Get("/roles")
+    public HttpResponse<?> listRoles(HttpRequest<?> request) {
+        requireAdmin(request);
+        return HttpResponse.ok(userService.listRoles("dsh"));
+    }
+
     /** Replaces the roles of a user. */
     @Put(value = "/{username}/roles", consumes = MediaType.APPLICATION_JSON)
     public HttpResponse<?> setRoles(HttpRequest<?> request, String username, @Body Map<String, List<String>> body) {

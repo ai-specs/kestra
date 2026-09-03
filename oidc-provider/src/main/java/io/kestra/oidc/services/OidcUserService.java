@@ -251,11 +251,25 @@ public class OidcUserService {
      * code or refresh token). Resolves the user from the directory when available; unknown
      * subjects (e.g. a client-credentials client id) and the config fallback map to the
      * configured default roles.
+     *
+     * <p>Roles are project-scoped: this overload uses the default {@code "dsh"} project.
+     * Use {@link #bySubject(String, String)} when the requesting client belongs to a
+     * different project.
      */
     public OidcUser bySubject(String subject) {
+        return bySubject(subject, "dsh");
+    }
+
+    /**
+     * Project-aware variant: resolves a subject with roles bound in the specified project
+     * (via {@code oidc_role_assignment}). Used during token issuance: the requesting client's
+     * {@code project_id} determines which project's role assignments are injected into the
+     * token's {@code roles} claim.
+     */
+    public OidcUser bySubject(String subject, String projectId) {
         ensureDirectory();
         if (tableAvailable()) {
-            Optional<StoredUser> user = findUser(subject);
+            Optional<StoredUser> user = findUser(subject, projectId);
             if (user.isPresent()) {
                 return new OidcUser(subject, user.get().name(), user.get().email(), user.get().roles());
             }
@@ -283,11 +297,17 @@ public class OidcUserService {
         String typeFilter = type == null || type.isBlank() ? null : type.trim().toLowerCase();
         List<UserRow> rows = new ArrayList<>();
         final String sql = """
-            SELECT username, name, email, user_state, roles, type, created_at, last_login_at
-            FROM oidc_user
-            WHERE (? IS NULL OR username ILIKE ? OR name ILIKE ? OR email ILIKE ?)
-              AND (? IS NULL OR type = ?)
-            ORDER BY created_at DESC
+            SELECT u.username, u.name, u.email, u.user_state,
+                   COALESCE((
+                       SELECT jsonb_agg(ra.role_name ORDER BY ra.role_name)
+                       FROM oidc_role_assignment ra
+                       WHERE ra.user_id = u.username AND ra.project_id = 'dsh'
+                   ), '[]'::jsonb) AS roles,
+                   u.type, u.created_at, u.last_login_at
+            FROM oidc_user u
+            WHERE (? IS NULL OR u.username ILIKE ? OR u.name ILIKE ? OR u.email ILIKE ?)
+              AND (? IS NULL OR u.type = ?)
+            ORDER BY u.created_at DESC
             LIMIT ? OFFSET ?""";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -325,7 +345,13 @@ public class OidcUserService {
         final String sql = """
             SELECT u.username, u.name, u.first_name, u.last_name, u.email, u.email_verified,
                    u.phone, u.phone_verified, u.preferred_language, u.user_state,
-                   u.password_change_required, u.roles, u.type, u.created_at, u.updated_at,
+                   u.password_change_required,
+                   COALESCE((
+                       SELECT jsonb_agg(ra.role_name ORDER BY ra.role_name)
+                       FROM oidc_role_assignment ra
+                       WHERE ra.user_id = u.username AND ra.project_id = 'dsh'
+                   ), '[]'::jsonb) AS roles,
+                   u.type, u.created_at, u.updated_at,
                    u.last_login_at, m.description, m.access_token_type
             FROM oidc_user u
             LEFT JOIN oidc_user_machine m ON m.user_id = u.username
@@ -418,13 +444,17 @@ public class OidcUserService {
 
         final String insertUser = """
             INSERT INTO oidc_user (username, name, email, user_state, roles, type)
-            VALUES (?, ?, ?, ?, ?::jsonb, ?)""";
+            VALUES (?, ?, ?, ?, '[]'::jsonb, ?)""";
         final String insertMethod = """
             INSERT INTO oidc_user_auth_method (user_id, type, credential)
             VALUES (?, 'PASSWORD', ?)""";
         final String insertMachine = """
             INSERT INTO oidc_user_machine (user_id, name, description, access_token_type)
             VALUES (?, ?, ?, 'bearer')""";
+        final String insertAssignment = """
+            INSERT INTO oidc_role_assignment (user_id, project_id, role_name)
+            VALUES (?, 'dsh', ?)
+            ON CONFLICT (user_id, project_id, role_name) DO NOTHING""";
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try (PreparedStatement ps = connection.prepareStatement(insertUser)) {
@@ -432,9 +462,15 @@ public class OidcUserService {
                 ps.setString(2, name);
                 ps.setString(3, email);
                 ps.setString(4, userState);
-                ps.setString(5, objectMapper.writeValueAsString(roles));
-                ps.setString(6, type);
+                ps.setString(5, type);
                 ps.executeUpdate();
+            }
+            for (String role : roles) {
+                try (PreparedStatement ps = connection.prepareStatement(insertAssignment)) {
+                    ps.setString(1, username);
+                    ps.setString(2, role);
+                    ps.executeUpdate();
+                }
             }
             if (TYPE_MACHINE.equals(type)) {
                 String description = request.description() == null ? "" : request.description().trim();
@@ -459,7 +495,7 @@ public class OidcUserService {
         if (TYPE_MACHINE.equals(type)) {
             String secret = request.secret() == null || request.secret().isBlank()
                 ? generateSecret() : request.secret().trim();
-            clientService.create(username, secret, List.of(), List.of("client_credentials"), List.of("openid", "profile", "email"));
+            clientService.create(username, secret, List.of(), List.of("client_credentials"), List.of("openid", "profile", "email"), "dsh");
         }
         return findUserRow(username).orElseThrow();
     }
@@ -532,7 +568,10 @@ public class OidcUserService {
         }
     }
 
-    /** Replaces the roles of an existing user (authorisation management). */
+    /** Replaces the roles of an existing user (authorisation management).
+     * Roles are project-scoped (ZITADEL-aligned): this replaces the user's role
+     * assignments in the default {@code "dsh"} project. The legacy {@code oidc_user.roles}
+     * column is cleared (kept for schema compatibility only). */
     public UserRow setRoles(String username, List<String> roles) {
         if (username == null || roles == null) {
             throw new IllegalArgumentException("username and roles are required");
@@ -541,14 +580,37 @@ public class OidcUserService {
         if (!tableAvailable()) {
             throw new IllegalStateException("user directory tables are unavailable");
         }
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement ps = connection.prepareStatement(
-                 "UPDATE oidc_user SET roles = ?::jsonb, updated_at = now() WHERE username = ?")) {
-            ps.setString(1, objectMapper.writeValueAsString(roles));
-            ps.setString(2, username);
-            if (ps.executeUpdate() == 0) {
-                throw new IllegalArgumentException("user '" + username + "' does not exist");
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            // Verify user exists
+            try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT 1 FROM oidc_user WHERE username = ?")) {
+                ps.setString(1, username);
+                if (!ps.executeQuery().next()) {
+                    throw new IllegalArgumentException("user '" + username + "' does not exist");
+                }
             }
+            // Clear legacy roles column
+            try (PreparedStatement ps = connection.prepareStatement(
+                "UPDATE oidc_user SET roles = '[]'::jsonb, updated_at = now() WHERE username = ?")) {
+                ps.setString(1, username);
+                ps.executeUpdate();
+            }
+            // Replace project-scoped role assignments
+            try (PreparedStatement ps = connection.prepareStatement(
+                "DELETE FROM oidc_role_assignment WHERE user_id = ? AND project_id = 'dsh'")) {
+                ps.setString(1, username);
+                ps.executeUpdate();
+            }
+            for (String role : roles) {
+                try (PreparedStatement ps = connection.prepareStatement(
+                    "INSERT INTO oidc_role_assignment (user_id, project_id, role_name) VALUES (?, 'dsh', ?)")) {
+                    ps.setString(1, username);
+                    ps.setString(2, role);
+                    ps.executeUpdate();
+                }
+            }
+            connection.commit();
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {
@@ -557,6 +619,49 @@ public class OidcUserService {
         }
         return findUserRow(username).orElseThrow();
     }
+
+    /**
+     * Lists project-scoped roles with their descriptions and member counts.
+     * Used by the Kestra UI Roles management page to display role metadata
+     * (ZITADEL-aligned: roles are defined per project with a description).
+     */
+    public List<RoleRow> listRoles(String projectId) {
+        ensureDirectory();
+        if (!tableAvailable()) {
+            return List.of();
+        }
+        String pid = projectId == null || projectId.isBlank() ? "dsh" : projectId.trim();
+        List<RoleRow> rows = new ArrayList<>();
+        final String sql = """
+            SELECT r.role_name, r.description,
+                   COALESCE((SELECT COUNT(*) FROM oidc_role_assignment ra
+                             WHERE ra.project_id = r.project_id AND ra.role_name = r.role_name), 0) AS member_count
+            FROM oidc_role r
+            WHERE r.project_id = ?
+            ORDER BY r.role_name""";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, pid);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    rows.add(new RoleRow(
+                        rs.getString("role_name"),
+                        rs.getString("description"),
+                        rs.getInt("member_count")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            if (isMissingRelation(e)) {
+                tableAvailable = false;
+            }
+            log.warn("oidc_role list failed: {}", e.getMessage());
+        }
+        return rows;
+    }
+
+    /** A project-scoped role with description and member count. */
+    public record RoleRow(String roleName, String description, int memberCount) {}
 
     /** Sets (or replaces) the PASSWORD auth method of a user with a fresh bcrypt hash.
      *  Machine identities authenticate with a client secret instead — callers must reject
@@ -739,12 +844,27 @@ public class OidcUserService {
     }
 
     private Optional<StoredUser> findUser(String username) {
+        return findUser(username, "dsh");
+    }
+
+    /**
+     * Loads a user with project-scoped roles from {@code oidc_role_assignment}.
+     * The global {@code oidc_user.roles} column is no longer the authoritative source;
+     * role assignments are project-scoped (ZITADEL-aligned).
+     */
+    private Optional<StoredUser> findUser(String username, String projectId) {
         final String sql = """
-            SELECT name, email, user_state, roles
-            FROM oidc_user WHERE username = ?""";
+            SELECT u.name, u.email, u.user_state,
+                   COALESCE((
+                       SELECT jsonb_agg(ra.role_name ORDER BY ra.role_name)
+                       FROM oidc_role_assignment ra
+                       WHERE ra.user_id = u.username AND ra.project_id = ?
+                   ), '[]'::jsonb) AS roles
+            FROM oidc_user u WHERE u.username = ?""";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, username);
+            ps.setString(1, projectId);
+            ps.setString(2, username);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {
                     return Optional.empty();

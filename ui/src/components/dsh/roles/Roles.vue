@@ -18,6 +18,7 @@
             <div class="role-members-panel">
                 <div class="panel-title">
                     <span>{{ t("dsh.roles.members", {role: selectedRole}) }}</span>
+                    <span v-if="selectedRoleDescription" class="role-description">{{ selectedRoleDescription }}</span>
                     <KsSelect
                         v-model="memberToAdd"
                         filterable
@@ -81,6 +82,12 @@
         lastLoginAt: string;
     }
 
+    interface RoleRow {
+        roleName: string;
+        description: string;
+        memberCount: number;
+    }
+
     const {t} = useI18n({useScope: "global"})
     const routeInfo = computed(() => ({title: t("dsh.roles.title")}))
     useRouteContext(routeInfo)
@@ -88,14 +95,16 @@
     const API_BASE = `${import.meta.env.VITE_APP_API_URL || ""}${window.KESTRA_BASE_PATH || ""}`.replace(/\/$/, "") || window.location.origin
 
     const users = ref<UserRow[]>([])
+    const roles = ref<RoleRow[]>([])
     const loading = ref(false)
     const selectedRole = ref("user")
     const memberToAdd = ref("")
 
-    const roleNames = computed(() => {
-        const set = new Set<string>()
-        users.value.forEach((u) => (u.roles || []).forEach((r) => set.add(r)))
-        return Array.from(set).sort()
+    const roleNames = computed(() => roles.value.map((r) => r.roleName))
+
+    const selectedRoleDescription = computed(() => {
+        const r = roles.value.find((r) => r.roleName === selectedRole.value)
+        return r?.description || ""
     })
 
     const members = computed(() =>
@@ -107,7 +116,8 @@
     )
 
     function countByRole(role: string) {
-        return users.value.filter((u) => (u.roles || []).includes(role)).length
+        const r = roles.value.find((r) => r.roleName === role)
+        return r?.memberCount ?? 0
     }
 
     function onRoleSelect(index: string) {
@@ -135,15 +145,18 @@
     async function load() {
         loading.value = true
         try {
-            const res = await api("/api/v1/oidc/users?size=500")
-            if (res.status === 403) {
+            const [usersRes, rolesRes] = await Promise.all([
+                api("/api/v1/oidc/users?size=500"),
+                api("/api/v1/oidc/users/roles"),
+            ])
+            if (usersRes.status === 403 || rolesRes.status === 403) {
                 ElMessage.error(t("dsh.users.notAdmin"))
                 return
             }
-            if (!res.ok) {
-                throw new Error(await res.text())
-            }
-            users.value = await res.json()
+            if (!usersRes.ok) throw new Error(await usersRes.text())
+            if (!rolesRes.ok) throw new Error(await rolesRes.text())
+            users.value = await usersRes.json()
+            roles.value = await rolesRes.json()
             if (!roleNames.value.includes(selectedRole.value) && roleNames.value.length > 0) {
                 selectedRole.value = roleNames.value[0]
             }
@@ -246,6 +259,13 @@
     .role-count {
         margin-left: auto;
         color: var(--ks-text-muted);
+    }
+
+    .role-description {
+        font-weight: 400;
+        font-size: 0.85em;
+        color: var(--ks-text-muted);
+        margin-left: var(--ks-spacing-2);
     }
 
     .member-add-select {

@@ -38,7 +38,8 @@ public class OidcClientService {
         String clientSecret,
         List<String> redirectUris,
         List<String> grantTypes,
-        List<String> scopes
+        List<String> scopes,
+        String projectId
     ) {}
 
     private final DataSource dataSource;
@@ -54,7 +55,7 @@ public class OidcClientService {
     /** Finds a client by id. */
     public Optional<OidcClient> find(String clientId) {
         final String sql = """
-            SELECT client_id, client_secret, redirect_uris, grant_types, scopes
+            SELECT client_id, client_secret, redirect_uris, grant_types, scopes, project_id
             FROM oidc_client WHERE client_id = ?""";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -131,11 +132,12 @@ public class OidcClientService {
         String clientSecret,
         List<String> redirectUris,
         List<String> grantTypes,
-        List<String> scopes
+        List<String> scopes,
+        String projectId
     ) {
         final String sql = """
-            INSERT INTO oidc_client (client_id, client_secret, redirect_uris, grant_types, scopes)
-            VALUES (?, ?, ?::jsonb, ?::jsonb, ?::jsonb)""";
+            INSERT INTO oidc_client (client_id, client_secret, redirect_uris, grant_types, scopes, project_id)
+            VALUES (?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?)""";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, clientId);
@@ -146,6 +148,7 @@ public class OidcClientService {
                 grantTypes == null ? List.of("client_credentials") : grantTypes));
             ps.setString(5, objectMapper.writeValueAsString(
                 scopes == null ? List.of("openid", "profile", "email") : scopes));
+            ps.setString(6, projectId == null ? "dsh" : projectId);
             ps.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("failed to create OIDC client '" + clientId + "': " + e.getMessage(), e);
@@ -202,7 +205,8 @@ public class OidcClientService {
             rs.getString("client_secret"),
             jsonList(rs.getString("redirect_uris")),
             jsonList(rs.getString("grant_types")),
-            jsonList(rs.getString("scopes"))
+            jsonList(rs.getString("scopes")),
+            rs.getString("project_id")
         );
     }
 
