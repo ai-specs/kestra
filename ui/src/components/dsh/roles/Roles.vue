@@ -82,6 +82,7 @@
     import {ElMessage} from "element-plus"
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
+    import {getCsrfToken} from "../../../utils/csrf"
 
     interface UserRow {
         username: string;
@@ -123,9 +124,13 @@
     }
 
     function api(url: string, options: RequestInit = {}) {
+        const headers = new Headers(options.headers)
+        headers.set("Content-Type", "application/json")
+        const csrf = getCsrfToken()
+        if (csrf) headers.set("X-CSRF-TOKEN", csrf)
         return fetch(`${API_BASE}${url}`, {
             credentials: "include",
-            headers: {"Content-Type": "application/json"},
+            headers,
             ...options,
         })
     }

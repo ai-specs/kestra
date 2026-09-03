@@ -151,6 +151,7 @@
     import Magnify from "vue-material-design-icons/Magnify.vue"
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
+    import {getCsrfToken} from "../../../utils/csrf"
 
     const router = useRouter()
     const {t} = useI18n({useScope: "global"})
@@ -190,9 +191,16 @@
     const passwordTarget = ref<UserRow | null>(null)
 
     function api(url: string, options: RequestInit = {}) {
+        const headers = new Headers(options.headers)
+        headers.set("Content-Type", "application/json")
+        // Same-origin cookie auth triggers Kestra's CsrfTokenFilter on non-GET: forward the
+        // token the server injected into the /ui/ meta tag (browser auto-attaches the
+        // HTTPOnly csrfToken cookie from the same response).
+        const csrf = getCsrfToken()
+        if (csrf) headers.set("X-CSRF-TOKEN", csrf)
         return fetch(`${API_BASE}${url}`, {
             credentials: "include",
-            headers: {"Content-Type": "application/json"},
+            headers,
             ...options,
         })
     }
