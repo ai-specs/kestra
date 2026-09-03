@@ -2,6 +2,15 @@
     <TopNavBar :title="routeInfo.title" />
 
     <section class="full-container project-detail">
+        <!-- 面包屑导航 -->
+        <nav class="project-breadcrumb">
+            <router-link :to="{name: 'admin/project'}" class="breadcrumb-link">
+                {{ t("dsh.project.title") }}
+            </router-link>
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-current">{{ projectName }}</span>
+        </nav>
+
         <!-- 项目头部 -->
         <div class="project-header">
             <div class="project-title-row">
@@ -177,6 +186,7 @@
 <script setup lang="ts">
     import {computed, onMounted, ref} from "vue"
     import {useI18n} from "vue-i18n"
+    import {useRoute} from "vue-router"
     import {ElMessage, ElMessageBox} from "element-plus"
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
@@ -208,13 +218,15 @@
     }
 
     const {t, te} = useI18n({useScope: "global"})
+    const route = useRoute()
     const routeInfo = computed(() => ({title: t("dsh.project.title")}))
     useRouteContext(routeInfo)
 
     const API_BASE = `${import.meta.env.VITE_APP_API_URL || ""}${window.KESTRA_BASE_PATH || ""}`.replace(/\/$/, "") || window.location.origin
 
-    // 默认 dsh 项目信息
-    const projectName = "dsh"
+    // 项目信息（当前只有 dsh，未来多项目时从 API 获取）
+    const projectId = computed(() => (route.params.id as string) || "dsh")
+    const projectName = computed(() => projectId.value)
     const projectDesc = computed(() => t("dsh.project.projectDescription"))
     const projectCreatedAt = "2026-09-03"
 
@@ -354,6 +366,32 @@
 <style scoped lang="scss">
     .project-detail {
         padding: var(--ks-spacing-4);
+    }
+
+    .project-breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: var(--ks-spacing-2);
+        margin-bottom: var(--ks-spacing-3);
+        font-size: 0.875rem;
+    }
+
+    .breadcrumb-link {
+        color: var(--ks-color-primary);
+        text-decoration: none;
+
+        &:hover {
+            text-decoration: underline;
+        }
+    }
+
+    .breadcrumb-separator {
+        color: var(--ks-text-muted);
+    }
+
+    .breadcrumb-current {
+        color: var(--ks-text-secondary);
+        font-weight: 500;
     }
 
     .project-header {

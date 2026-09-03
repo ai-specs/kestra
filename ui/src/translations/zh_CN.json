@@ -2557,6 +2557,10 @@
       },
       "project": {
         "title": "项目",
+        "add": "新建项目",
+        "searchPlaceholder": "搜索项目名或描述…",
+        "view": "查看",
+        "createNotAvailable": "新建项目功能暂未开放",
         "overview": "概览",
         "roles": "角色",
         "assignments": "角色分配",

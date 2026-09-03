@@ -93,7 +93,8 @@ const routes: KestraRouteRecord[] = [
     {name: "admin/mcp-servers/create", path: "/:tenant?/admin/mcp-servers/new/:tab?",                 component: () => import("../components/admin/McpServer.vue")},
     {name: "admin/users", path: "/:tenant?/admin/users", component: () => import("../components/dsh/users/Users.vue")},
     {name: "admin/users/update", path: "/:tenant?/admin/users/:id", component: () => import("../components/dsh/users/Users.vue")},
-    {name: "admin/project", path: "/:tenant?/admin/project", component: () => import("../components/dsh/project/ProjectDetail.vue")},
+    {name: "admin/project", path: "/:tenant?/admin/project", component: () => import("../components/dsh/project/ProjectList.vue")},
+    {name: "admin/project/detail", path: "/:tenant?/admin/project/:id", component: () => import("../components/dsh/project/ProjectDetail.vue")},
 
     //Setup
     // ossOnly: posts to /api/v1/{tenant}/basicAuth, which EE does not implement.

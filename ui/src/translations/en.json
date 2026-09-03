@@ -2557,6 +2557,10 @@
       },
       "project": {
         "title": "Project",
+        "add": "New Project",
+        "searchPlaceholder": "Search project name or description…",
+        "view": "View",
+        "createNotAvailable": "Project creation is not available yet",
         "overview": "Overview",
         "roles": "Roles",
         "assignments": "Role Assignments",
