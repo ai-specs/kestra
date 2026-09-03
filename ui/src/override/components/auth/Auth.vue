@@ -49,9 +49,7 @@
 
 <script setup lang="ts">
     import {computed} from "vue"
-    import {useRoute, useRouter} from "vue-router"
-
-    import {useClient} from "@kestra-io/kestra-sdk"
+    import {useRoute} from "vue-router"
 
     import ChevronRight from "vue-material-design-icons/ChevronRight.vue"
     import Logout from "vue-material-design-icons/Logout.vue"
@@ -59,13 +57,10 @@
     import Slack from "vue-material-design-icons/Slack.vue"
 
     import KS_LOGO from "../../../assets/ks-logo-small.svg"
-    import * as BasicAuth from "../../../utils/basicAuth"
 
     const SLACK_URL = "https://kestra.io/slack?utm_source=app&utm_medium=referral&utm_campaign=top-auth"
 
     const route = useRoute()
-    const router = useRouter()
-    const axios = useClient()
 
     const startTutorial = computed(() => ({
         name: "ai",
@@ -74,9 +69,11 @@
     }))
 
     const logout = () => {
-        BasicAuth.logout()
-        delete axios.defaults.headers.common["Authorization"]
-        router.push({name: "login"})
+        // dsh: navigate to the IdP logout — it clears oidc_session + JWT + the UI flag cookie
+        // server-side and redirects back to /oidc/login. Kestra's BasicAuth.logout() only clears
+        // its own Basic Auth cookie, leaving oidc_session/JWT intact (half-logged-out state that
+        // strands the user on the unusable /ui/login Basic Auth page).
+        window.location.href = "/oidc/logout"
     }
 </script>
 

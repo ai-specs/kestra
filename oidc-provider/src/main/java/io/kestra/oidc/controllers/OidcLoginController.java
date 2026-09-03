@@ -228,6 +228,33 @@ public class OidcLoginController {
         return HttpResponse.redirect(URI.create(DEFAULT_LANDING));
     }
 
+    /**
+     * Clear the OIDC session and the Kestra JWT/flag cookies, then redirect to the IdP login.
+     * The UI's logout action navigates here (override {@code Auth.vue}) because Kestra's own
+     * {@code POST /logout} (MiscController) only clears its Basic Auth cookies — it leaves
+     * {@code oidc_session} and {@code JWT} intact. That would strand the browser in a
+     * half-logged-out state: the UI boot guard sees no {@code kestraBasicAuthenticated} flag and
+     * routes to the unusable Basic Auth {@code /ui/login} page while the JWT still authenticates
+     * the API (SecurityFilter keeps letting {@code /ui/} through).
+     */
+    @Get("/logout")
+    public HttpResponse<?> logout(HttpRequest<?> request) {
+        boolean secure = request.isSecure();
+        return HttpResponse.redirect(URI.create(configuration.getExternalBaseUrl() + "/oidc/login"))
+            .cookie(clearCookie(OidcSessionService.SESSION_COOKIE_NAME, secure))
+            .cookie(clearCookie("JWT", secure))
+            .cookie(clearCookie("kestraBasicAuthenticated", secure));
+    }
+
+    private static Cookie clearCookie(String name, boolean secure) {
+        return Cookie.of(name, "")
+            .path("/")
+            .httpOnly(true)
+            .secure(secure)
+            .sameSite(SameSite.Strict)
+            .maxAge(0);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /**
