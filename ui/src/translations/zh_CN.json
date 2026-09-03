@@ -2585,7 +2585,9 @@
         "active": "启用",
         "inactive": "禁用",
         "redirectUris": "重定向 URI",
-        "scopes": "作用域"
+        "scopes": "作用域",
+        "allMembers": "全部成员",
+        "searchMember": "搜索成员…"
       }
     }
   }

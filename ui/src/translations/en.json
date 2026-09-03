@@ -2585,7 +2585,9 @@
         "active": "Active",
         "inactive": "Inactive",
         "redirectUris": "Redirect URIs",
-        "scopes": "Scopes"
+        "scopes": "Scopes",
+        "allMembers": "All members",
+        "searchMember": "Search members…"
       }
     }
   }

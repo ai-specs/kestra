@@ -36,11 +36,11 @@
                                 <span class="info-label">{{ t("dsh.project.applications") }}</span>
                                 <span class="info-value">{{ clients.length }}</span>
                             </div>
-                            <div class="info-item">
+                            <div class="info-item clickable" role="button" tabindex="0" @click="goToTab('roles')" @keydown.enter="goToTab('roles')">
                                 <span class="info-label">{{ t("dsh.project.roles") }}</span>
                                 <span class="info-value">{{ roles.length }}</span>
                             </div>
-                            <div class="info-item">
+                            <div class="info-item clickable" role="button" tabindex="0" @click="goToTab('members')" @keydown.enter="goToTab('members')">
                                 <span class="info-label">{{ t("dsh.project.members") }}</span>
                                 <span class="info-value">{{ users.length }}</span>
                             </div>
@@ -230,6 +230,55 @@
                     </div>
                 </div>
             </KsTabPane>
+
+            <!-- 成员 Tab（去重用户：一个用户可绑定多个角色，这里按用户去重展示全部成员） -->
+            <KsTabPane :label="t('dsh.project.members')" name="members">
+                <div class="tab-content">
+                    <div class="members-toolbar">
+                        <h3 class="section-title">{{ t("dsh.project.allMembers") }}</h3>
+                        <KsInput
+                            v-model="memberSearch"
+                            :placeholder="t('dsh.project.searchMember')"
+                            clearable
+                            class="member-search-input"
+                        />
+                    </div>
+                    <KsTable :data="filteredUsers" v-loading="loading" class="member-table" :fit="true">
+                        <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="180">
+                            <template #default="{row}">
+                                <b>{{ row.username }}</b>
+                            </template>
+                        </KsTableColumn>
+                        <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="120" />
+                        <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="180" />
+                        <KsTableColumn prop="type" :label="t('dsh.users.type')" width="110">
+                            <template #default="{row}">
+                                <KsTag :type="row.type === 'machine' ? 'info' : 'primary'" size="small" effect="light">
+                                    {{ row.type === 'machine' ? t('dsh.users.machine') : t('dsh.users.human') }}
+                                </KsTag>
+                            </template>
+                        </KsTableColumn>
+                        <KsTableColumn :label="t('dsh.project.roles')" min-width="220">
+                            <template #default="{row}">
+                                <template v-if="row.roles && row.roles.length > 0">
+                                    <KsTag
+                                        v-for="r in row.roles"
+                                        :key="r"
+                                        :type="roleTagType(r)"
+                                        size="small"
+                                        effect="light"
+                                        class="role-tag"
+                                    >
+                                        {{ r }}
+                                    </KsTag>
+                                </template>
+                                <span v-else class="detail-empty">—</span>
+                            </template>
+                        </KsTableColumn>
+                    </KsTable>
+                    <div v-if="filteredUsers.length === 0 && !loading" class="empty-state">{{ t("dsh.project.noMembers") }}</div>
+                </div>
+            </KsTabPane>
         </KsTabs>
     </section>
 </template>
@@ -291,6 +340,7 @@
     const clients = ref<ClientRow[]>([])
     const selectedRole = ref("")
     const memberToAdd = ref("")
+    const memberSearch = ref("")
     const appDialogVisible = ref(false)
     const selectedApp = ref<ClientRow | null>(null)
 
@@ -302,9 +352,26 @@
         users.value.filter((u) => !(u.roles || []).includes(selectedRole.value) && u.userState === "ACTIVE"),
     )
 
+    /** 成员 Tab 的去重用户列表（含搜索过滤：用户名/姓名/邮箱/角色） */
+    const filteredUsers = computed(() => {
+        const q = memberSearch.value.trim().toLowerCase()
+        if (!q) return users.value
+        return users.value.filter((u) =>
+            u.username.toLowerCase().includes(q) ||
+            (u.name || "").toLowerCase().includes(q) ||
+            (u.email || "").toLowerCase().includes(q) ||
+            (u.roles || []).some((r) => r.toLowerCase().includes(q)),
+        )
+    })
+
     function onTabChange() {
         selectedRole.value = ""
         memberToAdd.value = ""
+    }
+
+    /** 概览统计卡片 → 切换 Tab */
+    function goToTab(tab: string) {
+        activeTab.value = tab
     }
 
     function selectRole(roleName: string) {
@@ -488,13 +555,33 @@
     }
 
     .project-tabs {
-        :deep(.el-tabs__header) {
-            margin-bottom: var(--ks-spacing-4);
+        :deep(.kel-tabs__header) {
+            margin-bottom: var(--ks-spacing-6);
+            background: var(--ks-bg-surface);
+            border: 1px solid var(--ks-border-default);
+            border-radius: var(--ks-radius-base);
+            padding: 0 var(--ks-spacing-2);
+        }
+
+        :deep(.kel-tabs__item) {
+            font-size: 1rem;
+            font-weight: 500;
+            height: 48px;
+            line-height: 48px;
+            padding: 0 28px;
+        }
+
+        :deep(.kel-tabs__nav-wrap::after) {
+            height: 0;
         }
     }
 
     .tab-content {
         min-height: 400px;
+        background: var(--ks-bg-surface);
+        border: 1px solid var(--ks-border-default);
+        border-radius: var(--ks-radius-base);
+        padding: var(--ks-spacing-6);
     }
 
     .section-title {
@@ -518,9 +605,19 @@
         flex-direction: column;
         gap: var(--ks-spacing-1);
         padding: var(--ks-spacing-4);
-        background: var(--ks-bg-surface);
+        background: transparent;
         border: 1px solid var(--ks-border-default);
         border-radius: var(--ks-radius-base);
+        transition: border-color 0.2s, box-shadow 0.2s;
+
+        &.clickable {
+            cursor: pointer;
+
+            &:hover {
+                border-color: var(--ks-border-focus);
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            }
+        }
     }
 
     .info-label {
@@ -551,7 +648,7 @@
         padding: var(--ks-spacing-4);
         border: 1px solid var(--ks-border-default);
         border-radius: var(--ks-radius-base);
-        background: var(--ks-bg-surface);
+        background: transparent;
         cursor: pointer;
         transition: box-shadow 0.2s, border-color 0.2s;
 
@@ -642,6 +739,23 @@
         align-items: center;
         justify-content: space-between;
         margin-bottom: var(--ks-spacing-3);
+    }
+
+    .members-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--ks-spacing-4);
+        margin-bottom: var(--ks-spacing-4);
+
+        .section-title {
+            margin: 0;
+        }
+    }
+
+    .member-search-input {
+        width: 300px;
+        max-width: 100%;
     }
 
     .member-add-select {
