@@ -2549,6 +2549,30 @@
         "remove": "移除",
         "memberAdded": "{user} 已加入 {role}",
         "memberRemoved": "{user} 已移出 {role}"
+      },
+      "project": {
+        "title": "项目",
+        "overview": "概览",
+        "roles": "角色",
+        "assignments": "角色分配",
+        "applications": "应用",
+        "projectInfo": "项目信息",
+        "name": "项目名称",
+        "description": "描述",
+        "createdAt": "创建时间",
+        "clientId": "客户端 ID",
+        "clientType": "类型",
+        "confidential": "机密客户端",
+        "public": "公开客户端",
+        "grantTypes": "授权类型",
+        "roleName": "角色标识",
+        "memberCount": "成员数",
+        "members": "成员",
+        "addMember": "添加成员",
+        "user": "用户",
+        "role": "角色",
+        "noMembers": "暂无成员",
+        "viewMembers": "查看成员"
       }
     }
   }

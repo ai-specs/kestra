@@ -2549,6 +2549,30 @@
         "remove": "Remove",
         "memberAdded": "{user} added to {role}",
         "memberRemoved": "{user} removed from {role}"
+      },
+      "project": {
+        "title": "Project",
+        "overview": "Overview",
+        "roles": "Roles",
+        "assignments": "Role Assignments",
+        "applications": "Applications",
+        "projectInfo": "Project Info",
+        "name": "Project Name",
+        "description": "Description",
+        "createdAt": "Created At",
+        "clientId": "Client ID",
+        "clientType": "Type",
+        "confidential": "Confidential",
+        "public": "Public",
+        "grantTypes": "Grant Types",
+        "roleName": "Role Key",
+        "memberCount": "Members",
+        "members": "Members",
+        "addMember": "Add Member",
+        "user": "User",
+        "role": "Role",
+        "noMembers": "No members",
+        "viewMembers": "View members"
       }
     }
   }

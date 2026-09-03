@@ -8,6 +8,7 @@ import java.util.Optional;
 
 import com.nimbusds.jwt.JWTClaimsSet;
 
+import io.kestra.oidc.services.OidcClientService;
 import io.kestra.oidc.services.OidcTokenService;
 import io.kestra.oidc.services.OidcUserService;
 import io.kestra.oidc.services.OidcUserService.OidcUser;
@@ -55,6 +56,9 @@ public class OidcUserAdminController {
     private OidcUserService userService;
 
     @Inject
+    private OidcClientService clientService;
+
+    @Inject
     private OidcTokenService tokenService;
 
     // ------------------------------------------------------------------ list / create
@@ -71,6 +75,13 @@ public class OidcUserAdminController {
     ) {
         requireAdmin(request);
         return HttpResponse.ok(userService.listUsers(search, type, offset, size));
+    }
+
+    /** Lists all OIDC clients (Applications in the dsh project). Does not return secrets. */
+    @Get("/clients")
+    public HttpResponse<?> listClients(HttpRequest<?> request) {
+        requireAdmin(request);
+        return HttpResponse.ok(clientService.list());
     }
 
     /** Creates a user (with an optional initial bcrypt password). */

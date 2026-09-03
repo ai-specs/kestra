@@ -32,6 +32,7 @@ import Battery40 from "vue-material-design-icons/Battery40.vue"
 import Gauge from "vue-material-design-icons/Gauge.vue"
 import ShieldAccount from "vue-material-design-icons/ShieldAccount.vue"
 import ShieldCheckOutline from "vue-material-design-icons/ShieldCheckOutline.vue"
+import FolderAccountOutline from "vue-material-design-icons/FolderAccountOutline.vue"
 import RocketLaunchOutline from "vue-material-design-icons/RocketLaunchOutline.vue"
 import McpIcon from "../../components/McpIcon.vue"
 
@@ -393,14 +394,14 @@ export function useLeftMenu() {
                         },
                     },
                     {
-                        id: "dsh-roles",
-                        title: t("dsh.roles.title"),
-                        routes: routeStartWith("admin/roles"),
+                        id: "dsh-project",
+                        title: t("dsh.project.title"),
+                        routes: routeStartWith("admin/project"),
                         href: {
-                            name: "admin/roles",
+                            name: "admin/project",
                         },
                         icon: {
-                            element: ShieldCheckOutline,
+                            element: FolderAccountOutline,
                         },
                     },
                     {

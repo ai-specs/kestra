@@ -42,6 +42,16 @@ public class OidcClientService {
         String projectId
     ) {}
 
+    /** Client view for API responses — {@code clientId} is a plain String (not a Nimbus ClientID object). */
+    public record ClientView(
+        String clientId,
+        String clientSecret,
+        List<String> redirectUris,
+        List<String> grantTypes,
+        List<String> scopes,
+        String projectId
+    ) {}
+
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
 
@@ -74,6 +84,32 @@ public class OidcClientService {
     /** Returns the client or throws {@code invalid_client}. */
     public OidcClient require(String clientId) {
         return find(clientId).orElseThrow(() -> new OidcException(OAuth2Error.INVALID_CLIENT));
+    }
+
+    /** Lists all clients (for the project Applications view). Does not return client secrets. */
+    public List<ClientView> list() {
+        final String sql = """
+            SELECT client_id, client_secret, redirect_uris, grant_types, scopes, project_id
+            FROM oidc_client ORDER BY client_id""";
+        List<ClientView> clients = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                OidcClient c = map(rs);
+                clients.add(new ClientView(
+                    c.clientId().getValue(),
+                    c.clientSecret(),
+                    c.redirectUris(),
+                    c.grantTypes(),
+                    c.scopes(),
+                    c.projectId()
+                ));
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to list OIDC clients", e);
+        }
+        return clients;
     }
 
     /**
