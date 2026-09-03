@@ -236,14 +236,31 @@ public class OidcLoginController {
      * half-logged-out state: the UI boot guard sees no {@code kestraBasicAuthenticated} flag and
      * routes to the unusable Basic Auth {@code /ui/login} page while the JWT still authenticates
      * the API (SecurityFilter keeps letting {@code /ui/} through).
+     *
+     * <p>
+     * RP-initiated logout: {@code post_logout_redirect_uri} sends the caller (e.g. dsh-ui's
+     * 我的 page) back to its own entry instead of the IdP login. The URI is honored only when it
+     * is a registered client redirect_uri — otherwise the default IdP login is used, so the
+     * parameter cannot become an open redirect.
      */
     @Get("/logout")
     public HttpResponse<?> logout(HttpRequest<?> request) {
         boolean secure = request.isSecure();
-        return HttpResponse.redirect(URI.create(configuration.getExternalBaseUrl() + "/oidc/login"))
+        // Read the raw query parameter (not method binding): deterministic across Micronaut versions.
+        Optional<String> postLogoutRedirectUri = request.getParameters().getFirst("post_logout_redirect_uri");
+        URI target = postLogoutRedirectUri
+            .filter(this::isRegisteredRedirectUri)
+            .map(URI::create)
+            .orElseGet(() -> URI.create(configuration.getExternalBaseUrl() + "/oidc/login"));
+        return HttpResponse.redirect(target)
             .cookie(clearCookie(OidcSessionService.SESSION_COOKIE_NAME, secure))
             .cookie(clearCookie("JWT", secure))
             .cookie(clearCookie("kestraBasicAuthenticated", secure));
+    }
+
+    private boolean isRegisteredRedirectUri(String uri) {
+        return clientService.list().stream()
+            .anyMatch(client -> client.redirectUris().contains(uri));
     }
 
     private static Cookie clearCookie(String name, boolean secure) {
