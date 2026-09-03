@@ -2578,7 +2578,6 @@
         "role": "角色",
         "noMembers": "暂无成员",
         "noApplications": "暂无应用",
-        "viewMembers": "查看成员",
         "addMember": "添加用户",
         "appDetail": "应用详情：{clientId}",
         "status": "状态",

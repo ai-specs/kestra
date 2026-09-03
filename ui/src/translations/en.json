@@ -2578,7 +2578,6 @@
         "role": "Role",
         "noMembers": "No members",
         "noApplications": "No applications",
-        "viewMembers": "View members",
         "addMember": "Add user",
         "appDetail": "Application Detail: {clientId}",
         "status": "Status",

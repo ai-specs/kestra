@@ -169,12 +169,9 @@
                                 </KsButton>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn :label="t('actions')" width="200">
+                        <KsTableColumn :label="t('actions')" width="140">
                             <template #default="{row}">
                                 <div class="role-actions">
-                                    <KsButton size="small" type="default" @click="selectRole(row.roleName)">
-                                        {{ t("dsh.project.viewMembers") }}
-                                    </KsButton>
                                     <KsButton size="small" type="success" @click="addMemberToRole(row.roleName)">
                                         <template #icon><AccountPlus /></template>
                                         {{ t("dsh.project.addMember") }}
