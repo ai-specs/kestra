@@ -13,7 +13,7 @@
 
     <section class="full-container user-directory">
         <div class="user-toolbar">
-            <el-input
+            <KsInput
                 v-model="search"
                 :placeholder="t('dsh.users.searchPlaceholder')"
                 clearable
@@ -24,47 +24,48 @@
             <KsButton :icon="Magnify" type="default" @click="load()">{{ t("search") }}</KsButton>
         </div>
 
-        <el-table
+        <KsTable
             :data="users"
             v-loading="loading"
             class="user-table"
             data-test="user-table"
             @row-click="onRowClick"
         >
-            <el-table-column prop="username" :label="t('dsh.users.username')" min-width="180">
+            <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="180">
                 <template #default="{row}">
                     <b>{{ row.username }}</b>
                 </template>
-            </el-table-column>
-            <el-table-column prop="name" :label="t('dsh.users.name')" min-width="140" />
-            <el-table-column prop="email" :label="t('dsh.users.email')" min-width="180" />
-            <el-table-column :label="t('dsh.users.roles')" min-width="140">
+            </KsTableColumn>
+            <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="140" />
+            <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="180" />
+            <KsTableColumn :label="t('dsh.users.roles')" min-width="140">
                 <template #default="{row}">
-                    <el-tag
+                    <KsTag
                         v-for="role in (row.roles || [])"
                         :key="role"
                         :type="role === 'admin' ? 'danger' : 'primary'"
                         size="small"
+                        effect="light"
                         class="user-role-tag"
                     >
                         {{ role }}
-                    </el-tag>
+                    </KsTag>
                 </template>
-            </el-table-column>
-            <el-table-column :label="t('dsh.users.state')" width="110">
+            </KsTableColumn>
+            <KsTableColumn :label="t('dsh.users.state')" width="110">
                 <template #default="{row}">
-                    <el-tag :type="row.userState === 'ACTIVE' ? 'success' : 'info'" size="small">
+                    <KsTag :type="row.userState === 'ACTIVE' ? 'success' : 'info'" size="small" effect="light">
                         {{ row.userState }}
-                    </el-tag>
+                    </KsTag>
                 </template>
-            </el-table-column>
-            <el-table-column :label="t('dsh.users.lastLogin')" width="160">
+            </KsTableColumn>
+            <KsTableColumn :label="t('dsh.users.lastLogin')" width="160">
                 <template #default="{row}">
                     <KsDateAgo v-if="row.lastLoginAt" :date="row.lastLoginAt" inverted />
                     <span v-else>—</span>
                 </template>
-            </el-table-column>
-            <el-table-column :label="t('actions')" width="220" fixed="right">
+            </KsTableColumn>
+            <KsTableColumn :label="t('actions')" width="220" fixed="right">
                 <template #default="{row}">
                     <KsButton size="small" type="default" @click.stop="openEdit(row)">
                         {{ t("edit") }}
@@ -72,73 +73,67 @@
                     <KsButton size="small" type="default" @click.stop="openResetPassword(row)">
                         {{ t("dsh.users.resetPassword") }}
                     </KsButton>
-                    <el-popconfirm
-                        :title="t('dsh.users.confirmDelete')"
-                        width="220"
-                        @confirm="removeUser(row)"
-                    >
-                        <template #reference>
-                            <KsButton size="small" type="danger" @click.stop>{{ t("delete") }}</KsButton>
-                        </template>
-                    </el-popconfirm>
+                    <KsButton size="small" type="danger" data-test="user-delete" @click.stop="confirmRemove(row)">
+                        {{ t("delete") }}
+                    </KsButton>
                 </template>
-            </el-table-column>
-        </el-table>
+            </KsTableColumn>
+        </KsTable>
 
         <!-- create / edit dialog -->
-        <el-dialog
+        <KsDialog
             v-model="dialogVisible"
             :title="editing ? t('dsh.users.edit') : t('dsh.users.add')"
             width="520"
             data-test="user-dialog"
         >
-            <el-form label-position="top" class="user-form">
-                <el-form-item v-if="!editing" :label="t('dsh.users.username')" required>
-                    <el-input v-model="form.username" data-test="user-form-username" />
-                </el-form-item>
-                <el-form-item :label="t('dsh.users.name')" required>
-                    <el-input v-model="form.name" data-test="user-form-name" />
-                </el-form-item>
-                <el-form-item :label="t('dsh.users.email')" required>
-                    <el-input v-model="form.email" data-test="user-form-email" />
-                </el-form-item>
-                <el-form-item v-if="!editing" :label="t('dsh.users.password')">
-                    <el-input v-model="form.password" type="password" show-password data-test="user-form-password" />
-                </el-form-item>
-                <el-form-item :label="t('dsh.users.roles')">
-                    <el-select v-model="form.roles" multiple allow-create filterable default-first-option class="user-roles-select">
-                        <el-option v-for="role in availableRoles" :key="role" :label="role" :value="role" />
-                    </el-select>
-                </el-form-item>
-                <el-form-item :label="t('dsh.users.state')">
-                    <el-select v-model="form.userState" class="user-state-select">
-                        <el-option label="ACTIVE" value="ACTIVE" />
-                        <el-option label="INACTIVE" value="INACTIVE" />
-                    </el-select>
-                </el-form-item>
-            </el-form>
+            <KsForm label-position="top" class="user-form">
+                <KsFormItem v-if="!editing" :label="t('dsh.users.username')" required>
+                    <KsInput v-model="form.username" data-test="user-form-username" />
+                </KsFormItem>
+                <KsFormItem :label="t('dsh.users.name')" required>
+                    <KsInput v-model="form.name" data-test="user-form-name" />
+                </KsFormItem>
+                <KsFormItem :label="t('dsh.users.email')" required>
+                    <KsInput v-model="form.email" data-test="user-form-email" />
+                </KsFormItem>
+                <KsFormItem v-if="!editing" :label="t('dsh.users.password')">
+                    <KsInput v-model="form.password" type="password" show-password data-test="user-form-password" />
+                </KsFormItem>
+                <KsFormItem :label="t('dsh.users.roles')">
+                    <KsSelect v-model="form.roles" multiple allow-create filterable class="user-roles-select">
+                        <KsOption v-for="role in availableRoles" :key="role" :label="role" :value="role" />
+                    </KsSelect>
+                </KsFormItem>
+                <KsFormItem :label="t('dsh.users.state')">
+                    <KsSelect v-model="form.userState" class="user-state-select">
+                        <KsOption label="ACTIVE" value="ACTIVE" />
+                        <KsOption label="INACTIVE" value="INACTIVE" />
+                    </KsSelect>
+                </KsFormItem>
+            </KsForm>
             <template #footer>
                 <KsButton type="default" @click="dialogVisible = false">{{ t("cancel") }}</KsButton>
                 <KsButton type="primary" data-test="user-form-submit" @click="submit">
                     {{ t("save") }}
                 </KsButton>
             </template>
-        </el-dialog>
+        </KsDialog>
 
         <!-- reset password dialog -->
-        <el-dialog v-model="passwordDialogVisible" :title="t('dsh.users.resetPassword')" width="440">
-            <el-form label-position="top">
-                <el-form-item :label="t('dsh.users.newPassword')" required>
-                    <el-input v-model="newPassword" type="password" show-password data-test="password-input" />
-                </el-form-item>
-            </el-form>
+        <KsDialog v-model="passwordDialogVisible" :title="t('dsh.users.resetPassword')" width="440">
+            <KsForm label-position="top">
+                <KsFormItem :label="t('dsh.users.newPassword')" required>
+                    <KsInput v-model="newPassword" type="password" show-password data-test="password-input" />
+                </KsFormItem>
+            </KsForm>
             <template #footer>
                 <KsButton type="default" @click="passwordDialogVisible = false">{{ t("cancel") }}</KsButton>
                 <KsButton type="primary" data-test="password-submit" @click="submitPassword">
                     {{ t("save") }}
                 </KsButton>
             </template>
-        </el-dialog>
+        </KsDialog>
     </section>
 </template>
 
@@ -146,7 +141,7 @@
     import {computed, onMounted, reactive, ref} from "vue"
     import {useI18n} from "vue-i18n"
     import {useRouter} from "vue-router"
-    import {ElMessage} from "element-plus"
+    import {ElMessage, ElMessageBox} from "element-plus"
     import Plus from "vue-material-design-icons/Plus.vue"
     import Magnify from "vue-material-design-icons/Magnify.vue"
     import TopNavBar from "../../layout/TopNavBar.vue"
@@ -177,12 +172,13 @@
 
     const dialogVisible = ref(false)
     const editing = ref<UserRow | null>(null)
+    // Default to least-privilege: an admin creating a user must explicitly grant admin.
     const form = reactive({
         username: "",
         name: "",
         email: "",
         password: "",
-        roles: [] as string[],
+        roles: ["user"] as string[],
         userState: "ACTIVE",
     })
 
@@ -234,7 +230,7 @@
         form.name = ""
         form.email = ""
         form.password = ""
-        form.roles = []
+        form.roles = ["user"]
         form.userState = "ACTIVE"
     }
 
@@ -318,6 +314,19 @@
         }
         ElMessage.success(t("dsh.users.passwordUpdated"))
         passwordDialogVisible.value = false
+    }
+
+    async function confirmRemove(row: UserRow) {
+        try {
+            await ElMessageBox.confirm(
+                t("dsh.users.confirmDelete"),
+                t("delete"),
+                {type: "warning", confirmButtonText: t("delete"), cancelButtonText: t("cancel")},
+            )
+        } catch {
+            return
+        }
+        await removeUser(row)
     }
 
     async function removeUser(row: UserRow) {

@@ -2,84 +2,69 @@
     <TopNavBar :title="routeInfo.title" />
 
     <section class="full-container role-directory">
-        <el-row :gutter="16" class="role-layout">
-            <el-col :span="6">
-                <div class="role-list-panel">
-                    <div class="panel-title">{{ t("dsh.roles.title") }}</div>
-                    <el-menu
-                        :default-active="selectedRole"
-                        class="role-menu"
-                        data-test="role-menu"
-                        @select="(key: string) => selectedRole = key"
-                    >
-                        <el-menu-item v-for="role in roleNames" :key="role" :index="role">
-                            <el-tag :type="role === 'admin' ? 'danger' : 'primary'" size="small">
-                                {{ role }}
-                            </el-tag>
-                            <span class="role-count">{{ countByRole(role) }}</span>
-                        </el-menu-item>
-                    </el-menu>
-                </div>
-            </el-col>
+        <div class="role-layout">
+            <aside class="role-list-panel">
+                <div class="panel-title">{{ t("dsh.roles.title") }}</div>
+                <KsMenu :default-active="selectedRole" class="role-menu" data-test="role-menu" @select="onRoleSelect">
+                    <KsMenuItem v-for="role in roleNames" :key="role" :index="role">
+                        <KsTag :type="role === 'admin' ? 'danger' : 'primary'" size="small" effect="light">
+                            {{ role }}
+                        </KsTag>
+                        <span class="role-count">{{ countByRole(role) }}</span>
+                    </KsMenuItem>
+                </KsMenu>
+            </aside>
 
-            <el-col :span="18">
-                <div class="role-members-panel">
-                    <div class="panel-title">
-                        {{ t("dsh.roles.members", {role: selectedRole}) }}
-                        <el-select
-                            v-model="memberToAdd"
-                            filterable
-                            :placeholder="t('dsh.roles.addMemberPlaceholder')"
-                            class="member-add-select"
-                            data-test="member-add"
-                            @change="addMember"
-                        >
-                            <el-option
-                                v-for="u in nonMembers"
-                                :key="u.username"
-                                :label="`${u.username} (${u.name})`"
-                                :value="u.username"
-                            />
-                        </el-select>
-                    </div>
-
-                    <el-table
-                        :data="members"
-                        v-loading="loading"
-                        class="member-table"
-                        data-test="member-table"
+            <div class="role-members-panel">
+                <div class="panel-title">
+                    <span>{{ t("dsh.roles.members", {role: selectedRole}) }}</span>
+                    <KsSelect
+                        v-model="memberToAdd"
+                        filterable
+                        :placeholder="t('dsh.roles.addMemberPlaceholder')"
+                        class="member-add-select"
+                        data-test="member-add"
+                        @change="addMember"
                     >
-                        <el-table-column prop="username" :label="t('dsh.users.username')" min-width="180">
-                            <template #default="{row}">
-                                <b>{{ row.username }}</b>
-                            </template>
-                        </el-table-column>
-                        <el-table-column prop="name" :label="t('dsh.users.name')" min-width="140" />
-                        <el-table-column prop="email" :label="t('dsh.users.email')" min-width="180" />
-                        <el-table-column :label="t('actions')" width="120" fixed="right">
-                            <template #default="{row}">
-                                <el-popconfirm
-                                    :title="t('dsh.roles.confirmRemove', {user: row.username, role: selectedRole})"
-                                    width="240"
-                                    @confirm="removeMember(row)"
-                                >
-                                    <template #reference>
-                                        <KsButton size="small" type="danger">{{ t("dsh.roles.remove") }}</KsButton>
-                                    </template>
-                                </el-popconfirm>
-                            </template>
-                        </el-table-column>
-                    </el-table>
+                        <KsOption
+                            v-for="u in nonMembers"
+                            :key="u.username"
+                            :label="`${u.username} (${u.name})`"
+                            :value="u.username"
+                        />
+                    </KsSelect>
                 </div>
-            </el-col>
-        </el-row>
+
+                <KsTable
+                    :data="members"
+                    v-loading="loading"
+                    class="member-table"
+                    data-test="member-table"
+                >
+                    <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="180">
+                        <template #default="{row}">
+                            <b>{{ row.username }}</b>
+                        </template>
+                    </KsTableColumn>
+                    <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="140" />
+                    <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="180" />
+                    <KsTableColumn :label="t('actions')" width="120" fixed="right">
+                        <template #default="{row}">
+                            <KsButton size="small" type="danger" data-test="member-remove" @click="confirmRemove(row)">
+                                {{ t("dsh.roles.remove") }}
+                            </KsButton>
+                        </template>
+                    </KsTableColumn>
+                </KsTable>
+            </div>
+        </div>
     </section>
 </template>
 
 <script setup lang="ts">
     import {computed, onMounted, ref} from "vue"
     import {useI18n} from "vue-i18n"
-    import {ElMessage} from "element-plus"
+    import {ElMessage, ElMessageBox} from "element-plus"
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
     import {getCsrfToken} from "../../../utils/csrf"
@@ -121,6 +106,10 @@
 
     function countByRole(role: string) {
         return users.value.filter((u) => (u.roles || []).includes(role)).length
+    }
+
+    function onRoleSelect(index: string) {
+        selectedRole.value = index
     }
 
     function api(url: string, options: RequestInit = {}) {
@@ -175,6 +164,19 @@
         load()
     }
 
+    async function confirmRemove(row: UserRow) {
+        try {
+            await ElMessageBox.confirm(
+                t("dsh.roles.confirmRemove", {user: row.username, role: selectedRole.value}),
+                t("dsh.roles.remove"),
+                {type: "warning", confirmButtonText: t("dsh.roles.remove"), cancelButtonText: t("cancel")},
+            )
+        } catch {
+            return
+        }
+        await removeMember(row)
+    }
+
     async function removeMember(row: UserRow) {
         const next = (row.roles || []).filter((r) => r !== selectedRole.value)
         const res = await api(`/api/v1/oidc/users/${encodeURIComponent(row.username)}/roles`, {
@@ -198,7 +200,19 @@
     }
 
     .role-layout {
+        display: flex;
+        gap: var(--ks-spacing-4);
         height: 100%;
+    }
+
+    .role-list-panel {
+        width: 240px;
+        flex-shrink: 0;
+    }
+
+    .role-members-panel {
+        flex: 1;
+        min-width: 0;
     }
 
     .role-list-panel, .role-members-panel {
