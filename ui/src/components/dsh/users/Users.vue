@@ -32,25 +32,26 @@
         <KsTable
             :data="users"
             v-loading="loading"
+            :fit="true"
             class="user-table"
             data-test="user-table"
             @row-click="onRowClick"
         >
-            <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="180">
+            <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="150">
                 <template #default="{row}">
                     <b>{{ row.username }}</b>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.users.type')" width="110">
+            <KsTableColumn :label="t('dsh.users.type')" width="90">
                 <template #default="{row}">
                     <KsTag :type="row.type === 'machine' ? 'warning' : 'success'" size="small" effect="light">
                         {{ row.type === 'machine' ? t('dsh.users.machine') : t('dsh.users.human') }}
                     </KsTag>
                 </template>
             </KsTableColumn>
-            <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="140" />
-            <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="180" />
-            <KsTableColumn :label="t('dsh.users.roles')" min-width="140">
+            <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="120" />
+            <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="150" />
+            <KsTableColumn :label="t('dsh.users.roles')" min-width="120">
                 <template #default="{row}">
                     <KsTag
                         v-for="role in (row.roles || [])"
@@ -64,20 +65,20 @@
                     </KsTag>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.users.state')" width="110">
+            <KsTableColumn :label="t('dsh.users.state')" width="90">
                 <template #default="{row}">
                     <KsTag :type="row.userState === 'ACTIVE' ? 'success' : 'info'" size="small" effect="light">
                         {{ row.userState }}
                     </KsTag>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.users.lastLogin')" width="160">
+            <KsTableColumn :label="t('dsh.users.lastLogin')" width="130">
                 <template #default="{row}">
                     <KsDateAgo v-if="row.lastLoginAt" :date="row.lastLoginAt" inverted />
                     <span v-else>—</span>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('actions')" width="230" fixed="right">
+            <KsTableColumn :label="t('actions')" width="180">
                 <template #default="{row}">
                     <KsButton size="small" type="default" @click.stop="openEdit(row)">
                         {{ t("edit") }}
@@ -455,6 +456,11 @@
     .user-table {
         width: 100%;
         cursor: pointer;
+        /* KsTable wrapper manages overflow internally (hidden); make it a real scroll
+           container so narrow viewports can scroll the overflow instead of clipping. */
+        :deep(.kel-table--scrollable-x) {
+            overflow-x: auto !important;
+        }
     }
 
     .user-role-tag {

@@ -38,17 +38,18 @@
                 <KsTable
                     :data="members"
                     v-loading="loading"
+                    :fit="true"
                     class="member-table"
                     data-test="member-table"
                 >
-                    <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="180">
+                    <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="150">
                         <template #default="{row}">
                             <b>{{ row.username }}</b>
                         </template>
                     </KsTableColumn>
-                    <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="140" />
-                    <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="180" />
-                    <KsTableColumn :label="t('actions')" width="120" fixed="right">
+                    <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="120" />
+                    <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="150" />
+                    <KsTableColumn :label="t('actions')" width="120">
                         <template #default="{row}">
                             <KsButton size="small" type="danger" data-test="member-remove" @click="confirmRemove(row)">
                                 {{ t("dsh.roles.remove") }}
@@ -242,5 +243,14 @@
     .member-add-select {
         margin-left: auto;
         width: 280px;
+    }
+
+    .member-table {
+        width: 100%;
+        /* same fix as user-table: make the KsTable wrapper a real scroll container so
+           narrow viewports can scroll the overflow instead of clipping. */
+        :deep(.kel-table--scrollable-x) {
+            overflow-x: auto !important;
+        }
     }
 </style>
