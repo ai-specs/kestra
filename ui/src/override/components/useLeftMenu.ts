@@ -303,9 +303,6 @@ export function useLeftMenu() {
                         icon: {
                             element: LockOutline,
                         },
-                        attributes: {
-                            locked: true,
-                        },
                     },
                     {
                         id: "triggers",

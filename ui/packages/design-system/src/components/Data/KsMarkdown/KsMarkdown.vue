@@ -480,9 +480,8 @@
     .ks-markdown__code-shiki {
         .shiki {
             margin: 0;
-            padding: 1rem;
+            padding: var(--ks-spacing-3);
             overflow-x: auto;
-            background-color: var(--kel-bg-color-overlay);
             border-radius: var(--kel-border-radius-base);
 
             span { color: var(--shiki-light); }
@@ -499,6 +498,7 @@
 
     .ks-markdown {
         color: var(--ks-text-primary);
+        line-height: var(--ks-line-height-loose);
 
         h1, h2, h3, h4, h5, h6 {
             &.ks-markdown__heading {
