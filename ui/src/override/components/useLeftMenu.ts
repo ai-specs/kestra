@@ -444,8 +444,27 @@ export function useLeftMenu() {
             }
         })
 
-        return generated
+        return hideLockedMenu(generated)
     })
 
     return {menu}
 }
+
+// ── dsh fork: 隐藏企业版（EE）锁定菜单 ────────────────────────────────────────
+// 上游 Kestra 开源版会在侧边栏/顶部导航/全局搜索中展示企业版菜单项，标记
+// `attributes.locked: true`，点击后跳转到「联系销售」宣传页。dsh 部署不使用这些
+// EE 功能，统一在展示层过滤掉。
+//
+// 过滤条件跟随上游的 locked 标记，而非硬编码 id 白名单：
+//   - 上游新增 EE 菜单（带 locked=true）→ 自动隐藏，无需维护列表
+//   - 上游把某菜单改为 unlocked → 自动显示
+//   - dsh 自定义菜单（dsh-users/dsh-roles）不带 locked → 不受影响
+//
+// 若未来需要保留某个 locked 菜单（如 secrets），可在此加显式放行：将该菜单
+// 的 `attributes.locked` 置为 false，或在下方 hideLockedMenu 前做白名单合并。
+const hideLockedMenu = (items: MenuItem[]): MenuItem[] =>
+    items
+        .filter((item) => !item.attributes?.locked)
+        .map((item) =>
+            item.child ? {...item, child: hideLockedMenu(item.child)} : item,
+        )
