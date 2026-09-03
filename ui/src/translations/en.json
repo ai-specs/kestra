@@ -2551,8 +2551,7 @@
         "memberRemoved": "{user} removed from {role}",
         "descriptions": {
           "admin": "dsh ecosystem admin: Kestra user/role management + Nacos global admin + dsh data full access",
-          "user": "dsh ecosystem regular user: Kestra normal features + dsh data scoped to self",
-          "authenticated": "identity-only, no authorization (machine identity default)"
+          "user": "dsh ecosystem regular user: Kestra normal features + dsh data scoped to self"
         }
       },
       "project": {
@@ -2563,11 +2562,7 @@
         "createNotAvailable": "Project creation is not available yet",
         "overview": "Overview",
         "roles": "Roles",
-        "assignments": "Role Assignments",
         "applications": "Applications",
-        "projectInfo": "Project Info",
-        "name": "Project Name",
-        "description": "Description",
         "projectDescription": "DSH Ecosystem — Default project containing all dsh applications: Kestra, Nacos, dsh PC/mobile",
         "defaultProject": "Default Project",
         "createdAt": "Created At",
@@ -2579,13 +2574,18 @@
         "roleName": "Role Key",
         "memberCount": "Members",
         "members": "Members",
-        "addMember": "Add Member",
         "user": "User",
         "role": "Role",
         "noMembers": "No members",
         "noApplications": "No applications",
         "viewMembers": "View members",
-        "addMember": "Add user"
+        "addMember": "Add user",
+        "appDetail": "Application Detail: {clientId}",
+        "status": "Status",
+        "active": "Active",
+        "inactive": "Inactive",
+        "redirectUris": "Redirect URIs",
+        "scopes": "Scopes"
       }
     }
   }

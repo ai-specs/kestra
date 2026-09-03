@@ -2551,8 +2551,7 @@
         "memberRemoved": "{user} 已移出 {role}",
         "descriptions": {
           "admin": "dsh 生态系统管理员：Kestra 用户/角色管理 + Nacos 全局管理员 + dsh 数据完全访问",
-          "user": "dsh 生态系统普通用户：Kestra 常规功能 + dsh 数据仅限本人",
-          "authenticated": "仅身份认证，无授权（机器身份默认）"
+          "user": "dsh 生态系统普通用户：Kestra 常规功能 + dsh 数据仅限本人"
         }
       },
       "project": {
@@ -2563,11 +2562,7 @@
         "createNotAvailable": "新建项目功能暂未开放",
         "overview": "概览",
         "roles": "角色",
-        "assignments": "角色分配",
         "applications": "应用",
-        "projectInfo": "项目信息",
-        "name": "项目名称",
-        "description": "描述",
         "projectDescription": "DSH 生态系统 —— 包含所有 dsh 应用的默认项目：Kestra、Nacos、dsh PC端/手机端",
         "defaultProject": "默认项目",
         "createdAt": "创建时间",
@@ -2579,13 +2574,18 @@
         "roleName": "角色标识",
         "memberCount": "成员数",
         "members": "成员",
-        "addMember": "添加成员",
         "user": "用户",
         "role": "角色",
         "noMembers": "暂无成员",
         "noApplications": "暂无应用",
         "viewMembers": "查看成员",
-        "addMember": "添加用户"
+        "addMember": "添加用户",
+        "appDetail": "应用详情：{clientId}",
+        "status": "状态",
+        "active": "启用",
+        "inactive": "禁用",
+        "redirectUris": "重定向 URI",
+        "scopes": "作用域"
       }
     }
   }
