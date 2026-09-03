@@ -7,7 +7,11 @@ COPY --chown=kestra:kestra docker /
 
 RUN --mount=type=bind,target=/mnt/context \
     mkdir -p /app/plugins && \
-    { cp -r /mnt/context/plugins/. /app/plugins/ 2>/dev/null || true; } && \
+    # Custom plugin jars live in locals/plugins/ (see .dockerignore: the plugin source
+    # submodules are excluded from the build context, so /mnt/context/plugins does not exist).
+    # Baking locals/plugins/ keeps the deepseek-harness jar (and any other custom jar) in sync
+    # with local shadowJar builds — the base image carries no plugins of its own.
+    { cp -r /mnt/context/locals/plugins/. /app/plugins/ 2>/dev/null || true; } && \
     chown -R kestra:kestra /app
 
 USER kestra

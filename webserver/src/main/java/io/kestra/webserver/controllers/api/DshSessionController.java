@@ -62,13 +62,33 @@ public class DshSessionController {
     @Inject
     private DshMetricsConfiguration configuration;
 
-    public record SessionSnapshot(String sessionId, String phase, String state, String metadata,
+    /**
+     * Body of the state-only update: replaces the session state snapshot without touching the phase.
+     * {@code state} accepts either a JSON string or a JSON object (serialized on the fly).
+     */
+    public record SessionState(Object state) {}
+
+    /**
+     * Body of a session snapshot upsert. {@code state} / {@code metadata} accept either a JSON
+     * string (the Worker plugin path) or a raw JSON object (convenience for dsh PC / curl), which
+     * is serialized back to a JSON string before the {@code ?::jsonb} cast — so both payload shapes
+     * hit the same storage and the DB never rejects them with a deserialization 422.
+     */
+    public record SessionSnapshot(String sessionId, String phase, Object state, Object metadata,
                                   String userId, String at) {}
 
     public record SessionInput(String text) {}
 
-    /** Body of the state-only update: replaces the session state snapshot without touching the phase. */
-    public record SessionState(String state) {}
+    /** Normalize a JSON-typed field ({@code String} or {@code Map}/{@code List}) to a JSON string. */
+    private static String jsonString(Object value) {
+        if (value == null) return null;
+        if (value instanceof String s) return s;
+        try {
+            return io.kestra.core.serializers.JacksonMapper.ofJson().writeValueAsString(value);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("state/metadata must be a JSON object or a JSON string", e);
+        }
+    }
 
     /**
      * Upsert a dsh session snapshot pushed by dsh (PC) or written by the Worker plugin
@@ -103,6 +123,8 @@ public class DshSessionController {
         // userId (Worker plugin on behalf of a Flow user); everyone else is bound to their own sub.
         String owner = privileged && snapshot.userId() != null && !snapshot.userId().isBlank()
             ? snapshot.userId() : caller.sub();
+        String state = jsonString(snapshot.state());
+        String metadata = jsonString(snapshot.metadata());
         try (Connection connection = open()) {
             connection.setAutoCommit(false);
             String current = null;
@@ -123,8 +145,8 @@ public class DshSessionController {
                     insert.setString(2, snapshot.userId());
                     insert.setString(3, owner);
                     insert.setString(4, phase);
-                    insert.setString(5, snapshot.state() == null ? "{}" : snapshot.state());
-                    insert.setString(6, snapshot.metadata());
+                    insert.setString(5, state == null ? "{}" : state);
+                    insert.setString(6, metadata);
                     insert.executeUpdate();
                 }
             } else {
@@ -141,8 +163,8 @@ public class DshSessionController {
                 try (PreparedStatement update = connection.prepareStatement(
                     "UPDATE dsh_session SET phase = ?, state = coalesce(?::jsonb, state), metadata = coalesce(?::jsonb, metadata), owner = coalesce(owner, ?), updated_at = now() WHERE id = ?::uuid")) {
                     update.setString(1, phase);
-                    update.setString(2, snapshot.state());
-                    update.setString(3, snapshot.metadata());
+                    update.setString(2, state);
+                    update.setString(3, metadata);
                     update.setString(4, owner);
                     update.setString(5, sessionId);
                     update.executeUpdate();
@@ -316,14 +338,18 @@ public class DshSessionController {
         if (!isUuid(sessionId)) {
             return HttpResponse.badRequest(Map.of("error", "sessionId must be a valid UUID: " + sessionId));
         }
-        if (body == null || body.state() == null) {
+        if (body == null) {
+            return HttpResponse.badRequest(Map.of("error", "state is required"));
+        }
+        String state = jsonString(body.state());
+        if (state == null) {
             return HttpResponse.badRequest(Map.of("error", "state is required"));
         }
         boolean privileged = caller.isService() || caller.isAdmin();
         try (Connection connection = open(); PreparedStatement ps = connection.prepareStatement(
             "UPDATE dsh_session SET state = ?::jsonb, updated_at = now() "
                 + "WHERE id = ?::uuid AND (owner = ? OR ?)")) {
-            ps.setString(1, body.state());
+            ps.setString(1, state);
             ps.setString(2, sessionId);
             ps.setString(3, caller.sub());
             ps.setBoolean(4, privileged);

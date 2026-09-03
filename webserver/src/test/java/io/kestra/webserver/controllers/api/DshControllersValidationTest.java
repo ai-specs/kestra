@@ -51,6 +51,19 @@ public class DshControllersValidationTest {
     }
 
     @Test
+    void sessionUpsertAcceptsJsonObjectStateAndMetadata() {
+        DshSessionController controller = new DshSessionController();
+        // state/metadata 接受 JSON 对象（自动规范化为 JSON 字符串），而非仅限 JSON 字符串
+        var snapshot = new DshSessionController.SessionSnapshot(
+            GOOD_ID, "RUNNING", Map.of("phase", "planning"), Map.of("device", "pc"), "u-1", null);
+        var exception = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
+            () -> controller.upsert(authRequest("alice@kestra.io", List.of("user")), GOOD_ID, snapshot));
+        // jsonString 序列化 Map 成功，继续走到数据库路径 —— 异常来自 DB（null configuration）
+        // 而非 JSON 规范化（若是后者，会抛 "must be a JSON object"）
+        assertThat(String.valueOf(exception.getMessage()).contains("must be a JSON object"), is(false));
+    }
+
+    @Test
     void sessionUpdateStateRejectsInvalidUuidWith400() {
         DshSessionController controller = new DshSessionController();
         HttpResponse<Map<String, Object>> response = assertDoesNotThrow(

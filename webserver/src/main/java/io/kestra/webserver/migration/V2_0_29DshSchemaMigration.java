@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
 import java.util.List;
 
 import javax.sql.DataSource;
@@ -34,9 +33,10 @@ import jakarta.inject.Singleton;
  * This bean deliberately does <strong>not</strong> extend {@code AbstractSQLMigrationScript}:
  * that base class lives in the {@code :jdbc} module whose dependencies (worker/executor/jOOQ)
  * must not be pulled into the webserver. It implements {@link MigrationScript} directly and runs
- * the resource with a small statement splitter (single-quoted strings, {@code $$...$$} blocks,
- * line/block comments); it borrows the {@code DelegatingDataSource.unwrapDataSource()} trick from
- * the jdbc module so a real connection is obtained outside any {@code @Connectable} context.
+ * the resource with the shared {@link SqlScriptSplitter} (single-quoted strings,
+ * {@code $$...$$} blocks, line/block comments); it borrows the
+ * {@code DelegatingDataSource.unwrapDataSource()} trick from the jdbc module so a real
+ * connection is obtained outside any {@code @Connectable} context.
  *
  * <p>
  * Migrations run on the control plane only ({@code MigrationStartupRunner} excludes WORKER
@@ -88,7 +88,7 @@ public class V2_0_29DshSchemaMigration implements MigrationScript {
         try (Connection connection = DelegatingDataSource.unwrapDataSource(dataSource).getConnection()) {
             connection.setAutoCommit(true);
             try (Statement statement = connection.createStatement()) {
-                for (String statementSql : splitStatements(sql)) {
+                for (String statementSql : SqlScriptSplitter.splitStatements(sql)) {
                     if (!statementSql.isBlank()) {
                         statement.execute(statementSql);
                     }
@@ -109,70 +109,5 @@ public class V2_0_29DshSchemaMigration implements MigrationScript {
             }
             return new String(is.readAllBytes(), StandardCharsets.UTF_8);
         }
-    }
-
-    /**
-     * Splits a SQL script into individual statements, ignoring {@code ;} inside single-quoted
-     * string literals and PostgreSQL dollar-quoted blocks, and dropping line/block comments.
-     */
-    static List<String> splitStatements(final String sql) {
-        List<String> statements = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        boolean inSingleQuote = false;
-        boolean inDollar = false;
-        String dollarTag = null;
-        int i = 0;
-        int n = sql.length();
-        while (i < n) {
-            char c = sql.charAt(i);
-            if (!inSingleQuote && !inDollar && c == '-' && i + 1 < n && sql.charAt(i + 1) == '-') {
-                while (i < n && sql.charAt(i) != '\n') {
-                    i++;
-                }
-                continue;
-            }
-            if (!inSingleQuote && !inDollar && c == '/' && i + 1 < n && sql.charAt(i + 1) == '*') {
-                int end = sql.indexOf("*/", i + 2);
-                i = end < 0 ? n : end + 2;
-                continue;
-            }
-            if (!inDollar && c == '\'') {
-                inSingleQuote = !inSingleQuote;
-                current.append(c);
-                i++;
-                continue;
-            }
-            if (!inSingleQuote && !inDollar && c == '$') {
-                int j = i + 1;
-                while (j < n && (Character.isLetterOrDigit(sql.charAt(j)) || sql.charAt(j) == '_')) {
-                    j++;
-                }
-                if (j < n && sql.charAt(j) == '$') {
-                    inDollar = true;
-                    dollarTag = sql.substring(i, j + 1);
-                    current.append(dollarTag);
-                    i = j + 1;
-                    continue;
-                }
-            }
-            if (inDollar && sql.startsWith(dollarTag, i)) {
-                inDollar = false;
-                current.append(dollarTag);
-                i += dollarTag.length();
-                continue;
-            }
-            if (!inSingleQuote && !inDollar && c == ';') {
-                statements.add(current.toString());
-                current.setLength(0);
-                i++;
-                continue;
-            }
-            current.append(c);
-            i++;
-        }
-        if (!current.toString().isBlank()) {
-            statements.add(current.toString());
-        }
-        return statements;
     }
 }

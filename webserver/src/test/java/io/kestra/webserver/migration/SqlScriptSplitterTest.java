@@ -6,11 +6,11 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class V2_0_29DshSchemaMigrationTest {
+class SqlScriptSplitterTest {
 
     @Test
     void splitStatementsSplitsOnSemicolon() {
-        List<String> statements = V2_0_29DshSchemaMigration.splitStatements(
+        List<String> statements = SqlScriptSplitter.splitStatements(
             "CREATE TABLE a (id INT);\nALTER TABLE a ADD COLUMN b TEXT;\n"
         );
         assertThat(statements).hasSize(2);
@@ -20,7 +20,7 @@ class V2_0_29DshSchemaMigrationTest {
 
     @Test
     void splitStatementsIgnoresSemicolonInsideSingleQuotes() {
-        List<String> statements = V2_0_29DshSchemaMigration.splitStatements(
+        List<String> statements = SqlScriptSplitter.splitStatements(
             "INSERT INTO t (v) VALUES ('a;b');\nSELECT 1;\n"
         );
         assertThat(statements).hasSize(2);
@@ -29,7 +29,7 @@ class V2_0_29DshSchemaMigrationTest {
 
     @Test
     void splitStatementsIgnoresDollarQuotedBlocks() {
-        List<String> statements = V2_0_29DshSchemaMigration.splitStatements(
+        List<String> statements = SqlScriptSplitter.splitStatements(
             "CREATE FUNCTION f() RETURNS INT AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql;\nSELECT 2;\n"
         );
         assertThat(statements).hasSize(2);
@@ -39,7 +39,7 @@ class V2_0_29DshSchemaMigrationTest {
 
     @Test
     void splitStatementsDropsLineAndBlockComments() {
-        List<String> statements = V2_0_29DshSchemaMigration.splitStatements(
+        List<String> statements = SqlScriptSplitter.splitStatements(
             "-- leading comment\nCREATE TABLE a (id INT); -- trailing;comment\n/* block ; comment */\nSELECT 1;\n"
         );
         assertThat(statements).hasSize(2);
@@ -49,7 +49,7 @@ class V2_0_29DshSchemaMigrationTest {
 
     @Test
     void splitStatementsHandlesTrailingStatementWithoutSemicolon() {
-        List<String> statements = V2_0_29DshSchemaMigration.splitStatements(
+        List<String> statements = SqlScriptSplitter.splitStatements(
             "CREATE TABLE a (id INT);\nUPDATE t SET x = 1 WHERE y IS NULL"
         );
         assertThat(statements).hasSize(2);
@@ -62,7 +62,7 @@ class V2_0_29DshSchemaMigrationTest {
         String sql = new String(
             cl.getResourceAsStream("migrations/2.0.29-dsh-schema-postgres.sql").readAllBytes()
         );
-        List<String> statements = V2_0_29DshSchemaMigration.splitStatements(sql);
+        List<String> statements = SqlScriptSplitter.splitStatements(sql);
         // CREATE dsh_session, 3x ALTER, 3x CREATE INDEX, UPDATE, CREATE dsh_approval,
         // 1x CREATE INDEX, CREATE dsh_metrics, 1x CREATE INDEX = 12 executable statements
         assertThat(statements).hasSize(12);
