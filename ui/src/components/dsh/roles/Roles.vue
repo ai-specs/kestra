@@ -69,6 +69,7 @@
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
     import {getCsrfToken} from "../../../utils/csrf"
+    import {SessionExpiredError, sessionExpired} from "../../../utils/dshSession"
 
     interface UserRow {
         username: string;
@@ -113,27 +114,33 @@
         selectedRole.value = index
     }
 
-    function api(url: string, options: RequestInit = {}) {
+    async function api(url: string, options: RequestInit = {}) {
         const headers = new Headers(options.headers)
         headers.set("Content-Type", "application/json")
         const csrf = getCsrfToken()
         if (csrf) headers.set("X-CSRF-TOKEN", csrf)
-        return fetch(`${API_BASE}${url}`, {
+        const res = await fetch(`${API_BASE}${url}`, {
             credentials: "include",
             headers,
             ...options,
         })
+        if (res.status === 401) {
+            // Session expired — redirect through the OIDC logout endpoint (clears cookies,
+            // lands on the IdP login) instead of reporting a permission problem.
+            sessionExpired()
+        }
+        return res
     }
 
     async function load() {
         loading.value = true
         try {
             const res = await api("/api/v1/oidc/users?size=500")
+            if (res.status === 403) {
+                ElMessage.error(t("dsh.users.notAdmin"))
+                return
+            }
             if (!res.ok) {
-                if (res.status === 401 || res.status === 403) {
-                    ElMessage.error(t("dsh.users.notAdmin"))
-                    return
-                }
                 throw new Error(await res.text())
             }
             users.value = await res.json()
@@ -141,6 +148,7 @@
                 selectedRole.value = roleNames.value[0]
             }
         } catch (e) {
+            if (e instanceof SessionExpiredError) return
             ElMessage.error(t("dsh.users.loadFailed", {message: String(e)}))
         } finally {
             loading.value = false
@@ -247,9 +255,9 @@
 
     .member-table {
         width: 100%;
-        /* same fix as user-table: make the KsTable wrapper a real scroll container so
-           narrow viewports can scroll the overflow instead of clipping. */
-        :deep(.kel-table--scrollable-x) {
+        /* same fix as user-table: KsTable root defaults to overflow-x:hidden; make it
+           a real horizontal scroll container so narrow viewports can scroll. */
+        :deep(.kel-table) {
             overflow-x: auto !important;
         }
     }

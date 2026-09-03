@@ -188,6 +188,7 @@
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
     import {getCsrfToken} from "../../../utils/csrf"
+    import {SessionExpiredError, sessionExpired} from "../../../utils/dshSession"
 
     const router = useRouter()
     const {t} = useI18n({useScope: "global"})
@@ -232,7 +233,7 @@
     const newPassword = ref("")
     const passwordTarget = ref<UserRow | null>(null)
 
-    function api(url: string, options: RequestInit = {}) {
+    async function api(url: string, options: RequestInit = {}) {
         const headers = new Headers(options.headers)
         headers.set("Content-Type", "application/json")
         // Same-origin cookie auth triggers Kestra's CsrfTokenFilter on non-GET: forward the
@@ -240,11 +241,18 @@
         // HTTPOnly csrfToken cookie from the same response).
         const csrf = getCsrfToken()
         if (csrf) headers.set("X-CSRF-TOKEN", csrf)
-        return fetch(`${API_BASE}${url}`, {
+        const res = await fetch(`${API_BASE}${url}`, {
             credentials: "include",
             headers,
             ...options,
         })
+        if (res.status === 401) {
+            // Session expired (JWT / oidc_session) while kestraBasicAuthenticated still
+            // says we are logged in — never report this as a permission problem. Redirect
+            // through the OIDC logout endpoint (clears cookies, lands on the IdP login).
+            sessionExpired()
+        }
+        return res
     }
 
     async function load() {
@@ -259,15 +267,16 @@
             }
             params.set("size", "500")
             const res = await api(`/api/v1/oidc/users?${params.toString()}`)
+            if (res.status === 403) {
+                ElMessage.error(t("dsh.users.notAdmin"))
+                return
+            }
             if (!res.ok) {
-                if (res.status === 401 || res.status === 403) {
-                    ElMessage.error(t("dsh.users.notAdmin"))
-                    return
-                }
                 throw new Error(await res.text())
             }
             users.value = await res.json()
         } catch (e) {
+            if (e instanceof SessionExpiredError) return
             ElMessage.error(t("dsh.users.loadFailed", {message: String(e)}))
         } finally {
             loading.value = false
@@ -456,9 +465,10 @@
     .user-table {
         width: 100%;
         cursor: pointer;
-        /* KsTable wrapper manages overflow internally (hidden); make it a real scroll
-           container so narrow viewports can scroll the overflow instead of clipping. */
-        :deep(.kel-table--scrollable-x) {
+        /* KsTable root defaults to overflow-x:hidden; in fit mode the scrollable-x
+           class is absent, so narrow viewports would clip the right columns. Make the
+           root a real horizontal scroll container. */
+        :deep(.kel-table) {
             overflow-x: auto !important;
         }
     }
