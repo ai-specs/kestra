@@ -1,7 +1,9 @@
 package io.kestra.oidc;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import io.micronaut.context.annotation.ConfigurationProperties;
 
@@ -43,6 +45,31 @@ public class OidcConfiguration {
         "http://127.0.0.1:13010",
         "http://localhost:5173"
     );
+    /**
+     * Per-client override of the roles placed in a {@code client_credentials} access token,
+     * keyed by {@code client_id}. The directory role of a machine identity stays
+     * {@code authenticated} (identity-only — a machine is NOT an administrator in this IdP's
+     * directory); this mapping exists only for consumers whose contract requires specific
+     * claim values in the token they receive:
+     * <ul>
+     *   <li>{@code nacos} — the Nacos OIDC plugin ({@code nacos-oidc-auth-plugin}) has no
+     *       "authenticated is enough" path: it derives Nacos admin exclusively from the token's
+     *       roles claim against {@code OIDC_ADMIN_ROLE=admin} (docker-compose). So the nacos
+     *       machine token carries {@code ["authenticated","admin"]}. This does NOT grant kestra
+     *       admin — the directory row is still {@code authenticated} and only {@code admin}
+     *       semantics in kestra (DshIdentity.isAdmin / requireAdmin) consume the claim; the
+     *       "admin" here is the string Nacos's plugin matches, and nacos never calls kestra's
+     *       management API.</li>
+     * </ul>
+     * The kestra-admin string is deliberately NOT shipped to any other client: {@code dsh}
+     * derives its full observation-centre access from being a service identity
+     * ({@code isService}, sub == client_id), and {@code kestra-self} is authorization-code
+     * only. Kept as a plain map so a future client with a real contract can be added without
+     * code changes.
+     */
+    private Map<String, List<String>> clientTokenRolesOverride = new LinkedHashMap<>(Map.of(
+        "nacos", List.of("authenticated", "admin")
+    ));
 
     public boolean isEnabled() {
         return enabled;
@@ -159,6 +186,15 @@ public class OidcConfiguration {
 
     public void setCorsAllowedOrigins(List<String> corsAllowedOrigins) {
         this.corsAllowedOrigins = corsAllowedOrigins == null ? List.of() : corsAllowedOrigins;
+    }
+
+    public Map<String, List<String>> getClientTokenRolesOverride() {
+        return clientTokenRolesOverride;
+    }
+
+    public void setClientTokenRolesOverride(Map<String, List<String>> clientTokenRolesOverride) {
+        this.clientTokenRolesOverride = clientTokenRolesOverride == null
+            ? new LinkedHashMap<>() : clientTokenRolesOverride;
     }
 
     /**

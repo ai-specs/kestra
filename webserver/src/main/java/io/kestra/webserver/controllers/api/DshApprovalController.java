@@ -76,7 +76,9 @@ public class DshApprovalController {
     ) throws Exception {
         DshIdentity.Principal caller = DshIdentity.of(request);
         if (caller == null) return HttpResponse.unauthorized();
-        boolean scoped = !caller.isAdmin();
+        // Admin and service identities (machine client_credentials, e.g. dsh observation
+        // centre) see every ticket; human approvers are scoped to tickets they can approve.
+        boolean scoped = !(caller.isService() || caller.isAdmin());
         String sql = """
             SELECT id::text, session_id::text, type, payload::text, approvers, status, approver, comment, timeout_seconds, created_at, decided_at
             FROM dsh_approval WHERE status = ?
@@ -274,7 +276,7 @@ public class DshApprovalController {
         if (!isUuid(approvalId)) {
             return HttpResponse.badRequest().body(Map.of("error", "approvalId must be a valid UUID: " + approvalId));
         }
-        if (!caller.isAdmin()) {
+        if (!(caller.isService() || caller.isAdmin())) {
             try (Connection connection = open(); PreparedStatement ps = connection.prepareStatement(
                 "SELECT 1 FROM dsh_approval WHERE id = ?::uuid "
                     + "AND (approvers IS NULL OR cardinality(approvers) = 0 OR ? = ANY(approvers))")) {

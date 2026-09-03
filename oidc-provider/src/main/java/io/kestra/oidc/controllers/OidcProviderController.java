@@ -308,16 +308,21 @@ public class OidcProviderController {
             throw new OidcException(OAuth2Error.INVALID_SCOPE);
         }
 
-        // Service principal: subject = client id; roles are persisted on the machine identity
-        // (oidc_user, type=machine) so that downstream systems (e.g. Nacos) can map the service
-        // token to an admin principal. An INACTIVE machine identity is refused.
+        // Service principal: subject = client id. The directory role of a machine identity is
+        // identity-only ("authenticated"); a consumer whose contract requires specific claim
+        // values in its token (e.g. Nacos' OIDC plugin deriving its admin from the roles claim)
+        // is served via the per-client token-roles override — the directory row stays
+        // "authenticated" so the IdP never lists a machine as an administrator. An INACTIVE
+        // machine identity is refused.
         if (!userService.isActive(client.clientId().getValue())) {
             throw new OidcException(OAuth2Error.UNAUTHORIZED_CLIENT.appendDescription(
                 ": service account is inactive or missing from the user directory"));
         }
         OidcUserService.OidcUser user = userService.bySubject(client.clientId().getValue());
+        List<String> tokenRoles = configuration.getClientTokenRolesOverride()
+            .getOrDefault(client.clientId().getValue(), user.roles());
         BearerAccessToken accessToken = tokenService.issueAccessToken(
-            client.clientId(), user.sub(), user.name(), user.email(), user.roles(), scope);
+            client.clientId(), user.sub(), user.name(), user.email(), tokenRoles, scope);
 
         AccessTokenResponse response = new AccessTokenResponse(
             new com.nimbusds.oauth2.sdk.token.Tokens(accessToken, null));
@@ -346,13 +351,15 @@ public class OidcProviderController {
         Scope scope = new Scope(scopes.toArray(new String[0]));
 
         OidcUserService.OidcUser user = userService.bySubject(stored.subject());
+        List<String> tokenRoles = configuration.getClientTokenRolesOverride()
+            .getOrDefault(client.clientId().getValue(), user.roles());
         BearerAccessToken accessToken = tokenService.issueAccessToken(
-            client.clientId(), user.sub(), user.name(), user.email(), user.roles(), scope);
+            client.clientId(), user.sub(), user.name(), user.email(), tokenRoles, scope);
         RefreshToken refreshToken = tokenService.issueRefreshToken(client.clientId(), user.sub(), scope);
 
         if (scope.contains("openid")) {
             SignedJWT idToken = tokenService.issueIdToken(
-                client.clientId(), user.sub(), user.name(), user.email(), user.roles(), null);
+                client.clientId(), user.sub(), user.name(), user.email(), tokenRoles, null);
             OIDCTokenResponse response = new OIDCTokenResponse(new OIDCTokens(idToken, accessToken, refreshToken));
             return HttpResponse.ok(toMap(response.toJSONObject()));
         }

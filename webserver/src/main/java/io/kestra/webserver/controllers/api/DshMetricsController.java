@@ -119,7 +119,8 @@ public class DshMetricsController {
     ) throws Exception {
         DshIdentity.Principal caller = DshIdentity.of(request);
         // 非管理员用户令牌只看自己的数据（跨用户隔离）；admin / 服务身份可聚合全局（观察中心）
-        String ownerFilter = caller != null && !caller.isAdmin() ? caller.sub() : (userId == null || userId.isBlank() ? null : userId);
+        String ownerFilter = caller != null && !(caller.isService() || caller.isAdmin())
+            ? caller.sub() : (userId == null || userId.isBlank() ? null : userId);
         StringBuilder sql = new StringBuilder(
             "SELECT count(*), coalesce(avg(task_completion_rate), 0), coalesce(avg(tool_error_rate), 0), "
                 + "coalesce(percentile_disc(0.99) WITHIN GROUP (ORDER BY p99_latency_ms), 0), coalesce(max(p99_latency_ms), 0), coalesce(sum(token_usage), 0) "
@@ -170,7 +171,7 @@ public class DshMetricsController {
         @Parameter(description = "Aggregation window in hours; 0 = all") @QueryValue(defaultValue = "24") int sinceHours
     ) throws Exception {
         DshIdentity.Principal caller = DshIdentity.of(request);
-        String ownerFilter = caller != null && !caller.isAdmin() ? caller.sub() : null;
+        String ownerFilter = caller != null && !(caller.isService() || caller.isAdmin()) ? caller.sub() : null;
         String sql = """
             SELECT date_trunc('hour', created_at) AS bucket,
                    count(*) AS measurements,
