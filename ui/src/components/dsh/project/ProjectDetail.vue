@@ -89,11 +89,16 @@
                             </template>
                         </KsTableColumn>
                         <KsTableColumn prop="memberCount" :label="t('dsh.project.memberCount')" width="100" align="center" />
-                        <KsTableColumn :label="t('actions')" width="150">
+                        <KsTableColumn :label="t('actions')" width="180">
                             <template #default="{row}">
-                                <KsButton size="small" type="primary" link @click="selectRole(row.roleName)">
-                                    {{ t("dsh.project.viewMembers") }}
-                                </KsButton>
+                                <div class="role-actions">
+                                    <KsButton size="small" type="primary" link @click="selectRole(row.roleName)">
+                                        {{ t("dsh.project.viewMembers") }}
+                                    </KsButton>
+                                    <KsButton size="small" type="success" link :icon="AccountPlus" @click="addMemberToRole(row.roleName)">
+                                        {{ t("dsh.project.addMember") }}
+                                    </KsButton>
+                                </div>
                             </template>
                         </KsTableColumn>
                     </KsTable>
@@ -192,6 +197,7 @@
     import useRouteContext from "../../../composables/useRouteContext"
     import {getCsrfToken} from "../../../utils/csrf"
     import {SessionExpiredError, sessionExpired} from "../../../utils/dshSession"
+    import AccountPlus from "vue-material-design-icons/AccountPlus.vue"
 
     interface UserRow {
         username: string;
@@ -255,6 +261,16 @@
 
     function selectRole(roleName: string) {
         selectedRole.value = roleName
+    }
+
+    // 直接从角色表格的"添加用户"按钮进入：展开成员管理区域
+    function addMemberToRole(roleName: string) {
+        selectedRole.value = roleName
+        // 延迟聚焦到添加用户的下拉框
+        setTimeout(() => {
+            const select = document.querySelector(".member-add-select .el-select__input") as HTMLInputElement
+            if (select) select.focus()
+        }, 100)
     }
 
     function isPublic(client: ClientRow) {
@@ -544,6 +560,12 @@
         :deep(.kel-table) {
             overflow-x: auto !important;
         }
+    }
+
+    .role-actions {
+        display: flex;
+        gap: var(--ks-spacing-2);
+        align-items: center;
     }
 
     .role-members-section {

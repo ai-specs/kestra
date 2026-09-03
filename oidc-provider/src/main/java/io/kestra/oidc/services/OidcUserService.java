@@ -442,6 +442,18 @@ public class OidcUserService {
         String hash = request.password() == null || request.password().isBlank()
             ? null : BCrypt.hashpw(request.password(), BCrypt.gensalt(10));
 
+        // Machine identities are OIDC clients (Applications), not pseudo-users.
+        // They live in oidc_client with their own roles, and use client_credentials grant.
+        // No oidc_user / oidc_user_machine / oidc_role_assignment rows are created (2.0.36).
+        if (TYPE_MACHINE.equals(type)) {
+            String secret = request.secret() == null || request.secret().isBlank()
+                ? generateSecret() : request.secret().trim();
+            clientService.create(username, secret, List.of(), List.of("client_credentials"),
+                List.of("openid", "profile", "email"), "dsh", roles);
+            return new UserRow(username, name, email, userState, roles, type,
+                Instant.now(), null);
+        }
+
         final String insertUser = """
             INSERT INTO oidc_user (username, name, email, user_state, roles, type)
             VALUES (?, ?, ?, ?, '[]'::jsonb, ?)""";
@@ -492,11 +504,6 @@ public class OidcUserService {
             log.warn("oidc_user create failed for '{}': {}", username, e.getMessage());
             throw new IllegalStateException("failed to create user '" + username + "': " + e.getMessage(), e);
         }
-        if (TYPE_MACHINE.equals(type)) {
-            String secret = request.secret() == null || request.secret().isBlank()
-                ? generateSecret() : request.secret().trim();
-            clientService.create(username, secret, List.of(), List.of("client_credentials"), List.of("openid", "profile", "email"), "dsh");
-        }
         return findUserRow(username).orElseThrow();
     }
 
@@ -506,6 +513,20 @@ public class OidcUserService {
             throw new IllegalArgumentException("username and request are required");
         }
         ensureDirectory();
+        // 2.0.36: machine identities are OIDC clients — only active state is meaningful.
+        if (isMachineIdentity(username)) {
+            if (request.userState() != null && !request.userState().isBlank()) {
+                boolean active = "ACTIVE".equalsIgnoreCase(request.userState().trim());
+                clientService.updateActive(username, active);
+            }
+            // Return a constructed UserRow (no oidc_user row exists for machine identities)
+            OidcClientService.OidcClient client = clientService.find(username)
+                .orElseThrow(() -> new IllegalArgumentException("client '" + username + "' does not exist"));
+            return new UserRow(username, username, username + "@machine.local",
+                client.active() ? "ACTIVE" : "INACTIVE",
+                client.roles() != null ? client.roles() : List.of(),
+                TYPE_MACHINE, Instant.now(), null);
+        }
         if (!tableAvailable()) {
             throw new IllegalStateException("user directory tables are unavailable");
         }
@@ -553,15 +574,21 @@ public class OidcUserService {
             throw new IllegalStateException("user directory tables are unavailable");
         }
         boolean isMachine = isMachineIdentity(username);
+        // 2.0.36: machine identities are OIDC clients — delete from oidc_client directly.
+        if (isMachine) {
+            try {
+                clientService.delete(username);
+                return true;
+            } catch (Exception e) {
+                log.warn("oidc_client delete failed for machine identity '{}': {}", username, e.getMessage());
+                return false;
+            }
+        }
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(
                  "DELETE FROM oidc_user WHERE username = ?")) {
             ps.setString(1, username);
-            boolean deleted = ps.executeUpdate() > 0;
-            if (deleted && isMachine) {
-                clientService.delete(username);
-            }
-            return deleted;
+            return ps.executeUpdate() > 0;
         } catch (Exception e) {
             log.warn("oidc_user delete failed for '{}': {}", username, e.getMessage());
             throw new IllegalStateException("failed to delete user '" + username + "': " + e.getMessage(), e);
@@ -706,17 +733,22 @@ public class OidcUserService {
         if (!tableAvailable()) {
             return false;
         }
-        final String sql = "SELECT type FROM oidc_user WHERE username = ?";
+        // 2.0.36: machine identities are OIDC clients (Applications), not oidc_user rows.
+        // Check oidc_user first (legacy), then oidc_client.
+        final String userSql = "SELECT type FROM oidc_user WHERE username = ?";
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement ps = connection.prepareStatement(sql)) {
+             PreparedStatement ps = connection.prepareStatement(userSql)) {
             ps.setString(1, username);
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() && TYPE_MACHINE.equals(rs.getString("type"));
+                if (rs.next()) {
+                    return TYPE_MACHINE.equals(rs.getString("type"));
+                }
             }
         } catch (SQLException e) {
             log.warn("oidc_user type lookup failed for '{}': {}", username, e.getMessage());
-            return false;
         }
+        // Fall through: check oidc_client (machine identity = OIDC client)
+        return clientService.find(username).isPresent();
     }
 
     /** Whether the directory row exists and is ACTIVE. Used to gate client_credentials. */

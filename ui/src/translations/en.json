@@ -2584,7 +2584,8 @@
         "role": "Role",
         "noMembers": "No members",
         "noApplications": "No applications",
-        "viewMembers": "View members"
+        "viewMembers": "View members",
+        "addMember": "Add user"
       }
     }
   }

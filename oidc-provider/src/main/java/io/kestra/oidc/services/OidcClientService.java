@@ -39,7 +39,9 @@ public class OidcClientService {
         List<String> redirectUris,
         List<String> grantTypes,
         List<String> scopes,
-        String projectId
+        String projectId,
+        List<String> roles,
+        boolean active
     ) {}
 
     /** Client view for API responses — {@code clientId} is a plain String (not a Nimbus ClientID object). */
@@ -49,7 +51,9 @@ public class OidcClientService {
         List<String> redirectUris,
         List<String> grantTypes,
         List<String> scopes,
-        String projectId
+        String projectId,
+        List<String> roles,
+        boolean active
     ) {}
 
     private final DataSource dataSource;
@@ -65,7 +69,7 @@ public class OidcClientService {
     /** Finds a client by id. */
     public Optional<OidcClient> find(String clientId) {
         final String sql = """
-            SELECT client_id, client_secret, redirect_uris, grant_types, scopes, project_id
+            SELECT client_id, client_secret, redirect_uris, grant_types, scopes, project_id, roles, active
             FROM oidc_client WHERE client_id = ?""";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -89,7 +93,7 @@ public class OidcClientService {
     /** Lists all clients (for the project Applications view). Does not return client secrets. */
     public List<ClientView> list() {
         final String sql = """
-            SELECT client_id, client_secret, redirect_uris, grant_types, scopes, project_id
+            SELECT client_id, client_secret, redirect_uris, grant_types, scopes, project_id, roles, active
             FROM oidc_client ORDER BY client_id""";
         List<ClientView> clients = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
@@ -103,7 +107,9 @@ public class OidcClientService {
                     c.redirectUris(),
                     c.grantTypes(),
                     c.scopes(),
-                    c.projectId()
+                    c.projectId(),
+                    c.roles(),
+                    c.active()
                 ));
             }
         } catch (SQLException e) {
@@ -169,11 +175,12 @@ public class OidcClientService {
         List<String> redirectUris,
         List<String> grantTypes,
         List<String> scopes,
-        String projectId
+        String projectId,
+        List<String> roles
     ) {
         final String sql = """
-            INSERT INTO oidc_client (client_id, client_secret, redirect_uris, grant_types, scopes, project_id)
-            VALUES (?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?)""";
+            INSERT INTO oidc_client (client_id, client_secret, redirect_uris, grant_types, scopes, project_id, roles, active)
+            VALUES (?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, true)""";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, clientId);
@@ -185,6 +192,8 @@ public class OidcClientService {
             ps.setString(5, objectMapper.writeValueAsString(
                 scopes == null ? List.of("openid", "profile", "email") : scopes));
             ps.setString(6, projectId == null ? "dsh" : projectId);
+            ps.setString(7, objectMapper.writeValueAsString(
+                roles == null ? List.of() : roles));
             ps.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("failed to create OIDC client '" + clientId + "': " + e.getMessage(), e);
@@ -205,6 +214,23 @@ public class OidcClientService {
             throw e;
         } catch (Exception e) {
             throw new IllegalStateException("failed to update secret for client '" + clientId + "': " + e.getMessage(), e);
+        }
+    }
+
+    /** Updates the active state of an existing client (machine identity enable/disable). */
+    public void updateActive(String clientId, boolean active) {
+        final String sql = "UPDATE oidc_client SET active = ? WHERE client_id = ?";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setBoolean(1, active);
+            ps.setString(2, clientId);
+            if (ps.executeUpdate() == 0) {
+                throw new IllegalArgumentException("client '" + clientId + "' does not exist");
+            }
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to update active state for client '" + clientId + "': " + e.getMessage(), e);
         }
     }
 
@@ -242,7 +268,9 @@ public class OidcClientService {
             jsonList(rs.getString("redirect_uris")),
             jsonList(rs.getString("grant_types")),
             jsonList(rs.getString("scopes")),
-            rs.getString("project_id")
+            rs.getString("project_id"),
+            jsonList(rs.getString("roles")),
+            rs.getBoolean("active")
         );
     }
 

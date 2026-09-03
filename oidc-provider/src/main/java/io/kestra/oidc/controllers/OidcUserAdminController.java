@@ -64,7 +64,8 @@ public class OidcUserAdminController {
     // ------------------------------------------------------------------ list / create
 
     /** Lists users, newest first. {@code search} filters on username/name/email;
-     *  {@code type} filters on identity type ({@code human} / {@code machine}, empty = all). */
+     *  {@code type} filters on identity type ({@code human} / {@code machine}, empty = human only).
+     *  Machine identities are OIDC clients (Applications), not users — they are listed via /clients. */
     @Get
     public HttpResponse<?> list(
         HttpRequest<?> request,
@@ -74,7 +75,9 @@ public class OidcUserAdminController {
         @QueryValue(defaultValue = "100") int size
     ) {
         requireAdmin(request);
-        return HttpResponse.ok(userService.listUsers(search, type, offset, size));
+        // Default to human users only; machine identities live in oidc_client (2.0.36).
+        String effectiveType = type == null || type.isBlank() ? "human" : type.trim().toLowerCase();
+        return HttpResponse.ok(userService.listUsers(search, effectiveType, offset, size));
     }
 
     /** Lists all OIDC clients (Applications in the dsh project). Does not return secrets. */

@@ -308,19 +308,19 @@ public class OidcProviderController {
             throw new OidcException(OAuth2Error.INVALID_SCOPE);
         }
 
-        // Service principal: subject = client id. Roles are project-scoped (ZITADEL-aligned):
-        // a machine identity's directory row is identity-only ("authenticated"), but it can be
-        // bound to additional roles within a project via oidc_role_assignment — e.g. the nacos
-        // machine identity is bound to the "admin" role in the dsh project so its token carries
-        // "admin" for Nacos' OIDC plugin to recognise as global admin. The project is determined
-        // by the requesting client's project_id. An INACTIVE machine identity is refused.
-        if (!userService.isActive(client.clientId().getValue())) {
+        // Service principal: subject = client id. Roles are configured on the client
+        // itself (oidc_client.roles) — machine identities are OIDC clients (Applications),
+        // not pseudo-users in the user directory. This replaces the old machine-identity
+        // user hack (2.0.36). The project is determined by the requesting client's
+        // project_id, and the client's roles are scoped to that project.
+        // An INACTIVE client is refused.
+        if (!client.active()) {
             throw new OidcException(OAuth2Error.UNAUTHORIZED_CLIENT.appendDescription(
-                ": service account is inactive or missing from the user directory"));
+                ": service account is inactive"));
         }
-        OidcUserService.OidcUser user = userService.bySubject(client.clientId().getValue(), client.projectId());
+        List<String> roles = client.roles() != null ? client.roles() : List.of();
         BearerAccessToken accessToken = tokenService.issueAccessToken(
-            client.clientId(), user.sub(), user.name(), user.email(), user.roles(), scope);
+            client.clientId(), client.clientId().getValue(), client.clientId().getValue(), null, roles, scope);
 
         AccessTokenResponse response = new AccessTokenResponse(
             new com.nimbusds.oauth2.sdk.token.Tokens(accessToken, null));
