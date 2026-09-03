@@ -76,9 +76,9 @@ public class DshApprovalController {
     ) throws Exception {
         DshIdentity.Principal caller = DshIdentity.of(request);
         if (caller == null) return HttpResponse.unauthorized();
-        // Admin and service identities (machine client_credentials, e.g. dsh observation
-        // centre) see every ticket; human approvers are scoped to tickets they can approve.
-        boolean scoped = !(caller.isService() || caller.isAdmin());
+        // Service identities (machine client_credentials, e.g. dsh observation centre) see
+        // every ticket; human callers (including admin) are scoped to tickets they can approve.
+        boolean scoped = !caller.isService();
         String sql = """
             SELECT id::text, session_id::text, type, payload::text, approvers, status, approver, comment, timeout_seconds, created_at, decided_at
             FROM dsh_approval WHERE status = ?
@@ -136,8 +136,8 @@ public class DshApprovalController {
     /**
      * Decide a ticket (approve/reject) as a human approver via dsh-ui, or programmatically as the
      * Worker plugin (DshApproval DECIDE). The approver identity is the authenticated caller (OIDC
-     * sub) unless the caller holds the admin role or a service identity, in which case the
-     * {@code approver} query parameter is honored (Flow-driven audit field). An expired PENDING
+     * sub) unless the caller is a service identity, in which case the {@code approver} query
+     * parameter is honored (Flow-driven audit field). An expired PENDING
      * ticket is auto-rejected (matches the pre-refactor DshStore semantics). An approved decision
      * resumes the owning session (pending_approval → running); expired or already-decided tickets
      * are rejected with 409/404 semantics.
@@ -149,7 +149,7 @@ public class DshApprovalController {
         @Parameter(description = "Ticket id") String approvalId,
         @Parameter(description = "true = approve, false = reject") @QueryValue(defaultValue = "true") boolean approved,
         @Parameter(description = "Decision comment") @QueryValue(defaultValue = "") String comment,
-        @Parameter(description = "Approver identity recorded on the ticket (service/admin tokens may set it)") @QueryValue(defaultValue = "") String approver
+        @Parameter(description = "Approver identity recorded on the ticket (service tokens may set it)") @QueryValue(defaultValue = "") String approver
     ) throws Exception {
         DshIdentity.Principal caller = DshIdentity.of(request);
         if (caller == null) return HttpResponse.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "authentication required"));
@@ -167,8 +167,8 @@ public class DshApprovalController {
         if (!isUuid(approvalId)) {
             return HttpResponse.badRequest().body(Map.of("error", "approvalId must be a valid UUID: " + approvalId));
         }
-        // 服务身份 / admin 可携带决策人（Flow 的 approver 字段）；普通审批人恒为调用者 sub
-        boolean privileged = caller.isService() || caller.isAdmin();
+        // 服务身份可携带决策人（Flow 的 approver 字段）；人类审批人（含 admin）恒为调用者 sub
+        boolean privileged = caller.isService();
         String approver = privileged && requestedApprover != null && !requestedApprover.isBlank()
             ? requestedApprover : caller.sub();
         String payload = null;
@@ -264,7 +264,7 @@ public class DshApprovalController {
 
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DshApprovalController.class);
 
-    /** Read one ticket (admin, or an approver addressed on it, or unaddressed tickets). */
+    /** Read one ticket (service identity, or an approver addressed on it, or unaddressed tickets). */
     @Get("/{approvalId}")
     @Operation(summary = "Read one dsh approval ticket (approver-scoped)")
     public HttpResponse<?> read(
@@ -276,7 +276,7 @@ public class DshApprovalController {
         if (!isUuid(approvalId)) {
             return HttpResponse.badRequest().body(Map.of("error", "approvalId must be a valid UUID: " + approvalId));
         }
-        if (!(caller.isService() || caller.isAdmin())) {
+        if (!caller.isService()) {
             try (Connection connection = open(); PreparedStatement ps = connection.prepareStatement(
                 "SELECT 1 FROM dsh_approval WHERE id = ?::uuid "
                     + "AND (approvers IS NULL OR cardinality(approvers) = 0 OR ? = ANY(approvers))")) {

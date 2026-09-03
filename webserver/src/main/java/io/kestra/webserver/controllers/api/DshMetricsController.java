@@ -115,11 +115,11 @@ public class DshMetricsController {
     public Map<String, Object> summary(
         HttpRequest<?> request,
         @Parameter(description = "Aggregation window in hours; 0 = all") @QueryValue(defaultValue = "0") int sinceHours,
-        @Parameter(description = "Filter by owning user id (admin/service tokens only)") @QueryValue(defaultValue = "") String userId
+        @Parameter(description = "Filter by owning user id (service tokens only)") @QueryValue(defaultValue = "") String userId
     ) throws Exception {
         DshIdentity.Principal caller = DshIdentity.of(request);
-        // 非管理员用户令牌只看自己的数据（跨用户隔离）；admin / 服务身份可聚合全局（观察中心）
-        String ownerFilter = caller != null && !(caller.isService() || caller.isAdmin())
+        // 人类用户（含 admin）只看自己的数据（跨用户严格隔离）；服务身份可聚合全局或按 userId（观察中心 Worker）
+        String ownerFilter = caller != null && !caller.isService()
             ? caller.sub() : (userId == null || userId.isBlank() ? null : userId);
         StringBuilder sql = new StringBuilder(
             "SELECT count(*), coalesce(avg(task_completion_rate), 0), coalesce(avg(tool_error_rate), 0), "
@@ -171,7 +171,7 @@ public class DshMetricsController {
         @Parameter(description = "Aggregation window in hours; 0 = all") @QueryValue(defaultValue = "24") int sinceHours
     ) throws Exception {
         DshIdentity.Principal caller = DshIdentity.of(request);
-        String ownerFilter = caller != null && !(caller.isService() || caller.isAdmin()) ? caller.sub() : null;
+        String ownerFilter = caller != null && !caller.isService() ? caller.sub() : null;
         String sql = """
             SELECT date_trunc('hour', created_at) AS bucket,
                    count(*) AS measurements,

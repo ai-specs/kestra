@@ -93,11 +93,11 @@ public class DshSessionController {
     /**
      * Upsert a dsh session snapshot pushed by dsh (PC) or written by the Worker plugin
      * (DshSession / AIAgent tasks). The record's owner is the authenticated caller (OIDC sub) —
-     * the payload cannot choose it — EXCEPT for privileged callers: a service identity or an
-     * admin may create/update a session on behalf of an arbitrary user (the Worker plugin runs
-     * as the {@code dsh} service identity and writes sessions owned by the Flow-supplied userId,
+     * the payload cannot choose it — EXCEPT for service identities: a service identity may
+     * create/update a session on behalf of an arbitrary user (the Worker plugin runs as the
+     * {@code dsh} service identity and writes sessions owned by the Flow-supplied userId,
      * preserving the pre-refactor DshStore semantics). An existing record owned by someone else
-     * is rejected with 403 for non-privileged callers.
+     * is rejected with 403 for non-service callers.
      *
      * @param sessionId the dsh session id
      * @param snapshot phase / state / metadata / userId payload
@@ -118,7 +118,7 @@ public class DshSessionController {
         if (!PHASES.contains(phase)) {
             throw new IllegalArgumentException("unknown phase: " + phase);
         }
-        boolean privileged = caller.isService() || caller.isAdmin();
+        boolean privileged = caller.isService();
         // The owner a session is bound to: the privileged caller may bind it to the payload's
         // userId (Worker plugin on behalf of a Flow user); everyone else is bound to their own sub.
         String owner = privileged && snapshot.userId() != null && !snapshot.userId().isBlank()
@@ -175,7 +175,7 @@ public class DshSessionController {
         return HttpResponse.ok(readOwned(request, sessionId));
     }
 
-    /** Read the current session snapshot — only the owner (or an admin) may read it. */
+    /** Read the current session snapshot — only the owner (or a service identity) may read it. */
     @Get("/{sessionId}")
     @Operation(summary = "Read a dsh session snapshot (owner-scoped)")
     public HttpResponse<Map<String, Object>> readRoute(
@@ -193,24 +193,24 @@ public class DshSessionController {
 
     /**
      * List dsh sessions, newest first (dsh-ui session browser + Worker DshSession LIST /
-     * DshSessionTrigger poll). Cross-user isolation: a normal user only ever sees their own
-     * sessions (WHERE clause is the authenticated sub, not a query parameter). A service
-     * identity or an admin may filter by any {@code userId} (and recency) — the Worker plugin
-     * lists on behalf of a Flow-supplied user id, preserving the pre-refactor DshStore
-     * {@code listSessions} semantics.
+     * DshSessionTrigger poll). Cross-user isolation: every human caller (including admin) only
+     * ever sees their own sessions (WHERE clause is the authenticated sub, not a query
+     * parameter). A service identity may filter by any {@code userId} (and recency) — the
+     * Worker plugin lists on behalf of a Flow-supplied user id, preserving the pre-refactor
+     * DshStore {@code listSessions} semantics.
      */
     @Get
-    @Operation(summary = "List dsh sessions (normal users: owner-scoped; service/admin: optional userId/sinceHours filters)")
+    @Operation(summary = "List dsh sessions (human callers: owner-scoped; service: optional userId/sinceHours filters)")
     public HttpResponse<List<Map<String, Object>>> list(
         HttpRequest<?> request,
         @Parameter(description = "Filter by phase") @QueryValue(defaultValue = "") String phase,
         @Parameter(description = "Max rows") @QueryValue(defaultValue = "50") int limit,
-        @Parameter(description = "Filter by user id (service/admin tokens only)") @QueryValue(defaultValue = "") String userId,
-        @Parameter(description = "Only sessions updated within the last N hours (service/admin; 0 = all)") @QueryValue(defaultValue = "0") int sinceHours
+        @Parameter(description = "Filter by user id (service tokens only)") @QueryValue(defaultValue = "") String userId,
+        @Parameter(description = "Only sessions updated within the last N hours (service; 0 = all)") @QueryValue(defaultValue = "0") int sinceHours
     ) throws Exception {
         DshIdentity.Principal caller = DshIdentity.of(request);
         if (caller == null) return HttpResponse.unauthorized();
-        boolean privileged = caller.isService() || caller.isAdmin();
+        boolean privileged = caller.isService();
         StringBuilder sql = new StringBuilder(
             "SELECT id::text, user_id, phase, state::text, metadata::text, created_at, updated_at, owner, pending_input, input_at "
                 + "FROM dsh_session WHERE ");
@@ -324,7 +324,7 @@ public class DshSessionController {
     /**
      * Replace the session state snapshot WITHOUT a phase transition (Worker DshStore.updateState /
      * AIAgent trace timeline). The phase state machine does not apply here — only state is
-     * rewritten. Owner check mirrors the read path (service/admin may write any session).
+     * rewritten. Owner check mirrors the read path (service identities may write any session).
      */
     @Post("/{sessionId}/state")
     @Operation(summary = "Replace the session state snapshot without touching the phase")
@@ -345,7 +345,7 @@ public class DshSessionController {
         if (state == null) {
             return HttpResponse.badRequest(Map.of("error", "state is required"));
         }
-        boolean privileged = caller.isService() || caller.isAdmin();
+        boolean privileged = caller.isService();
         try (Connection connection = open(); PreparedStatement ps = connection.prepareStatement(
             "UPDATE dsh_session SET state = ?::jsonb, updated_at = now() "
                 + "WHERE id = ?::uuid AND (owner = ? OR ?)")) {
@@ -362,7 +362,7 @@ public class DshSessionController {
         return HttpResponse.ok(readOwned(request, sessionId));
     }
 
-    /** Shared read with ownership enforcement (admin may read any session). */
+    /** Shared read with ownership enforcement (service identity may read any session). */
     private Map<String, Object> readOwned(HttpRequest<?> request, String sessionId) throws Exception {
         DshIdentity.Principal caller = DshIdentity.of(request);
         try (Connection connection = open(); PreparedStatement ps = connection.prepareStatement(
@@ -373,7 +373,7 @@ public class DshSessionController {
                 if (!rs.next()) throw new IllegalArgumentException("dsh session not found: " + sessionId);
                 Map<String, Object> row = row(rs);
                 String owner = (String) row.get("owner");
-                if (caller != null && owner != null && !owner.equals(caller.sub()) && !caller.isAdmin()) {
+                if (caller != null && owner != null && !owner.equals(caller.sub()) && !caller.isService()) {
                     throw new OwnershipException(sessionId);
                 }
                 return row;
