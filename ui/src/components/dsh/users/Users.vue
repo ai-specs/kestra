@@ -21,6 +21,11 @@
                 data-test="user-search"
                 @keyup.enter="load()"
             />
+            <KsSelect v-model="typeFilter" class="user-type-filter" data-test="user-type-filter" @change="load()">
+                <KsOption :label="t('dsh.users.allTypes')" value="" />
+                <KsOption :label="t('dsh.users.human')" value="human" />
+                <KsOption :label="t('dsh.users.machine')" value="machine" />
+            </KsSelect>
             <KsButton :icon="Magnify" type="default" @click="load()">{{ t("search") }}</KsButton>
         </div>
 
@@ -34,6 +39,13 @@
             <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="180">
                 <template #default="{row}">
                     <b>{{ row.username }}</b>
+                </template>
+            </KsTableColumn>
+            <KsTableColumn :label="t('dsh.users.type')" width="110">
+                <template #default="{row}">
+                    <KsTag :type="row.type === 'machine' ? 'warning' : 'success'" size="small" effect="light">
+                        {{ row.type === 'machine' ? t('dsh.users.machine') : t('dsh.users.human') }}
+                    </KsTag>
                 </template>
             </KsTableColumn>
             <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="140" />
@@ -65,13 +77,21 @@
                     <span v-else>—</span>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('actions')" width="220" fixed="right">
+            <KsTableColumn :label="t('actions')" width="230" fixed="right">
                 <template #default="{row}">
                     <KsButton size="small" type="default" @click.stop="openEdit(row)">
                         {{ t("edit") }}
                     </KsButton>
-                    <KsButton size="small" type="default" @click.stop="openResetPassword(row)">
+                    <KsButton
+                        v-if="row.type !== 'machine'"
+                        size="small"
+                        type="default"
+                        @click.stop="openResetPassword(row)"
+                    >
                         {{ t("dsh.users.resetPassword") }}
+                    </KsButton>
+                    <KsButton v-else size="small" type="default" @click.stop="openResetPassword(row)">
+                        {{ t("dsh.users.rotateSecret") }}
                     </KsButton>
                     <KsButton size="small" type="danger" data-test="user-delete" @click.stop="confirmRemove(row)">
                         {{ t("delete") }}
@@ -88,17 +108,30 @@
             data-test="user-dialog"
         >
             <KsForm label-position="top" class="user-form">
+                <KsFormItem v-if="!editing" :label="t('dsh.users.type')" required>
+                    <KsSelect v-model="form.type" class="user-type-select" data-test="user-form-type">
+                        <KsOption :label="t('dsh.users.human')" value="human" />
+                        <KsOption :label="t('dsh.users.machine')" value="machine" />
+                    </KsSelect>
+                </KsFormItem>
                 <KsFormItem v-if="!editing" :label="t('dsh.users.username')" required>
                     <KsInput v-model="form.username" data-test="user-form-username" />
                 </KsFormItem>
                 <KsFormItem :label="t('dsh.users.name')" required>
                     <KsInput v-model="form.name" data-test="user-form-name" />
                 </KsFormItem>
-                <KsFormItem :label="t('dsh.users.email')" required>
+                <KsFormItem v-if="form.type === 'human'" :label="t('dsh.users.email')" required>
                     <KsInput v-model="form.email" data-test="user-form-email" />
                 </KsFormItem>
-                <KsFormItem v-if="!editing" :label="t('dsh.users.password')">
+                <KsFormItem v-if="!editing && form.type === 'machine'" :label="t('dsh.users.description')">
+                    <KsInput v-model="form.description" data-test="user-form-description" />
+                </KsFormItem>
+                <KsFormItem v-if="!editing && form.type === 'human'" :label="t('dsh.users.password')">
                     <KsInput v-model="form.password" type="password" show-password data-test="user-form-password" />
+                </KsFormItem>
+                <KsFormItem v-if="!editing && form.type === 'machine'" :label="t('dsh.users.secret')">
+                    <KsInput v-model="form.secret" show-password data-test="user-form-secret"
+                        :placeholder="t('dsh.users.secretPlaceholder')" />
                 </KsFormItem>
                 <KsFormItem :label="t('dsh.users.roles')">
                     <KsSelect v-model="form.roles" multiple allow-create filterable class="user-roles-select">
@@ -120,10 +153,17 @@
             </template>
         </KsDialog>
 
-        <!-- reset password dialog -->
-        <KsDialog v-model="passwordDialogVisible" :title="t('dsh.users.resetPassword')" width="440">
+        <!-- reset password / rotate secret dialog -->
+        <KsDialog
+            v-model="passwordDialogVisible"
+            :title="passwordTarget && passwordTarget.type === 'machine' ? t('dsh.users.rotateSecret') : t('dsh.users.resetPassword')"
+            width="440"
+        >
             <KsForm label-position="top">
-                <KsFormItem :label="t('dsh.users.newPassword')" required>
+                <KsFormItem
+                    :label="passwordTarget && passwordTarget.type === 'machine' ? t('dsh.users.newSecret') : t('dsh.users.newPassword')"
+                    required
+                >
                     <KsInput v-model="newPassword" type="password" show-password data-test="password-input" />
                 </KsFormItem>
             </KsForm>
@@ -159,6 +199,7 @@
         email: string;
         userState: string;
         roles: string[];
+        type: string;
         createdAt: string;
         lastLoginAt: string;
     }
@@ -168,6 +209,7 @@
     const users = ref<UserRow[]>([])
     const loading = ref(false)
     const search = ref("")
+    const typeFilter = ref("")
     const availableRoles = ["admin", "user"]
 
     const dialogVisible = ref(false)
@@ -178,6 +220,9 @@
         name: "",
         email: "",
         password: "",
+        description: "",
+        secret: "",
+        type: "human",
         roles: ["user"] as string[],
         userState: "ACTIVE",
     })
@@ -208,6 +253,9 @@
             if (search.value.trim()) {
                 params.set("search", search.value.trim())
             }
+            if (typeFilter.value) {
+                params.set("type", typeFilter.value)
+            }
             params.set("size", "500")
             const res = await api(`/api/v1/oidc/users?${params.toString()}`)
             if (!res.ok) {
@@ -230,6 +278,9 @@
         form.name = ""
         form.email = ""
         form.password = ""
+        form.description = ""
+        form.secret = ""
+        form.type = "human"
         form.roles = ["user"]
         form.userState = "ACTIVE"
     }
@@ -246,6 +297,9 @@
         form.name = row.name
         form.email = row.email
         form.password = ""
+        form.description = ""
+        form.secret = ""
+        form.type = row.type || "human"
         form.roles = [...(row.roles || [])]
         form.userState = row.userState
         dialogVisible.value = true
@@ -257,7 +311,7 @@
                 method: "PUT",
                 body: JSON.stringify({
                     name: form.name,
-                    email: form.email,
+                    email: form.type === "human" ? form.email : undefined,
                     userState: form.userState,
                 }),
             })
@@ -271,6 +325,24 @@
                 body: JSON.stringify({roles: form.roles}),
             })
             ElMessage.success(t("dsh.users.saved"))
+        } else if (form.type === "machine") {
+            const res = await api("/api/v1/oidc/users", {
+                method: "POST",
+                body: JSON.stringify({
+                    username: form.username,
+                    name: form.name,
+                    description: form.description,
+                    secret: form.secret || undefined,
+                    type: "machine",
+                    roles: form.roles,
+                    userState: form.userState,
+                }),
+            })
+            if (!res.ok) {
+                ElMessage.error(await res.text())
+                return
+            }
+            ElMessage.success(t("dsh.users.created"))
         } else {
             const res = await api("/api/v1/oidc/users", {
                 method: "POST",
@@ -279,6 +351,7 @@
                     name: form.name,
                     email: form.email,
                     password: form.password || undefined,
+                    type: "human",
                     roles: form.roles,
                     userState: form.userState,
                 }),
@@ -301,18 +374,29 @@
 
     async function submitPassword() {
         if (!passwordTarget.value || !newPassword.value) {
-            ElMessage.error(t("dsh.users.passwordRequired"))
+            ElMessage.error(
+                passwordTarget.value?.type === "machine"
+                    ? t("dsh.users.secretRequired")
+                    : t("dsh.users.passwordRequired"),
+            )
             return
         }
-        const res = await api(`/api/v1/oidc/users/${encodeURIComponent(passwordTarget.value.username)}/password`, {
+        const target = passwordTarget.value
+        const endpoint = target.type === "machine"
+            ? `/api/v1/oidc/users/${encodeURIComponent(target.username)}/secret`
+            : `/api/v1/oidc/users/${encodeURIComponent(target.username)}/password`
+        const bodyKey = target.type === "machine" ? "secret" : "password"
+        const res = await api(endpoint, {
             method: "POST",
-            body: JSON.stringify({password: newPassword.value}),
+            body: JSON.stringify({[bodyKey]: newPassword.value}),
         })
         if (!res.ok) {
             ElMessage.error(await res.text())
             return
         }
-        ElMessage.success(t("dsh.users.passwordUpdated"))
+        ElMessage.success(
+            target.type === "machine" ? t("dsh.users.secretRotated") : t("dsh.users.passwordUpdated"),
+        )
         passwordDialogVisible.value = false
     }
 
@@ -362,6 +446,10 @@
 
     .user-search {
         max-width: 320px;
+    }
+
+    .user-type-filter {
+        width: 150px;
     }
 
     .user-table {

@@ -169,13 +169,28 @@ public class OidcClientService {
         }
     }
 
-    /** Removes a client record (used when deleting a machine identity). */
+    /** Removes a client record (used when deleting a machine identity). Dependent tokens and
+     *  authorization codes are removed first — they reference {@code oidc_client.client_id}
+     *  with a plain (non-cascading) foreign key. */
     public void delete(String clientId) {
-        final String sql = "DELETE FROM oidc_client WHERE client_id = ?";
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, clientId);
-            ps.executeUpdate();
+        final String deleteTokens = "DELETE FROM oidc_token WHERE client_id = ?";
+        final String deleteCodes = "DELETE FROM oidc_authorization_code WHERE client_id = ?";
+        final String deleteClient = "DELETE FROM oidc_client WHERE client_id = ?";
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement ps = connection.prepareStatement(deleteTokens)) {
+                ps.setString(1, clientId);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = connection.prepareStatement(deleteCodes)) {
+                ps.setString(1, clientId);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = connection.prepareStatement(deleteClient)) {
+                ps.setString(1, clientId);
+                ps.executeUpdate();
+            }
+            connection.commit();
         } catch (Exception e) {
             throw new IllegalStateException("failed to delete OIDC client '" + clientId + "': " + e.getMessage(), e);
         }

@@ -275,6 +275,30 @@ class OidcUserAdminServiceTest extends OidcPostgresTestBase {
     }
 
     @Test
+    void deleteMachineWithIssuedTokensRemovesClient() {
+        userService.createUser(new CreateUserRequest(
+            "svc-data", "Data Sync", null, null, "ACTIVE",
+            List.of("admin"), "machine", null, "svc-secret-123"));
+        // simulate an issued access token (oidc_token references oidc_client via a non-cascading FK)
+        try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
+            s.executeUpdate("INSERT INTO oidc_token (client_id, subject, token_type, value, scopes) "
+                + "VALUES ('svc-data', 'svc-data', 'access', 'tok-1', '[\"openid\"]'::jsonb)");
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+
+        assertTrue(userService.deleteUser("svc-data"));
+        try (Connection c = dataSource.getConnection(); Statement s = c.createStatement();
+             var rs = s.executeQuery(
+                 "SELECT count(*) FROM oidc_client WHERE client_id = 'svc-data'")) {
+            rs.next();
+            assertEquals(0, rs.getInt(1));
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Test
     void listUsersFiltersByIdentityType() {
         userService.createUser(new CreateUserRequest(
             "svc-a", "Svc A", null, null, "ACTIVE",
