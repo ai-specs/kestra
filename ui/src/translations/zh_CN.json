@@ -2505,6 +2505,40 @@
       "install_description": "将 Kestra 安装为应用,以获得更快的访问速度和全屏体验。",
       "install": "安装",
       "dismiss": "暂不"
+    },
+    "dsh": {
+      "users": {
+        "title": "用户控制",
+        "add": "新建用户",
+        "searchPlaceholder": "搜索用户名、姓名或邮箱…",
+        "username": "用户名",
+        "name": "姓名",
+        "email": "邮箱",
+        "password": "初始密码",
+        "newPassword": "新密码",
+        "roles": "角色",
+        "state": "状态",
+        "lastLogin": "最后登录",
+        "edit": "编辑用户",
+        "resetPassword": "重置密码",
+        "confirmDelete": "确定删除该用户？此操作不可撤销。",
+        "notAdmin": "需要 admin 角色才能管理用户。",
+        "loadFailed": "加载用户失败：{message}",
+        "saved": "用户已保存",
+        "created": "用户已创建",
+        "deleted": "用户已删除",
+        "passwordRequired": "必须填写密码",
+        "passwordUpdated": "密码已更新"
+      },
+      "roles": {
+        "title": "权限控制",
+        "members": "{role} 角色的成员",
+        "addMemberPlaceholder": "将用户加入该角色…",
+        "confirmRemove": "将 {user} 移出角色 {role}？",
+        "remove": "移除",
+        "memberAdded": "{user} 已加入 {role}",
+        "memberRemoved": "{user} 已移出 {role}"
+      }
     }
   }
 }

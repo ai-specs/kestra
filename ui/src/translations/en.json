@@ -301,19 +301,19 @@
     "steps": "Steps",
     "state": "State",
     "state_history": {
-        "title": "State history",
-        "open": "State history",
-        "aria_open": "Show the state history",
-        "aria_open_for": "Show the state history for {subject}",
-        "started_at": "Started {time}",
-        "failed_at": "Failed at {time}",
-        "skipped_at": "Skipped at {time}",
-        "created_at": "Created {time}",
-        "did_not_run": "This task did not run",
-        "waiting_to_start": "Waiting to start",
-        "attempt_n": "Attempt {index}",
-        "attempt_count": "{count} attempts",
-        "copy": "Copy state history"
+      "title": "State history",
+      "open": "State history",
+      "aria_open": "Show the state history",
+      "aria_open_for": "Show the state history for {subject}",
+      "started_at": "Started {time}",
+      "failed_at": "Failed at {time}",
+      "skipped_at": "Skipped at {time}",
+      "created_at": "Created {time}",
+      "did_not_run": "This task did not run",
+      "waiting_to_start": "Waiting to start",
+      "attempt_n": "Attempt {index}",
+      "attempt_count": "{count} attempts",
+      "copy": "Copy state history"
     },
     "search": "Search",
     "source search": "Source search",
@@ -2505,6 +2505,40 @@
       "install_description": "Install Kestra as an app for quicker access and a full-screen experience.",
       "install": "Install",
       "dismiss": "Not now"
+    },
+    "dsh": {
+      "users": {
+        "title": "Users",
+        "add": "New user",
+        "searchPlaceholder": "Search username, name or email…",
+        "username": "Username",
+        "name": "Name",
+        "email": "Email",
+        "password": "Initial password",
+        "newPassword": "New password",
+        "roles": "Roles",
+        "state": "State",
+        "lastLogin": "Last login",
+        "edit": "Edit user",
+        "resetPassword": "Reset password",
+        "confirmDelete": "Delete this user? This cannot be undone.",
+        "notAdmin": "Admin role is required to manage users.",
+        "loadFailed": "Failed to load users: {message}",
+        "saved": "User saved",
+        "created": "User created",
+        "deleted": "User deleted",
+        "passwordRequired": "A password is required",
+        "passwordUpdated": "Password updated"
+      },
+      "roles": {
+        "title": "Permissions",
+        "members": "Members of {role}",
+        "addMemberPlaceholder": "Add a user to this role…",
+        "confirmRemove": "Remove {user} from role {role}?",
+        "remove": "Remove",
+        "memberAdded": "{user} added to {role}",
+        "memberRemoved": "{user} removed from {role}"
+      }
     }
   }
 }

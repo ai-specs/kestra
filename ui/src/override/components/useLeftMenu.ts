@@ -382,6 +382,28 @@ export function useLeftMenu() {
                         },
                     },
                     {
+                        id: "dsh-users",
+                        title: t("dsh.users.title"),
+                        routes: routeStartWith("admin/users"),
+                        href: {
+                            name: "admin/users",
+                        },
+                        icon: {
+                            element: ShieldAccount,
+                        },
+                    },
+                    {
+                        id: "dsh-roles",
+                        title: t("dsh.roles.title"),
+                        routes: routeStartWith("admin/roles"),
+                        href: {
+                            name: "admin/roles",
+                        },
+                        icon: {
+                            element: ShieldCheckOutline,
+                        },
+                    },
+                    {
                         id: "iam",
                         title: t("iam"),
                         routes: routeStartWith("admin/iam"),
