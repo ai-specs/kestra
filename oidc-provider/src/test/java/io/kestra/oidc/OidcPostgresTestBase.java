@@ -47,8 +47,10 @@ public abstract class OidcPostgresTestBase {
         ds.setPassword(POSTGRES.getPassword());
         dataSource = ds;
 
-        // Apply the real migration (creates the 4 tables + seeds default clients + default RSA JWK).
+        // Apply the real migrations (creates the 4 tables + seeds default clients + default RSA JWK,
+        // and the 2.0.31 user directory tables oidc_user / oidc_user_auth_method).
         AbstractSQLMigrationScript.executeSqlScript(dataSource, "/migrations/2.0.25-oidc-provider-postgres.sql");
+        AbstractSQLMigrationScript.executeSqlScript(dataSource, "/migrations/2.0.31-oidc-user-schema.sql");
 
         objectMapper = new ObjectMapper();
         configuration = new OidcConfiguration();
@@ -59,7 +61,9 @@ public abstract class OidcPostgresTestBase {
         clientService = new OidcClientService(dataSource, objectMapper);
         authCodeService = new OidcAuthorizationCodeService(dataSource, objectMapper, configuration);
         tokenService = new OidcTokenService(dataSource, objectMapper, configuration, jwkService);
-        userService = new OidcUserService(new OidcSessionService(configuration), configuration);
+        userService = new OidcUserService(new OidcSessionService(configuration), configuration, dataSource, objectMapper);
+        // Manual bootstrap: @PostConstruct only fires inside a Micronaut container.
+        userService.bootstrap();
     }
 
     @AfterAll

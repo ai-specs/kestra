@@ -12,6 +12,10 @@ dependencies {
     // OIDC/OAuth2 SDK (official Nimbus 11.38.2, see docs/oidc-provider-research.md)
     implementation "com.nimbusds:oauth2-oidc-sdk:11.38.2"
 
+    // Password hashing (bcrypt, same algorithm as ZITADEL's Go x/crypto/bcrypt — kept aligned so a
+    // future migration to ZITADEL can carry password hashes over). Zero transitive dependencies.
+    implementation "org.mindrot:jbcrypt:0.4"
+
     // Micronaut HTTP + Jackson (managed by platform BOM)
     implementation "io.micronaut:micronaut-http-server-netty"
     implementation "io.micronaut:micronaut-http-client"
