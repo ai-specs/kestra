@@ -164,18 +164,19 @@
                         </KsTableColumn>
                         <KsTableColumn prop="memberCount" :label="t('dsh.project.memberCount')" width="100" align="center">
                             <template #default="{row}">
-                                <KsButton size="small" type="primary" link @click="selectRole(row.roleName)">
+                                <KsButton size="small" type="default" @click="selectRole(row.roleName)">
                                     {{ row.memberCount }}
                                 </KsButton>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn :label="t('actions')" width="180">
+                        <KsTableColumn :label="t('actions')" width="200">
                             <template #default="{row}">
                                 <div class="role-actions">
-                                    <KsButton size="small" type="primary" link @click="selectRole(row.roleName)">
+                                    <KsButton size="small" type="default" @click="selectRole(row.roleName)">
                                         {{ t("dsh.project.viewMembers") }}
                                     </KsButton>
-                                    <KsButton size="small" type="success" link :icon="AccountPlus" @click="addMemberToRole(row.roleName)">
+                                    <KsButton size="small" type="success" @click="addMemberToRole(row.roleName)">
+                                        <template #icon><AccountPlus /></template>
                                         {{ t("dsh.project.addMember") }}
                                     </KsButton>
                                 </div>

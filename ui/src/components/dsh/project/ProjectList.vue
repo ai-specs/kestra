@@ -63,7 +63,7 @@
             </KsTableColumn>
             <KsTableColumn :label="t('actions')" width="120">
                 <template #default="{row}">
-                    <KsButton size="small" type="primary" link @click.stop="goToDetail(row)">
+                    <KsButton size="small" type="default" @click.stop="goToDetail(row)">
                         {{ t("dsh.project.view") }}
                     </KsButton>
                 </template>
