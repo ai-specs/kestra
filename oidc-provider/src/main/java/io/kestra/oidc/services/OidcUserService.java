@@ -64,6 +64,10 @@ public class OidcUserService {
     /** An OIDC user resolved from the provider's login session. */
     public record OidcUser(String sub, String name, String email, List<String> roles) {}
 
+    /** Identity type discriminator (ZITADEL users14.type). */
+    public static final String TYPE_HUMAN = "human";
+    public static final String TYPE_MACHINE = "machine";
+
     /** A user-directory row exposed by the admin API (no auth-method detail). */
     public record UserRow(
         String username,
@@ -71,6 +75,7 @@ public class OidcUserService {
         String email,
         String userState,
         List<String> roles,
+        String type,
         Instant createdAt,
         Instant lastLoginAt
     ) {}
@@ -92,6 +97,9 @@ public class OidcUserService {
         String userState,
         boolean passwordChangeRequired,
         List<String> roles,
+        String type,
+        String description,
+        String accessTokenType,
         Instant createdAt,
         Instant updatedAt,
         Instant lastLoginAt,
@@ -105,7 +113,10 @@ public class OidcUserService {
         String email,
         String password,
         String userState,
-        List<String> roles
+        List<String> roles,
+        String type,
+        String description,
+        String secret
     ) {}
 
     /** Payload for updating a user profile through the admin API. */
@@ -122,6 +133,7 @@ public class OidcUserService {
 
     private final OidcSessionService sessionService;
     private final OidcConfiguration configuration;
+    private final OidcClientService clientService;
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
 
@@ -134,11 +146,13 @@ public class OidcUserService {
     public OidcUserService(
         OidcSessionService sessionService,
         OidcConfiguration configuration,
+        OidcClientService clientService,
         DataSource dataSource,
         ObjectMapper objectMapper
     ) {
         this.sessionService = sessionService;
         this.configuration = configuration;
+        this.clientService = clientService;
         // Unwrap any Micronaut Data AOP proxy so getConnection() works outside a @Connectable context.
         this.dataSource = DelegatingDataSource.unwrapDataSource(dataSource);
         this.objectMapper = objectMapper;
@@ -244,20 +258,23 @@ public class OidcUserService {
 
     /**
      * Lists users from the directory, newest first, with an optional free-text search over
-     * username/name/email. Admin surface only — callers must be checked by the controller.
+     * username/name/email and an optional identity-type filter ({@code human} / {@code machine}).
+     * Admin surface only — callers must be checked by the controller.
      */
-    public List<UserRow> listUsers(String search, int offset, int size) {
+    public List<UserRow> listUsers(String search, String type, int offset, int size) {
         ensureDirectory();
         if (!tableAvailable()) {
             return List.of();
         }
         int safeSize = Math.max(1, Math.min(size, 500));
         int safeOffset = Math.max(0, offset);
+        String typeFilter = type == null || type.isBlank() ? null : type.trim().toLowerCase();
         List<UserRow> rows = new ArrayList<>();
         final String sql = """
-            SELECT username, name, email, user_state, roles, created_at, last_login_at
+            SELECT username, name, email, user_state, roles, type, created_at, last_login_at
             FROM oidc_user
             WHERE (? IS NULL OR username ILIKE ? OR name ILIKE ? OR email ILIKE ?)
+              AND (? IS NULL OR type = ?)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?""";
         try (Connection connection = dataSource.getConnection();
@@ -267,8 +284,10 @@ public class OidcUserService {
             ps.setObject(2, pattern, Types.VARCHAR);
             ps.setObject(3, pattern, Types.VARCHAR);
             ps.setObject(4, pattern, Types.VARCHAR);
-            ps.setInt(5, safeSize);
-            ps.setInt(6, safeOffset);
+            ps.setObject(5, typeFilter, Types.VARCHAR);
+            ps.setObject(6, typeFilter, Types.VARCHAR);
+            ps.setInt(7, safeSize);
+            ps.setInt(8, safeOffset);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     rows.add(mapUserRow(rs));
@@ -292,10 +311,13 @@ public class OidcUserService {
             return Optional.empty();
         }
         final String sql = """
-            SELECT username, name, first_name, last_name, email, email_verified, phone,
-                   phone_verified, preferred_language, user_state, password_change_required,
-                   roles, created_at, updated_at, last_login_at
-            FROM oidc_user WHERE username = ?""";
+            SELECT u.username, u.name, u.first_name, u.last_name, u.email, u.email_verified,
+                   u.phone, u.phone_verified, u.preferred_language, u.user_state,
+                   u.password_change_required, u.roles, u.type, u.created_at, u.updated_at,
+                   u.last_login_at, m.description, m.access_token_type
+            FROM oidc_user u
+            LEFT JOIN oidc_user_machine m ON m.user_id = u.username
+            WHERE u.username = ?""";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, username);
@@ -316,6 +338,9 @@ public class OidcUserService {
                     rs.getString("user_state"),
                     rs.getBoolean("password_change_required"),
                     objectMapper.readValue(rs.getString("roles"), STRING_LIST),
+                    rs.getString("type"),
+                    rs.getString("description"),
+                    rs.getString("access_token_type"),
                     toInstant(rs.getTimestamp("created_at")),
                     toInstant(rs.getTimestamp("updated_at")),
                     toInstant(rs.getTimestamp("last_login_at")),
@@ -335,21 +360,34 @@ public class OidcUserService {
         }
     }
 
-    /** Creates a user (with a bcrypt PASSWORD auth method when a password is supplied). */
+    /**
+     * Creates an identity in the directory. A {@code human} identity gets an optional bcrypt
+     * PASSWORD auth method; a {@code machine} (service account) identity gets a machine child
+     * row ({@code oidc_user_machine}) plus an {@code oidc_client} credential record so it can
+     * authenticate with {@code client_credentials} (a random secret is generated when none is
+     * supplied).
+     */
     public UserRow createUser(CreateUserRequest request) {
         if (request == null || request.username() == null || request.username().isBlank()) {
             throw new IllegalArgumentException("username is required");
-        }
-        if (request.email() == null || request.email().isBlank()) {
-            throw new IllegalArgumentException("email is required");
         }
         ensureDirectory();
         if (!tableAvailable()) {
             throw new IllegalStateException("user directory tables are unavailable");
         }
+        String type = request.type() == null || request.type().isBlank()
+            ? TYPE_HUMAN : request.type().trim().toLowerCase();
+        if (!TYPE_HUMAN.equals(type) && !TYPE_MACHINE.equals(type)) {
+            throw new IllegalArgumentException("type must be 'human' or 'machine'");
+        }
         String username = request.username().trim();
         String name = request.name() == null || request.name().isBlank() ? username : request.name().trim();
-        String email = request.email().trim();
+        String email = request.email() == null || request.email().isBlank()
+            ? (TYPE_MACHINE.equals(type) ? username + "@machine.local" : null)
+            : request.email().trim();
+        if (email == null) {
+            throw new IllegalArgumentException("email is required for human identities");
+        }
         String userState = request.userState() == null || request.userState().isBlank()
             ? "ACTIVE" : request.userState().trim().toUpperCase();
         List<String> roles = request.roles() == null || request.roles().isEmpty()
@@ -358,11 +396,14 @@ public class OidcUserService {
             ? null : BCrypt.hashpw(request.password(), BCrypt.gensalt(10));
 
         final String insertUser = """
-            INSERT INTO oidc_user (username, name, email, user_state, roles)
-            VALUES (?, ?, ?, ?, ?::jsonb)""";
+            INSERT INTO oidc_user (username, name, email, user_state, roles, type)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?)""";
         final String insertMethod = """
             INSERT INTO oidc_user_auth_method (user_id, type, credential)
             VALUES (?, 'PASSWORD', ?)""";
+        final String insertMachine = """
+            INSERT INTO oidc_user_machine (user_id, name, description, access_token_type)
+            VALUES (?, ?, ?, 'bearer')""";
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try (PreparedStatement ps = connection.prepareStatement(insertUser)) {
@@ -371,9 +412,18 @@ public class OidcUserService {
                 ps.setString(3, email);
                 ps.setString(4, userState);
                 ps.setString(5, objectMapper.writeValueAsString(roles));
+                ps.setString(6, type);
                 ps.executeUpdate();
             }
-            if (hash != null) {
+            if (TYPE_MACHINE.equals(type)) {
+                String description = request.description() == null ? "" : request.description().trim();
+                try (PreparedStatement ps = connection.prepareStatement(insertMachine)) {
+                    ps.setString(1, username);
+                    ps.setString(2, name);
+                    ps.setString(3, description);
+                    ps.executeUpdate();
+                }
+            } else if (hash != null) {
                 try (PreparedStatement ps = connection.prepareStatement(insertMethod)) {
                     ps.setString(1, username);
                     ps.setString(2, hash);
@@ -384,6 +434,11 @@ public class OidcUserService {
         } catch (Exception e) {
             log.warn("oidc_user create failed for '{}': {}", username, e.getMessage());
             throw new IllegalStateException("failed to create user '" + username + "': " + e.getMessage(), e);
+        }
+        if (TYPE_MACHINE.equals(type)) {
+            String secret = request.secret() == null || request.secret().isBlank()
+                ? generateSecret() : request.secret().trim();
+            clientService.create(username, secret, List.of(), List.of("client_credentials"), List.of("openid", "profile", "email"));
         }
         return findUserRow(username).orElseThrow();
     }
@@ -430,7 +485,8 @@ public class OidcUserService {
         return findUserRow(username).orElseThrow();
     }
 
-    /** Removes a user; auth methods are removed by the ON DELETE CASCADE foreign key. */
+    /** Removes a user; auth methods and the machine child row cascade. A machine identity also
+     * has its {@code oidc_client} credential record removed. */
     public boolean deleteUser(String username) {
         if (username == null) {
             return false;
@@ -439,11 +495,16 @@ public class OidcUserService {
         if (!tableAvailable()) {
             throw new IllegalStateException("user directory tables are unavailable");
         }
+        boolean isMachine = isMachineIdentity(username);
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(
                  "DELETE FROM oidc_user WHERE username = ?")) {
             ps.setString(1, username);
-            return ps.executeUpdate() > 0;
+            boolean deleted = ps.executeUpdate() > 0;
+            if (deleted && isMachine) {
+                clientService.delete(username);
+            }
+            return deleted;
         } catch (Exception e) {
             log.warn("oidc_user delete failed for '{}': {}", username, e.getMessage());
             throw new IllegalStateException("failed to delete user '" + username + "': " + e.getMessage(), e);
@@ -476,7 +537,9 @@ public class OidcUserService {
         return findUserRow(username).orElseThrow();
     }
 
-    /** Sets (or replaces) the PASSWORD auth method of a user with a fresh bcrypt hash. */
+    /** Sets (or replaces) the PASSWORD auth method of a user with a fresh bcrypt hash.
+     *  Machine identities authenticate with a client secret instead — callers must reject
+     *  password resets for machines before invoking this. */
     public boolean resetPassword(String username, String password) {
         if (username == null || password == null || password.isBlank()) {
             throw new IllegalArgumentException("username and password are required");
@@ -484,6 +547,10 @@ public class OidcUserService {
         ensureDirectory();
         if (!tableAvailable()) {
             throw new IllegalStateException("user directory tables are unavailable");
+        }
+        if (isMachineIdentity(username)) {
+            throw new IllegalArgumentException(
+                "machine identity '" + username + "' has no password; rotate the client secret instead");
         }
         String hash = BCrypt.hashpw(password, BCrypt.gensalt(10));
         final String sql = """
@@ -502,6 +569,68 @@ public class OidcUserService {
             log.warn("oidc_user password reset failed for '{}': {}", username, e.getMessage());
             throw new IllegalStateException("failed to reset password for '" + username + "': " + e.getMessage(), e);
         }
+    }
+
+    /** Whether the directory row is a machine (service account) identity. */
+    public boolean isMachineIdentity(String username) {
+        if (username == null) {
+            return false;
+        }
+        ensureDirectory();
+        if (!tableAvailable()) {
+            return false;
+        }
+        final String sql = "SELECT type FROM oidc_user WHERE username = ?";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && TYPE_MACHINE.equals(rs.getString("type"));
+            }
+        } catch (SQLException e) {
+            log.warn("oidc_user type lookup failed for '{}': {}", username, e.getMessage());
+            return false;
+        }
+    }
+
+    /** Whether the directory row exists and is ACTIVE. Used to gate client_credentials. */
+    public boolean isActive(String username) {
+        if (username == null) {
+            return false;
+        }
+        ensureDirectory();
+        if (!tableAvailable()) {
+            // Tables unavailable (non-Postgres / migration not run): fall back to config mode
+            // where service principals are implicitly active (legacy standalone behaviour).
+            return true;
+        }
+        final String sql = "SELECT user_state FROM oidc_user WHERE username = ?";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && "ACTIVE".equals(rs.getString("user_state"));
+            }
+        } catch (SQLException e) {
+            log.warn("oidc_user state lookup failed for '{}': {}", username, e.getMessage());
+            return true;
+        }
+    }
+
+    /** Rotates the client secret of a machine identity (its {@code oidc_client} record). */
+    public String rotateSecret(String username, String newSecret) {
+        if (username == null || !isMachineIdentity(username)) {
+            throw new IllegalArgumentException("machine identity '" + username + "' does not exist");
+        }
+        String secret = newSecret == null || newSecret.isBlank() ? generateSecret() : newSecret.trim();
+        clientService.updateSecret(username, secret);
+        return secret;
+    }
+
+    private String generateSecret() {
+        byte[] bytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     private List<AuthMethodRow> listAuthMethods(Connection connection, String username) throws SQLException {
@@ -526,7 +655,7 @@ public class OidcUserService {
 
     private Optional<UserRow> findUserRow(String username) {
         final String sql = """
-            SELECT username, name, email, user_state, roles, created_at, last_login_at
+            SELECT username, name, email, user_state, roles, type, created_at, last_login_at
             FROM oidc_user WHERE username = ?""";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -550,6 +679,7 @@ public class OidcUserService {
             rs.getString("email"),
             rs.getString("user_state"),
             objectMapper.readValue(rs.getString("roles"), STRING_LIST),
+            rs.getString("type"),
             toInstant(rs.getTimestamp("created_at")),
             toInstant(rs.getTimestamp("last_login_at"))
         );

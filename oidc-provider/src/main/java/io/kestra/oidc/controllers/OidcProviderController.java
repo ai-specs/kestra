@@ -308,8 +308,13 @@ public class OidcProviderController {
             throw new OidcException(OAuth2Error.INVALID_SCOPE);
         }
 
-        // Service principal: subject = client id; roles from the configured default roles so that
-        // downstream systems (e.g. Nacos) can map the service token to an admin principal.
+        // Service principal: subject = client id; roles are persisted on the machine identity
+        // (oidc_user, type=machine) so that downstream systems (e.g. Nacos) can map the service
+        // token to an admin principal. An INACTIVE machine identity is refused.
+        if (!userService.isActive(client.clientId().getValue())) {
+            throw new OidcException(OAuth2Error.UNAUTHORIZED_CLIENT.appendDescription(
+                ": service account is inactive or missing from the user directory"));
+        }
         OidcUserService.OidcUser user = userService.bySubject(client.clientId().getValue());
         BearerAccessToken accessToken = tokenService.issueAccessToken(
             client.clientId(), user.sub(), user.name(), user.email(), user.roles(), scope);

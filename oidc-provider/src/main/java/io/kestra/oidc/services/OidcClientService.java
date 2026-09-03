@@ -121,6 +121,66 @@ public class OidcClientService {
         return true;
     }
 
+    // ------------------------------------------------------------------
+    // Write operations (machine identity management)
+    // ------------------------------------------------------------------
+
+    /** Inserts a new client. Used when creating a machine (service account) identity. */
+    public void create(
+        String clientId,
+        String clientSecret,
+        List<String> redirectUris,
+        List<String> grantTypes,
+        List<String> scopes
+    ) {
+        final String sql = """
+            INSERT INTO oidc_client (client_id, client_secret, redirect_uris, grant_types, scopes)
+            VALUES (?, ?, ?::jsonb, ?::jsonb, ?::jsonb)""";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, clientId);
+            ps.setString(2, clientSecret);
+            ps.setString(3, objectMapper.writeValueAsString(
+                redirectUris == null ? List.of() : redirectUris));
+            ps.setString(4, objectMapper.writeValueAsString(
+                grantTypes == null ? List.of("client_credentials") : grantTypes));
+            ps.setString(5, objectMapper.writeValueAsString(
+                scopes == null ? List.of("openid", "profile", "email") : scopes));
+            ps.executeUpdate();
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to create OIDC client '" + clientId + "': " + e.getMessage(), e);
+        }
+    }
+
+    /** Rotates the secret of an existing client (machine credential refresh). */
+    public void updateSecret(String clientId, String newSecret) {
+        final String sql = "UPDATE oidc_client SET client_secret = ? WHERE client_id = ?";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, newSecret);
+            ps.setString(2, clientId);
+            if (ps.executeUpdate() == 0) {
+                throw new IllegalArgumentException("client '" + clientId + "' does not exist");
+            }
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to update secret for client '" + clientId + "': " + e.getMessage(), e);
+        }
+    }
+
+    /** Removes a client record (used when deleting a machine identity). */
+    public void delete(String clientId) {
+        final String sql = "DELETE FROM oidc_client WHERE client_id = ?";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, clientId);
+            ps.executeUpdate();
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to delete OIDC client '" + clientId + "': " + e.getMessage(), e);
+        }
+    }
+
     private OidcClient map(ResultSet rs) throws SQLException {
         return new OidcClient(
             new ClientID(rs.getString("client_id")),

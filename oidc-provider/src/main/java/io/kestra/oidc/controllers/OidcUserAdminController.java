@@ -59,16 +59,18 @@ public class OidcUserAdminController {
 
     // ------------------------------------------------------------------ list / create
 
-    /** Lists users, newest first. {@code search} filters on username/name/email. */
+    /** Lists users, newest first. {@code search} filters on username/name/email;
+     *  {@code type} filters on identity type ({@code human} / {@code machine}, empty = all). */
     @Get
     public HttpResponse<?> list(
         HttpRequest<?> request,
         @QueryValue(defaultValue = "") String search,
+        @QueryValue(defaultValue = "") String type,
         @QueryValue(defaultValue = "0") int offset,
         @QueryValue(defaultValue = "100") int size
     ) {
         requireAdmin(request);
-        return HttpResponse.ok(userService.listUsers(search, offset, size));
+        return HttpResponse.ok(userService.listUsers(search, type, offset, size));
     }
 
     /** Creates a user (with an optional initial bcrypt password). */
@@ -170,6 +172,23 @@ public class OidcUserAdminController {
                 ? HttpResponse.ok(Map.of("status", "password updated"))
                 : HttpResponse.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "user '" + decode(username) + "' does not exist"));
+        } catch (IllegalArgumentException e) {
+            return HttpResponse.badRequest(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** Rotates the client secret of a machine identity (service account). */
+    @Post(value = "/{username}/secret", consumes = MediaType.APPLICATION_JSON)
+    public HttpResponse<?> rotateSecret(
+        HttpRequest<?> request,
+        String username,
+        @Body Map<String, String> body
+    ) {
+        requireAdmin(request);
+        String secret = body == null ? null : body.get("secret");
+        try {
+            String rotated = userService.rotateSecret(decode(username), secret);
+            return HttpResponse.ok(Map.of("status", "client secret rotated", "secret", rotated));
         } catch (IllegalArgumentException e) {
             return HttpResponse.badRequest(Map.of("error", e.getMessage()));
         }
