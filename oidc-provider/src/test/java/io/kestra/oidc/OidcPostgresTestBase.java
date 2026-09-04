@@ -47,12 +47,28 @@ public abstract class OidcPostgresTestBase {
         ds.setPassword(POSTGRES.getPassword());
         dataSource = ds;
 
-        // Apply the real migrations (creates the OIDC tables + seeds default clients + default RSA
-        // JWK, the 2.0.31 user directory tables oidc_user / oidc_user_auth_method, and the 2.0.32
-        // machine-identity split oidc_user.type / oidc_user_machine).
-        AbstractSQLMigrationScript.executeSqlScript(dataSource, "/migrations/2.0.25-oidc-provider-postgres.sql");
-        AbstractSQLMigrationScript.executeSqlScript(dataSource, "/migrations/2.0.31-oidc-user-schema.sql");
-        AbstractSQLMigrationScript.executeSqlScript(dataSource, "/migrations/2.0.32-oidc-machine-identities.sql");
+        // Apply ALL production migrations in filename order (2.0.25 … latest). Enumerating the
+        // classpath directory keeps this base in sync automatically: services evolve with the
+        // schema (e.g. OidcUserService reads oidc_role_assignment from 2.0.35), so any migration
+        // added later is picked up without touching this file again.
+        try {
+            var migrationsUrl = Thread.currentThread().getContextClassLoader().getResource("migrations");
+            if (migrationsUrl == null || !"file".equals(migrationsUrl.getProtocol())) {
+                throw new IllegalStateException("migrations directory not found on classpath: " + migrationsUrl);
+            }
+            java.util.List<String> scripts;
+            try (var files = java.nio.file.Files.list(java.nio.file.Path.of(migrationsUrl.toURI()))) {
+                scripts = files.map(path -> path.getFileName().toString())
+                    .filter(name -> name.endsWith(".sql"))
+                    .sorted()
+                    .toList();
+            }
+            for (String name : scripts) {
+                AbstractSQLMigrationScript.executeSqlScript(dataSource, "/migrations/" + name);
+            }
+        } catch (java.io.IOException | java.sql.SQLException | java.net.URISyntaxException e) {
+            throw new IllegalStateException("failed to apply migrations", e);
+        }
 
         objectMapper = new ObjectMapper();
         configuration = new OidcConfiguration();

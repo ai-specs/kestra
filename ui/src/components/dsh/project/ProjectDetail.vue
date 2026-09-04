@@ -281,7 +281,7 @@
 </template>
 
 <script setup lang="ts">
-    import {computed, onMounted, ref} from "vue"
+    import {computed, onMounted, ref, watch} from "vue"
     import {useI18n} from "vue-i18n"
     import {useRoute} from "vue-router"
     import {ElMessage, ElMessageBox} from "element-plus"
@@ -361,10 +361,11 @@
         )
     })
 
-    function onTabChange() {
+    // Tab 切换即清空成员管理的选择状态，避免跨 Tab 残留
+    watch(activeTab, () => {
         selectedRole.value = ""
         memberToAdd.value = ""
-    }
+    })
 
     /** 概览统计卡片 → 切换 Tab */
     function goToTab(tab: string) {
