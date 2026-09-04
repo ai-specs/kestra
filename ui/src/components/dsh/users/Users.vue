@@ -247,9 +247,9 @@
             ...options,
         })
         if (res.status === 401) {
-            // Session expired (JWT / oidc_session) while kestraBasicAuthenticated still
-            // says we are logged in — never report this as a permission problem. Redirect
-            // through the OIDC logout endpoint (clears cookies, lands on the IdP login).
+            // Session expired (JWT / oidc_session) — never report this as a permission
+            // problem. Go to the IdP login with the current path as the from deep link;
+            // the re-login re-issues every session cookie.
             sessionExpired()
         }
         return res

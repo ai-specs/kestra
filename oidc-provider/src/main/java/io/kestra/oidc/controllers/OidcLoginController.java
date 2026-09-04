@@ -4,6 +4,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Optional;
@@ -58,6 +59,20 @@ public class OidcLoginController {
 
     /** Fallback landing page when a login carries no {@code from}. */
     static final String DEFAULT_LANDING = "/ui/";
+
+    /**
+     * Non-HttpOnly UI login flag cookie mirroring the {@code oidc_session}: the UI's boot guard
+     * reads it client-side to decide the browser is logged in. Named after the OIDC session —
+     * Basic Auth is disabled under OIDC, so upstream's Basic-Auth flag cookie name is retired.
+     */
+    static final String OIDC_AUTH_FLAG_COOKIE = "oidcAuthenticated";
+
+    /**
+     * Upstream OSS flag cookie name, retired with the OIDC unification: never set anymore, only
+     * cleared on login/logout so stale cookies from before the rename cannot linger.
+     */
+    @Deprecated
+    static final String LEGACY_BASIC_AUTH_FLAG_COOKIE = "kestraBasicAuthenticated";
 
     private final OidcConfiguration configuration;
     private final OidcAuthorizationCodeService authCodeService;
@@ -135,9 +150,13 @@ public class OidcLoginController {
                 Authentication.build(subject, userService.bySubject(subject).roles()),
                 Math.toIntExact(configuration.getSessionTtl().toSeconds()))
             .ifPresent(token -> response.cookie(jwtCookie(request, token))));
-        // UI 的 SPA 引导守卫读这个非 HttpOnly 标志 cookie 判定「已登录」（上游 OSS 语义：
-        // utils/basicAuth isLoggedIn）；没有它即使 JWT 已落地，/ui/ 仍会被路由到登录页。
-        response.cookie(uiAuthFlagCookie(request));
+        // UI 的 SPA 引导守卫读这个非 HttpOnly 标志 cookie 判定「已登录」；没有它即使 JWT
+        // 已落地，SPA 内部导航仍会误判未登录。该 cookie 是 oidc_session 的镜像：与
+        // oidc_session / JWT 同寿命（Max-Age = session TTL），三者一起过期，不会出现
+        // 「标志还在而会话已死」的半登录态。
+        response.cookie(uiAuthFlagCookie(request, configuration.getSessionTtl()));
+        // 退役命名一次性清理：旧标志 cookie 若还在，立即失效。
+        response.cookie(clearCookie(LEGACY_BASIC_AUTH_FLAG_COOKIE, request.isSecure()));
         return response;
     }
 
@@ -154,16 +173,26 @@ public class OidcLoginController {
     }
 
     /**
-     * Non-HttpOnly mirror of the login state, same contract as Kestra's Basic Auth flag cookie
-     * ({@code kestraBasicAuthenticated}): the UI's boot guard reads it client-side to decide the
-     * browser is logged in before it loads the authenticated configuration. Carries no credentials.
+     * Non-HttpOnly mirror of the login state, named after the {@code oidc_session} it mirrors
+     * (Basic Auth is disabled under OIDC, so upstream's Basic-Auth flag name is retired). The
+     * UI's boot guard reads it client-side to decide the browser is logged in. Carries no
+     * credentials.
+     *
+     * <p>
+     * The cookie shares the {@code oidc_session} lifetime (same Max-Age as the session TTL, the
+     * same duration as the JWT's {@code exp}) so the client-side login flag expires in lockstep
+     * with the server session and the JWT — without it, the flag outlives the session and the
+     * SPA keeps believing it is authenticated while the API answers 401 (the "logged-in but
+     * stuck" state). A fresh login re-issues it; logout clears it alongside
+     * {@code oidc_session}/{@code JWT}.
      */
-    private static Cookie uiAuthFlagCookie(HttpRequest<?> request) {
-        return Cookie.of("kestraBasicAuthenticated", "true")
+    private static Cookie uiAuthFlagCookie(HttpRequest<?> request, Duration sessionTtl) {
+        return Cookie.of(OIDC_AUTH_FLAG_COOKIE, "true")
             .path("/")
             .httpOnly(false)
             .secure(request.isSecure())
-            .sameSite(SameSite.Strict);
+            .sameSite(SameSite.Strict)
+            .maxAge(sessionTtl);
     }
 
     // ------------------------------------------------------------------ self-bootstrap
@@ -231,11 +260,10 @@ public class OidcLoginController {
     /**
      * Clear the OIDC session and the Kestra JWT/flag cookies, then redirect to the IdP login.
      * The UI's logout action navigates here (override {@code Auth.vue}) because Kestra's own
-     * {@code POST /logout} (MiscController) only clears its Basic Auth cookies — it leaves
-     * {@code oidc_session} and {@code JWT} intact. That would strand the browser in a
-     * half-logged-out state: the UI boot guard sees no {@code kestraBasicAuthenticated} flag and
-     * routes to the unusable Basic Auth {@code /ui/login} page while the JWT still authenticates
-     * the API (SecurityFilter keeps letting {@code /ui/} through).
+     * {@code POST /logout} (MiscController) only clears its Basic Auth cookies — under OIDC it
+     * has no backing bean at all, and it would leave {@code oidc_session} and {@code JWT}
+     * intact, stranding the browser in a half-logged-out state (the app shell gone but the API
+     * still reachable).
      *
      * <p>
      * RP-initiated logout: {@code post_logout_redirect_uri} sends the caller (e.g. dsh-ui's
@@ -255,7 +283,8 @@ public class OidcLoginController {
         return HttpResponse.redirect(target)
             .cookie(clearCookie(OidcSessionService.SESSION_COOKIE_NAME, secure))
             .cookie(clearCookie("JWT", secure))
-            .cookie(clearCookie("kestraBasicAuthenticated", secure));
+            .cookie(clearCookie(OIDC_AUTH_FLAG_COOKIE, secure))
+            .cookie(clearCookie(LEGACY_BASIC_AUTH_FLAG_COOKIE, secure));
     }
 
     private boolean isRegisteredRedirectUri(String uri) {

@@ -186,7 +186,9 @@ public class MiscController {
         description = "Public endpoint available to unauthenticated users; exposes only what the login/setup UI needs."
     )
     public LoginConfiguration getLoginConfiguration() {
-        return new LoginConfiguration(isBasicAuthInitialized());
+        // oidcAuthEnabled = Micronaut Security enabled (the dsh OIDC deployment); under a plain
+        // OSS Basic Auth deployment the flag is false and the UI keeps its SPA login page.
+        return new LoginConfiguration(isBasicAuthInitialized(), securityEnabled);
     }
 
     private boolean isBasicAuthInitialized() {
@@ -399,7 +401,15 @@ public class MiscController {
 
     /**
      * Minimal configuration exposed to unauthenticated callers for the login/setup UI.
+     *
+     * @param isBasicAuthInitialized whether an authentication method is configured (under the
+     *                               OIDC deployment this is the Micronaut Security flag).
+     * @param oidcAuthEnabled        whether the instance authenticates through the OIDC provider
+     *                               instead of Basic Auth. The UI uses it to send not-logged-in
+     *                               browsers to the IdP login rather than the Basic Auth login
+     *                               page (which has no backing bean under OIDC).
      */
-    public record LoginConfiguration(@JsonInclude Boolean isBasicAuthInitialized) {
+    public record LoginConfiguration(@JsonInclude Boolean isBasicAuthInitialized,
+                                     @JsonInclude Boolean oidcAuthEnabled) {
     }
 }

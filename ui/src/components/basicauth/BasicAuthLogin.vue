@@ -50,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-    import {ref, computed} from "vue"
+    import {ref, computed, onMounted} from "vue"
     import {useRouter, useRoute} from "vue-router"
     import {useI18n} from "vue-i18n"
     import {KsMessage, KsIcon} from "@kestra-io/design-system"
@@ -117,6 +117,18 @@
     }))
 
     const axios = useClient()
+
+    // Under the OIDC deployment this page is unreachable by design (no Basic Auth endpoint
+    // exists behind it) — if the router ever lands here anyway, never render the form:
+    // already signed in goes back to the from link (or home), signed out goes to the IdP.
+    onMounted(() => {
+        if (!BasicAuth.isOidcAuthEnabled()) return
+        if (BasicAuth.isLoggedIn()) {
+            router.replace(redirectPath.value || {name: "home", params: {tenant: route.params.tenant}})
+            return
+        }
+        BasicAuth.idpLogin(redirectPath.value)
+    })
 
 
     const checkServerInitialization = async () => {

@@ -37,9 +37,14 @@ app.provide(TASK_ICON_INJECTION_KEY, TaskIcon)
 const handleAuthError = (to: {fullPath: string}, error: unknown) => {
     if ((error as {response?: {status?: number}} | null)?.response?.status === 401) {
         BasicAuth.logout()
+        if (BasicAuth.isOidcAuthEnabled()) {
+            // OIDC: the SPA login route has no backing endpoint — re-login happens at the IdP.
+            BasicAuth.idpLogin(to.fullPath)
+            return false
+        }
         const fromPath = to.fullPath !== "/ui/login" ? to.fullPath : undefined
         return {name: "login", query: fromPath ? {from: fromPath} : {}}
-    } 
+    }
     console.error("Error during authentication check:", error)
     return
 }
@@ -58,12 +63,23 @@ function setupAxios(router: Router) {
         BasicAuth.logout()
     }
 
-
     httpClient = setupKestraHttp({}, {
         coreStore,
         router,
         beforeLogout,
         isLoggedIn: () => !!BasicAuth.isLoggedIn(),
+        // Central 401 handling. Under OIDC the SPA login route is a dead end (no Basic Auth
+        // endpoint behind it), so the re-login happens at the IdP — keeping the current path
+        // as the deep link. The default (OSS) behavior routes to the SPA login page.
+        onUnauthorized: (navigate) => {
+            beforeLogout()
+            if (BasicAuth.isOidcAuthEnabled()) {
+                BasicAuth.idpLogin(window.location.pathname + window.location.search)
+            } else {
+                navigate()
+            }
+            return false
+        },
     })
 
     // Add CSRF token to every request - covers both generated-endpoint calls and
@@ -91,6 +107,7 @@ async function beforeResolve(router: Router, to: any, from: any): Promise<unknow
             setupAxios(router)
         }
         const loginConfig = await miscStore.loadLoginConfig()
+        BasicAuth.setOidcAuthEnabled(loginConfig.oidcAuthEnabled === true)
 
         if(!loginConfig.isBasicAuthInitialized) {
             // Since, Configs takes preference
@@ -117,7 +134,24 @@ async function beforeResolve(router: Router, to: any, from: any): Promise<unknow
 
         if ((to as {meta?: {anonymous?: boolean}}).meta?.anonymous === true) {
             if (to.name === "setup") {
+                if (BasicAuth.isOidcAuthEnabled()) {
+                    BasicAuth.idpLogin()
+                    return false
+                }
                 return {name: "login"}
+            }
+            if (to.name === "login" && BasicAuth.isOidcAuthEnabled()) {
+                // The Basic Auth login page has no endpoint under OIDC; it must never render.
+                // Already signed in → honor the from link (or go home); otherwise the IdP login.
+                const from = typeof to.query?.from === "string" ? to.query.from : undefined
+                if (BasicAuth.isLoggedIn() && from && from.startsWith("/") && !from.startsWith("//") && !from.includes("://")) {
+                    return from
+                }
+                if (BasicAuth.isLoggedIn()) {
+                    return {name: "home", params: {tenant: to.params.tenant}}
+                }
+                BasicAuth.idpLogin(from)
+                return false
             }
             return
         }
@@ -125,6 +159,13 @@ async function beforeResolve(router: Router, to: any, from: any): Promise<unknow
         const hasCredentials = BasicAuth.isLoggedIn()
 
         if (!hasCredentials) {
+            if (BasicAuth.isOidcAuthEnabled()) {
+                // OIDC: not-logged-in never lands on the Basic Auth SPA login page (its
+                // endpoint does not exist here) — the IdP login is the only login surface.
+                // The SPA login route itself is exempt from carrying a from link.
+                BasicAuth.idpLogin(to.name === "login" ? undefined : to.fullPath)
+                return false
+            }
             const fromPath = to.fullPath !== "/ui/login" ? to.fullPath : undefined
             return {name: "login", query: fromPath ? {from: fromPath} : {}}
         }

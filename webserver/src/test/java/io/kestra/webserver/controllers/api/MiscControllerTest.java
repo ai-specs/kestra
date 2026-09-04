@@ -104,14 +104,15 @@ class MiscControllerTest {
     @Test
     void getLoginConfiguration() {
         // /api/v1/configs/login is the only config endpoint reachable without authentication:
-        // it must expose isBasicAuthInitialized and nothing else (no version, commit id, queue
-        // type, plugin hash, system namespace, url, ...).
+        // it must expose the auth flags and nothing else (no version, commit id, queue type,
+        // plugin hash, system namespace, url, ...).
         TestAuthFilter.ENABLED = false;
         try {
             var response = client.toBlocking().retrieve(GET("/api/v1/configs/login"), Argument.mapOf(String.class, Object.class));
 
-            assertThat(response).containsOnlyKeys("isBasicAuthInitialized");
+            assertThat(response).containsOnlyKeys("isBasicAuthInitialized", "oidcAuthEnabled");
             assertThat(response.get("isBasicAuthInitialized")).isEqualTo(true);
+            assertThat(response.get("oidcAuthEnabled")).isEqualTo(false);
         } finally {
             TestAuthFilter.ENABLED = true;
         }

@@ -8,8 +8,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
  *  so it resolves the same from `ui/` or the repo root). */
 export const STORAGE_STATE = path.resolve(__dirname, "../.auth/user.json")
 
-/** Mirrors `AUTH_FLAG_KEY` in `ui/src/utils/basicAuth.ts`. */
-export const AUTH_FLAG_KEY = "kestraBasicAuthenticated"
+/** Mirrors `AUTH_FLAG_COOKIE_NAME` in `ui/src/utils/basicAuth.ts`. */
+export const AUTH_FLAG_KEY = "oidcAuthenticated"
 
 /** Mirrors `STORAGE_KEY` in `ui/src/stores/productTour.ts`. */
 export const PRODUCT_TOUR_STORAGE_KEY = "kestra.productTour.state"
@@ -34,10 +34,11 @@ export const test = base.extend<{page: Page}, SharedContextFixtures>({
         // Blocking service workers for the test context sidesteps this entirely.
         const context = await browser.newContext({storageState: STORAGE_STATE, serviceWorkers: "block"})
 
-        // storageState skips sessionStorage, so the login-flag cookie alone
-        // still bounces the SPA to /ui/login — re-seed the flag per document.
+        // storageState skips per-document state, so the login-flag cookie alone
+        // still bounces the SPA to the IdP login — re-seed the flag per document
+        // (the flag is non-HttpOnly, so the page itself may set it).
         await context.addInitScript(([authKey, tourKey, tourState]) => {
-            sessionStorage.setItem(authKey, "true")
+            document.cookie = `${authKey}=true; path=/; SameSite=Strict`
             localStorage.setItem(tourKey, tourState)
         }, [AUTH_FLAG_KEY, PRODUCT_TOUR_STORAGE_KEY, SKIPPED_PRODUCT_TOUR])
 
