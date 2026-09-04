@@ -202,5 +202,11 @@ initApp(app, routes, null, en as Record<string, unknown>, {}, {beforeResolve: be
     })
 
     // mount
-    router.isReady().then(() => app.mount("#app"))
+    router.isReady().then(() => {
+        app.mount("#app")
+        // Single-credential model: slide the OIDC session on a timer (well inside the 8h
+        // TTL) so an actively-open app never lets the JWT expire; an idle one expires and
+        // the next 401 falls through to the IdP login.
+        BasicAuth.startSessionRefresher()
+    })
 })

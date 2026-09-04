@@ -89,11 +89,20 @@
 
     onMounted(async () => {
         // Same-origin cookie auth; GET requests bypass Kestra's CsrfTokenFilter.
+        // 401 → one sliding-refresh attempt (rotated JWT) before degrading to the
+        // 未登录 placeholder.
         const API_BASE = `${import.meta.env.VITE_APP_API_URL || ""}${window.KESTRA_BASE_PATH || ""}`.replace(/\/$/, "") || window.location.origin
         try {
-            const res = await fetch(`${API_BASE}/api/v1/oidc/users/me`, {
+            const loadMe = () => fetch(`${API_BASE}/api/v1/oidc/users/me`, {
                 credentials: "include",
             })
+            let res = await loadMe()
+            if (res.status === 401) {
+                const {refreshSession} = await import("../../../utils/basicAuth")
+                if (await refreshSession()) {
+                    res = await loadMe()
+                }
+            }
             if (res.ok) profile.value = await res.json()
         } catch {
             // 未登录/网络失败：按钮退化为未登录占位，弹出层仍提供注销入口

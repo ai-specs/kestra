@@ -188,7 +188,7 @@
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
     import {getCsrfToken} from "../../../utils/csrf"
-    import {SessionExpiredError, sessionExpired} from "../../../utils/dshSession"
+    import {fetchWithSessionRetry, SessionExpiredError, sessionExpired} from "../../../utils/dshSession"
 
     const router = useRouter()
     const {t} = useI18n({useScope: "global"})
@@ -241,15 +241,14 @@
         // HTTPOnly csrfToken cookie from the same response).
         const csrf = getCsrfToken()
         if (csrf) headers.set("X-CSRF-TOKEN", csrf)
-        const res = await fetch(`${API_BASE}${url}`, {
+        // 401 → one sliding-refresh attempt (rotated JWT) + retry; only a failed refresh
+        // goes to the IdP login (from deep link preserved).
+        const res = await fetchWithSessionRetry(`${API_BASE}${url}`, {
             credentials: "include",
             headers,
             ...options,
         })
         if (res.status === 401) {
-            // Session expired (JWT / oidc_session) — never report this as a permission
-            // problem. Go to the IdP login with the current path as the from deep link;
-            // the re-login re-issues every session cookie.
             sessionExpired()
         }
         return res

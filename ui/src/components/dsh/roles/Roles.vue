@@ -70,7 +70,7 @@
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
     import {getCsrfToken} from "../../../utils/csrf"
-    import {SessionExpiredError, sessionExpired} from "../../../utils/dshSession"
+    import {fetchWithSessionRetry, SessionExpiredError, sessionExpired} from "../../../utils/dshSession"
 
     interface UserRow {
         username: string;
@@ -129,14 +129,14 @@
         headers.set("Content-Type", "application/json")
         const csrf = getCsrfToken()
         if (csrf) headers.set("X-CSRF-TOKEN", csrf)
-        const res = await fetch(`${API_BASE}${url}`, {
+        // 401 → one sliding-refresh attempt (rotated JWT) + retry; only a failed refresh
+        // goes to the IdP login (from deep link preserved).
+        const res = await fetchWithSessionRetry(`${API_BASE}${url}`, {
             credentials: "include",
             headers,
             ...options,
         })
         if (res.status === 401) {
-            // Session expired — redirect through the OIDC logout endpoint (clears cookies,
-            // lands on the IdP login) instead of reporting a permission problem.
             sessionExpired()
         }
         return res

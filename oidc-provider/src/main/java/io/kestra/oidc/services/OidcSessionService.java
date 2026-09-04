@@ -76,6 +76,24 @@ public class OidcSessionService {
         return Optional.of(session.subject());
     }
 
+    /**
+     * Slides the session expiry forward to {@code now + ttl} (session refresh). Returns
+     * {@code false} when the session is unknown or already expired — the caller then re-creates
+     * one or rejects the request.
+     */
+    public boolean extend(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return false;
+        }
+        Session session = sessions.get(sessionId);
+        if (session == null || session.expiresAt().isBefore(Instant.now())) {
+            sessions.remove(sessionId);
+            return false;
+        }
+        sessions.put(sessionId, new Session(session.id(), session.subject(), Instant.now().plus(configuration.getSessionTtl())));
+        return true;
+    }
+
     /** Removes a session (logout). */
     public void revoke(String sessionId) {
         if (sessionId != null) {

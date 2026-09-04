@@ -86,6 +86,46 @@ export async function signIn(credentials: {username: string, password: string}) 
     return {username: trimmedUsername}
 }
 
+/**
+ * Sliding-session refresh: asks the IdP for a freshly-rotated credential set
+ * (GET /oidc/refresh → new JWT + refresh + flag cookies). Returns true when the credential
+ * was renewed — the caller may then retry whatever 401'd. Concurrent callers share one
+ * in-flight refresh; a FAILED refresh opens a short cooldown so a burst of 401s cannot turn
+ * into a refresh storm. There is deliberately NO success cooldown: during a boot several
+ * raced requests can 401 back-to-back and each must be allowed to retry against the rotated
+ * credential — per-request single-retry (the caller's job) is what bounds the cycle.
+ */
+let refreshInFlight: Promise<boolean> | null = null
+let lastRefreshFailureAt = 0
+
+export function refreshSession(): Promise<boolean> {
+    if (!oidcAuthEnabled) return Promise.resolve(false)
+    if (Date.now() - lastRefreshFailureAt < 5000) return Promise.resolve(false)
+    if (!refreshInFlight) {
+        refreshInFlight = fetch("/oidc/refresh", {credentials: "include", headers: {"Accept": "application/json"}})
+            .then((res) => {
+                if (!res.ok) lastRefreshFailureAt = Date.now()
+                return res.ok
+            })
+            .catch(() => {
+                lastRefreshFailureAt = Date.now()
+                return false
+            })
+            .finally(() => {
+                refreshInFlight = null
+            })
+    }
+    return refreshInFlight
+}
+
+/** Slides the session forward on a timer so an actively-open app never lets the credential expire. */
+export function startSessionRefresher(intervalMs = 30 * 60 * 1000) {
+    if (typeof window === "undefined") return
+    window.setInterval(() => {
+        if (isLoggedIn()) void refreshSession()
+    }, intervalMs)
+}
+
 export function isLoggedIn() {
     return hasFlagCookie(AUTH_FLAG_COOKIE_NAME) || hasFlagCookie(LEGACY_FLAG_COOKIE_NAME)
 }

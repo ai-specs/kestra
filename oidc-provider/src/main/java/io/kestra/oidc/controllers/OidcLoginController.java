@@ -13,6 +13,11 @@ import io.kestra.oidc.OidcConfiguration;
 import io.kestra.oidc.services.OidcAuthorizationCodeService;
 import io.kestra.oidc.services.OidcClientService;
 import io.kestra.oidc.services.OidcSessionService;
+import io.kestra.oidc.services.OidcTokenService;
+
+import com.nimbusds.oauth2.sdk.Scope;
+import com.nimbusds.oauth2.sdk.id.ClientID;
+import com.nimbusds.oauth2.sdk.token.RefreshToken;
 import io.kestra.oidc.services.OidcUserService;
 
 import io.micronaut.context.annotation.Requires;
@@ -74,11 +79,23 @@ public class OidcLoginController {
     @Deprecated
     static final String LEGACY_BASIC_AUTH_FLAG_COOKIE = "kestraBasicAuthenticated";
 
+    /**
+     * The browser's refresh-token cookie (OAuth2 model): LONG-lived ({@code refreshTokenTtl}),
+     * DB-backed in {@code oidc_token} — revocable and rotated on every use. The {@code JWT}
+     * cookie is deliberately SHORT-lived ({@code accessTokenTtl}): stealing it buys an attacker
+     * only minutes, and a stolen refresh cookie is recoverable by revocation (logout revokes).
+     */
+    static final String REFRESH_COOKIE_NAME = "oidc_refresh";
+
+    /** Scopes bound to the kestra-self browser session's refresh token. */
+    static final Scope SELF_LOGIN_SCOPE = new Scope("openid", "profile", "email");
+
     private final OidcConfiguration configuration;
     private final OidcAuthorizationCodeService authCodeService;
     private final OidcClientService clientService;
     private final OidcUserService userService;
     private final OidcSessionService sessionService;
+    private final OidcTokenService tokenService;
     private final Optional<JwtTokenGenerator> jwtTokenGenerator;
 
     @Inject
@@ -88,6 +105,7 @@ public class OidcLoginController {
         OidcClientService clientService,
         OidcUserService userService,
         OidcSessionService sessionService,
+        OidcTokenService tokenService,
         Optional<JwtTokenGenerator> jwtTokenGenerator
     ) {
         this.configuration = configuration;
@@ -95,6 +113,7 @@ public class OidcLoginController {
         this.clientService = clientService;
         this.userService = userService;
         this.sessionService = sessionService;
+        this.tokenService = tokenService;
         this.jwtTokenGenerator = jwtTokenGenerator;
     }
 
@@ -145,16 +164,18 @@ public class OidcLoginController {
         // Kestra UI 的 JWT cookie 角色必须与该账号在 IdP 的角色一致（bySubject：
         // kestra.oidc.users 里的角色；管理员/未知主体回落 defaultRoles）——
         // 否则普通用户登录后会被当成 admin。
+        // OAuth2 令牌模型：JWT 只是【短期访问令牌】（exp/Max-Age = accessTokenTtl，默认 1h）；
+        // 续期一律凭长命刷新令牌（oidc_refresh cookie，DB 持久化、轮换、可撤销）走 /oidc/refresh。
         jwtTokenGenerator.ifPresent(generator -> generator
             .generateToken(
                 Authentication.build(subject, userService.bySubject(subject).roles()),
-                Math.toIntExact(configuration.getSessionTtl().toSeconds()))
-            .ifPresent(token -> response.cookie(jwtCookie(request, token, configuration.getSessionTtl()))));
+                Math.toIntExact(configuration.getAccessTokenTtl().toSeconds()))
+            .ifPresent(token -> response.cookie(jwtCookie(request, token, configuration.getAccessTokenTtl()))));
+        response.cookie(refreshCookie(request,
+            tokenService.issueRefreshToken(new ClientID(SELF_CLIENT_ID), subject, SELF_LOGIN_SCOPE)));
         // UI 的 SPA 引导守卫读这个非 HttpOnly 标志 cookie 判定「已登录」；没有它即使 JWT
-        // 已落地，SPA 内部导航仍会误判未登录。该 cookie 是 oidc_session 的镜像：与
-        // oidc_session / JWT 同寿命（Max-Age = session TTL），三者一起过期，不会出现
-        // 「标志还在而会话已死」的半登录态。
-        response.cookie(uiAuthFlagCookie(request, configuration.getSessionTtl()));
+        // 已落地，SPA 内部导航仍会误判未登录。其寿命=刷新令牌寿命：只要还能刷新就算登录态。
+        response.cookie(uiAuthFlagCookie(request, configuration.getRefreshTokenTtl()));
         // 退役命名一次性清理：旧标志 cookie 若还在，立即失效。
         response.cookie(clearCookie(LEGACY_BASIC_AUTH_FLAG_COOKIE, request.isSecure()));
         return response;
@@ -162,18 +183,28 @@ public class OidcLoginController {
 
     /**
      * The {@code JWT} cookie Kestra's Micronaut SecurityFilter validates (default cookie name).
-     * Same attributes as the session cookie: HttpOnly, SameSite=Strict, TLS-only when applicable.
-     * Max-Age = session TTL so the browser drops it in lockstep with the {@code exp} claim and
-     * the {@code oidc_session}/{@code oidcAuthenticated} cookies — an expired JWT never lingers
-     * as a session cookie that SecurityFilter would reject on every navigation.
+     * HttpOnly, SameSite=Strict, TLS-only when applicable. Per the OAuth2 model this is the
+     * SHORT-lived access token: Max-Age = {@code accessTokenTtl} in lockstep with the {@code exp}
+     * claim, so a stolen/expired access cookie leaves nothing behind — renewal happens only
+     * through the long-lived, rotating {@code oidc_refresh} cookie.
      */
-    private static Cookie jwtCookie(HttpRequest<?> request, String token, Duration sessionTtl) {
+    private static Cookie jwtCookie(HttpRequest<?> request, String token, Duration accessTokenTtl) {
         return Cookie.of("JWT", token)
             .path("/")
             .httpOnly(true)
             .secure(request.isSecure())
             .sameSite(SameSite.Strict)
-            .maxAge(sessionTtl);
+            .maxAge(accessTokenTtl);
+    }
+
+    /** The long-lived {@code oidc_refresh} cookie (HttpOnly; Max-Age = refresh-token TTL). */
+    private Cookie refreshCookie(HttpRequest<?> request, RefreshToken refreshToken) {
+        return Cookie.of(REFRESH_COOKIE_NAME, refreshToken.getValue())
+            .path("/")
+            .httpOnly(true)
+            .secure(request.isSecure())
+            .sameSite(SameSite.Strict)
+            .maxAge(configuration.getRefreshTokenTtl());
     }
 
     /**
@@ -197,6 +228,71 @@ public class OidcLoginController {
             .secure(request.isSecure())
             .sameSite(SameSite.Strict)
             .maxAge(sessionTtl);
+    }
+
+    // ------------------------------------------------------------------ session refresh
+
+    /**
+     * OAuth2 refresh flow for the browser: the SHORT-lived {@code JWT} access cookie expires
+     * quickly by design; renewal happens ONLY through the LONG-lived, DB-backed refresh token
+     * ({@code oidc_refresh} cookie) — validated against {@code oidc_token}, then ROTATED
+     * (old token revoked, new one issued) so a replayed refresh cookie is detectable, and
+     * revocable (logout revokes it server-side).
+     *
+     * <p>
+     * On success the browser gets a fresh access JWT ({@code accessTokenTtl}), a rotated
+     * refresh cookie ({@code refreshTokenTtl}), and a re-issued flag cookie in lockstep; the
+     * IdP SSO session ({@code oidc_session}) is slid forward best-effort so the authorize
+     * endpoint stays alive for the same active user.
+     */
+    @Get("/refresh")
+    public HttpResponse<?> refresh(HttpRequest<?> request) {
+        var refreshCookie = request.getCookies().findCookie(REFRESH_COOKIE_NAME);
+        if (refreshCookie.isEmpty() || refreshCookie.get().getValue().isBlank()) {
+            return unauthorized("no refresh token");
+        }
+        String value = refreshCookie.get().getValue();
+        try {
+            // Validate the LONG-lived credential (DB: exists, type=refresh, not revoked, not expired).
+            OidcTokenService.StoredToken stored = tokenService.validateRefreshToken(value, SELF_CLIENT_ID);
+
+            // Re-check the subject against the directory (strict — no default-roles fallback).
+            OidcUserService.OidcUser user = userService.directoryUser(stored.subject()).orElse(null);
+            if (user == null) {
+                return unauthorized("refresh token subject is not a directory user");
+            }
+            String subject = user.sub();
+
+            io.micronaut.http.MutableHttpResponse<?> response = HttpResponse.noContent();
+
+            // Rotate the refresh token first (revoke old, issue new) — the OAuth2 rotation pattern.
+            tokenService.revoke(value);
+            response.cookie(refreshCookie(request,
+                tokenService.issueRefreshToken(new ClientID(SELF_CLIENT_ID), subject, SELF_LOGIN_SCOPE)));
+
+            // Fresh SHORT-lived access JWT.
+            jwtTokenGenerator.ifPresent(generator -> generator
+                .generateToken(
+                    Authentication.build(subject, userService.bySubject(subject).roles()),
+                    Math.toIntExact(configuration.getAccessTokenTtl().toSeconds()))
+                .ifPresent(token -> response.cookie(jwtCookie(request, token, configuration.getAccessTokenTtl()))));
+
+            // Flag mirror in lockstep with the refresh lifetime.
+            response.cookie(uiAuthFlagCookie(request, configuration.getRefreshTokenTtl()));
+
+            // Best-effort: keep the IdP SSO session alive for the same active user.
+            var sessionId = sessionService.sessionIdFrom(request);
+            sessionId.ifPresent(sessionService::extend);
+            return response;
+        } catch (Exception e) {
+            return unauthorized("invalid refresh token: " + e.getMessage());
+        }
+    }
+
+    private static io.micronaut.http.MutableHttpResponse<?> unauthorized(String detail) {
+        return HttpResponse.status(io.micronaut.http.HttpStatus.UNAUTHORIZED).body(Map.of(
+            "error", "invalid_grant",
+            "error_description", detail));
     }
 
     // ------------------------------------------------------------------ self-bootstrap
@@ -278,6 +374,11 @@ public class OidcLoginController {
     @Get("/logout")
     public HttpResponse<?> logout(HttpRequest<?> request) {
         boolean secure = request.isSecure();
+        // Server-side revocation of the refresh token: without it, a copied oidc_refresh
+        // cookie would outlive the logout (the access JWT is stateless by design, but the
+        // LONG-lived credential must not be).
+        var refreshCookie = request.getCookies().findCookie(REFRESH_COOKIE_NAME);
+        refreshCookie.map(Cookie::getValue).ifPresent(tokenService::revoke);
         // Read the raw query parameter (not method binding): deterministic across Micronaut versions.
         Optional<String> postLogoutRedirectUri = request.getParameters().getFirst("post_logout_redirect_uri");
         URI target = postLogoutRedirectUri
@@ -287,6 +388,7 @@ public class OidcLoginController {
         return HttpResponse.redirect(target)
             .cookie(clearCookie(OidcSessionService.SESSION_COOKIE_NAME, secure))
             .cookie(clearCookie("JWT", secure))
+            .cookie(clearCookie(REFRESH_COOKIE_NAME, secure))
             .cookie(clearCookie(OIDC_AUTH_FLAG_COOKIE, secure))
             .cookie(clearCookie(LEGACY_BASIC_AUTH_FLAG_COOKIE, secure));
     }

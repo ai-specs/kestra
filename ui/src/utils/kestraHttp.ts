@@ -1,7 +1,7 @@
 import NProgress from "nprogress"
 import type {Router} from "vue-router"
 import {configureClient, useClient, asProblem, type ProblemDetail} from "@kestra-io/kestra-sdk"
-import {idpLogin, isOidcAuthEnabled} from "./basicAuth"
+import {idpLogin, isOidcAuthEnabled, refreshSession} from "./basicAuth"
 
 let pendingRoute = false
 let requestsTotal = 0
@@ -166,18 +166,36 @@ export function setupKestraHttp(
     }
 
     function withAuthRetry<F extends (...args: any[]) => Promise<any>>(fn: F): F {
-        return (async (...args: Parameters<F>) => {
+        // `retried` bounds each request chain to ONE refresh-retry — combined with the
+        // refresh in-flight dedup this makes the 401 → refresh → retry cycle terminate even
+        // when several raced requests 401 back-to-back during a boot.
+        const run = async (retried: boolean, ...args: Parameters<F>) => {
             try {
                 return await fn(...args)
             } catch (error) {
                 const kestraError = error as KestraHttpError
-                if (kestraError.status === 401 && !isLoggedIn()) {
+                if (kestraError.status !== 401) throw error
+                if (isOidcAuthEnabled()) {
+                    // OIDC single-credential model: a 401 first tries one sliding refresh
+                    // (rotated JWT) and retries the request — an actively-used session is
+                    // renewed transparently. Only a refresh that fails (truly expired or
+                    // invalid) falls through to the login redirect — never a stuck state.
+                    if (!retried && await refreshSession()) {
+                        return run(true, ...args)
+                    }
                     const shouldRetry = await onUnauthorized(navigateToLogin, kestraError)
-                    if (shouldRetry) return fn(...args)
+                    if (shouldRetry) return run(true, ...args)
+                    throw error
+                }
+                // OSS upstream semantics: redirect only when the flag cookie is gone.
+                if (!isLoggedIn()) {
+                    const shouldRetry = await onUnauthorized(navigateToLogin, kestraError)
+                    if (shouldRetry) return run(true, ...args)
                 }
                 throw error
             }
-        }) as F
+        }
+        return ((...args: Parameters<F>) => run(false, ...args)) as F
     }
 
     const client = configureClient(clientConfig)

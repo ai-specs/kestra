@@ -24,6 +24,24 @@ export class SessionExpiredError extends Error {
 let redirecting = false;
 
 /**
+ * Directory-API fetch with the single-credential semantics: on a 401 the credential is
+ * refreshed once (sliding rotation) and the request retried — an actively-used session is
+ * renewed transparently. Only when the refresh also fails (truly expired/invalid) does the
+ * browser go to the IdP login with the current path as the `from` deep link.
+ */
+export async function fetchWithSessionRetry(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const {refreshSession} = await import("./basicAuth")
+    let res = await fetch(input, init)
+    if (res.status === 401) {
+        const refreshed = await refreshSession()
+        if (refreshed) {
+            res = await fetch(input, init)
+        }
+    }
+    return res
+}
+
+/**
  * Clears the client-readable login flags and navigates to the IdP login page with the
  * current path preserved as the `from` deep link. Guarded so concurrent 401 responses
  * only trigger one navigation.
