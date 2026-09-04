@@ -127,6 +127,8 @@
         margin: 0.25rem;
         border-radius: var(--ks-radius-base);
         background: var(--ks-bg-secondary, rgba(127, 127, 127, 0.18));
+        // KsSelect 的触发器把图标染成暗灰，账号项按常规侧栏条目的主文字色渲染
+        color: var(--ks-text-primary);
     }
 
     .user-item__header {
@@ -161,6 +163,16 @@
         &.is-hovering:not(.is-focused) {
             box-shadow: 0 0 0 1px var(--ks-border-subtle) inset;
         }
+    }
+
+    // 未选中值时 KsSelect 把 label 渲染成半透明 placeholder（默认暗灰）——
+    // 账号名是本项的主文字，恢复为主文字色；前后缀图标同理。
+    :deep(.kel-select__placeholder.is-transparent) {
+        color: var(--ks-text-primary);
+    }
+
+    :deep(.kel-select__suffix) {
+        color: var(--ks-text-primary);
     }
 
     .menu-item {
