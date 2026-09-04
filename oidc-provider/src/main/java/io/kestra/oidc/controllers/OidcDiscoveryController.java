@@ -67,6 +67,11 @@ public class OidcDiscoveryController {
         metadata.setUserInfoEndpointURI(URI.create(issuer + "/oidc/userinfo"));
         metadata.setIntrospectionEndpointURI(URI.create(issuer + "/oidc/introspect"));
         metadata.setRevocationEndpointURI(URI.create(issuer + "/oidc/revoke"));
+        // RP-initiated logout 的登出端点：任何依赖 OIDC Discovery 的 RP（Nacos、dsh pc、
+        // dsh 手机端）都从这里发现 end_session_endpoint，退出时跳到这里清 oidc_session。
+        // 用浏览器可达的 externalBaseUrl（与 authorization_endpoint 一致），不能是内部
+        // 服务名 —— 否则 RP 拿到的登出地址在浏览器不可达，RP-initiated logout 会失效。
+        metadata.setEndSessionEndpointURI(URI.create(authorizationBase + "/oidc/logout"));
         metadata.setScopes(new Scope(OIDCScopeValue.OPENID, OIDCScopeValue.PROFILE, OIDCScopeValue.EMAIL));
         metadata.setResponseTypes(Collections.singletonList(ResponseType.CODE));
         metadata.setGrantTypes(Arrays.asList(

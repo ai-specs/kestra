@@ -158,9 +158,24 @@ public class OidcLoginController {
                 .status(io.micronaut.http.HttpStatus.UNAUTHORIZED);
         }
 
-        String sessionId = sessionService.create(subject);
-        io.micronaut.http.MutableHttpResponse<?> response = HttpResponse.seeOther(URI.create(from))
-            .cookie(sessionService.sessionCookie(request, sessionId));
+        // 跨应用 SSO 复用的用户选择（remember_session）：勾选 → 创建 8h 滑动 IdP 会话
+        // （oidc_session），供 Nacos / dsh pc / 手机端在会话期内免密复用；不勾选（默认）
+        // → 不创建 IdP 会话，且清掉本次登录前残留的已有 oidc_session —— 每次进入其他
+        // 应用都要重新认证（复用是显式选择，不是默认行为）。Kestra UI 自身的登录态
+        // （JWT + oidc_refresh）与此无关，两种选择下都正常颁发。
+        boolean rememberSession = "true".equals(form.get("remember_session"));
+        io.micronaut.http.MutableHttpResponse<?> response = HttpResponse.seeOther(URI.create(from));
+        if (rememberSession) {
+            String sessionId = sessionService.create(subject);
+            response.cookie(sessionService.sessionCookie(request, sessionId));
+        } else {
+            // 语义一致：不勾选 = 不要 IdP 会话。主动清掉浏览器上可能残留的 oidc_session，
+            // 否则一次勾选登录留下的会话会在后续不勾选登录后继续生效。
+            request.getCookies().findCookie(OidcSessionService.SESSION_COOKIE_NAME)
+                .map(Cookie::getValue)
+                .ifPresent(sessionService::revoke);
+            response.cookie(clearCookie(OidcSessionService.SESSION_COOKIE_NAME, request.isSecure()));
+        }
         // Kestra UI 的 JWT cookie 角色必须与该账号在 IdP 的角色一致（bySubject：
         // kestra.oidc.users 里的角色；管理员/未知主体回落 defaultRoles）——
         // 否则普通用户登录后会被当成 admin。
@@ -452,6 +467,11 @@ public class OidcLoginController {
               input { width: 100%%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px;
                       border: 1px solid #2c3757; background: #0e1426; color: #e6e9f2; font-size: 14px; }
               input:focus { outline: none; border-color: #4f7cff; }
+              label.remember { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0 0;
+                                font-size: 13px; color: #c3cadf; line-height: 1.5; cursor: pointer; }
+              label.remember input[type="checkbox"] { width: 16px; height: 16px; margin: 1px 0 0;
+                                                      flex: 0 0 auto; accent-color: #2952e3; }
+              .remember-hint { font-size: 12px; color: #6f7891; margin: 4px 0 0 24px; line-height: 1.5; }
               button { width: 100%%; margin-top: 22px; padding: 11px; border: 0; border-radius: 8px;
                        background: #2952e3; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
               button:hover { background: #1e46c2; }
@@ -468,6 +488,11 @@ public class OidcLoginController {
                 <input id="username" name="username" type="text" autocomplete="username" autofocus required>
                 <label for="password">密码</label>
                 <input id="password" name="password" type="password" autocomplete="current-password" required>
+                <label class="remember" for="remember_session">
+                  <input id="remember_session" name="remember_session" type="checkbox" value="true">
+                  <span>记住登录会话，供其他应用免密登录</span>
+                </label>
+                <p class="remember-hint">勾选后，8 小时内访问 Nacos、dsh PC 与手机端无需再次输入密码；不勾选则每次进入均需验证。</p>
                 <p class="error">%s</p>
                 <button type="submit">登录</button>
               </form>
