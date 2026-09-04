@@ -35,6 +35,15 @@ public class OidcSessionService {
     /** The session cookie name. */
     public static final String SESSION_COOKIE_NAME = "oidc_session";
 
+    /**
+     * Lifetime of a one-shot session (remember_session unchecked + SSO authorize flow): just
+     * enough for the browser to complete the current {@code /oidc/authorize} round-trip; the
+     * session is revoked server-side right after the authorization code is issued, and the short
+     * cookie TTL makes sure the browser drops it on its own shortly after. Any subsequent SSO
+     * therefore has to re-authenticate — "每次进入均需验证" is preserved.
+     */
+    public static final Duration ONE_SHOT_TTL = Duration.ofMinutes(2);
+
     /** In-memory session store: session id -> (subject, expiry). */
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
     private final SecureRandom secureRandom = new SecureRandom();
@@ -45,16 +54,28 @@ public class OidcSessionService {
         this.configuration = configuration;
     }
 
-    /** A session entry. */
-    public record Session(String id, String subject, Instant expiresAt) {}
+    /** A session entry. {@code oneShot} sessions exist only to complete one authorize flow. */
+    public record Session(String id, String subject, Instant expiresAt, boolean oneShot) {}
 
     /**
-     * Creates a session for the given subject and returns its opaque id.
+     * Creates a regular (reusable) session for the given subject and returns its opaque id.
      */
     public String create(String subject) {
+        return create(subject, false, configuration.getSessionTtl());
+    }
+
+    /**
+     * Creates a one-shot session: short TTL, never slid by {@link #extend}, and expected to be
+     * revoked by the authorize endpoint right after the code is issued.
+     */
+    public String createOneShot(String subject) {
+        return create(subject, true, ONE_SHOT_TTL);
+    }
+
+    private String create(String subject, boolean oneShot, Duration ttl) {
         String id = randomId();
-        Instant expiresAt = Instant.now().plus(configuration.getSessionTtl());
-        sessions.put(id, new Session(id, subject, expiresAt));
+        Instant expiresAt = Instant.now().plus(ttl);
+        sessions.put(id, new Session(id, subject, expiresAt, oneShot));
         return id;
     }
 
@@ -79,7 +100,8 @@ public class OidcSessionService {
     /**
      * Slides the session expiry forward to {@code now + ttl} (session refresh). Returns
      * {@code false} when the session is unknown or already expired — the caller then re-creates
-     * one or rejects the request.
+     * one or rejects the request. One-shot sessions are never slid (they must die right after
+     * their single authorize use).
      */
     public boolean extend(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
@@ -90,8 +112,27 @@ public class OidcSessionService {
             sessions.remove(sessionId);
             return false;
         }
-        sessions.put(sessionId, new Session(session.id(), session.subject(), Instant.now().plus(configuration.getSessionTtl())));
+        if (session.oneShot()) {
+            return false;
+        }
+        sessions.put(sessionId, new Session(session.id(), session.subject(), Instant.now().plus(configuration.getSessionTtl()), false));
         return true;
+    }
+
+    /**
+     * Whether the session is a one-shot session (still valid, not expired). Used by the
+     * authorize endpoint to revoke it right after issuing the authorization code.
+     */
+    public boolean isOneShot(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return false;
+        }
+        Session session = sessions.get(sessionId);
+        if (session == null || session.expiresAt().isBefore(Instant.now())) {
+            sessions.remove(sessionId);
+            return false;
+        }
+        return session.oneShot();
     }
 
     /** Removes a session (logout). */
@@ -101,14 +142,19 @@ public class OidcSessionService {
         }
     }
 
-    /** Builds the session cookie for the given session id. */
+    /** Builds the session cookie for the given session id (regular session TTL). */
     public Cookie sessionCookie(HttpRequest<?> request, String sessionId) {
+        return sessionCookie(request, sessionId, configuration.getSessionTtl());
+    }
+
+    /** Builds the session cookie with an explicit max-age (used for short-lived one-shot sessions). */
+    public Cookie sessionCookie(HttpRequest<?> request, String sessionId, Duration maxAge) {
         return Cookie.of(SESSION_COOKIE_NAME, sessionId)
             .path("/")
             .httpOnly(true)
             .secure(request.isSecure())
             .sameSite(SameSite.Strict)
-            .maxAge(configuration.getSessionTtl());
+            .maxAge(maxAge);
     }
 
     /** Reads the session id from the request cookie (empty when absent). */

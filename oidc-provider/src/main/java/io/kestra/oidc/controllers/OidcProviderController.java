@@ -58,6 +58,7 @@ import io.kestra.oidc.services.OidcAuthorizationCodeService;
 import io.kestra.oidc.services.OidcClientService;
 import io.kestra.oidc.services.OidcException;
 import io.kestra.oidc.services.OidcJwkService;
+import io.kestra.oidc.services.OidcSessionService;
 import io.kestra.oidc.services.OidcTokenService;
 import io.kestra.oidc.services.OidcUserService;
 
@@ -96,6 +97,7 @@ public class OidcProviderController {
     private final OidcTokenService tokenService;
     private final OidcJwkService jwkService;
     private final OidcUserService userService;
+    private final OidcSessionService sessionService;
 
     @Inject
     public OidcProviderController(
@@ -104,7 +106,8 @@ public class OidcProviderController {
         OidcAuthorizationCodeService authCodeService,
         OidcTokenService tokenService,
         OidcJwkService jwkService,
-        OidcUserService userService
+        OidcUserService userService,
+        OidcSessionService sessionService
     ) {
         this.configuration = configuration;
         this.clientService = clientService;
@@ -112,6 +115,7 @@ public class OidcProviderController {
         this.tokenService = tokenService;
         this.jwkService = jwkService;
         this.userService = userService;
+        this.sessionService = sessionService;
     }
 
     // ------------------------------------------------------------------------
@@ -204,6 +208,14 @@ public class OidcProviderController {
         AuthorizationSuccessResponse success = new AuthorizationSuccessResponse(
             redirectUri, code, null, state, ResponseMode.QUERY
         );
+        // One-shot sessions (remember_session unchecked) are consumed by this single authorize:
+        // revoke them server-side right after issuing the code — the next SSO must re-authenticate.
+        Optional<String> sessionId = sessionService.sessionIdFrom(request);
+        sessionId.ifPresent(id -> {
+            if (sessionService.isOneShot(id)) {
+                sessionService.revoke(id);
+            }
+        });
         return HttpResponse.redirect(success.toURI());
     }
 

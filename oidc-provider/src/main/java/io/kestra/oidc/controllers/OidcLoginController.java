@@ -160,14 +160,21 @@ public class OidcLoginController {
 
         // 跨应用 SSO 复用的用户选择（remember_session）：勾选 → 创建 8h 滑动 IdP 会话
         // （oidc_session），供 Nacos / dsh pc / 手机端在会话期内免密复用；不勾选（默认）
-        // → 不创建 IdP 会话，且清掉本次登录前残留的已有 oidc_session —— 每次进入其他
-        // 应用都要重新认证（复用是显式选择，不是默认行为）。Kestra UI 自身的登录态
+        // → 每次进入其他应用都要重新认证（复用是显式选择，不是默认行为）。Kestra UI 自身的登录态
         // （JWT + oidc_refresh）与此无关，两种选择下都正常颁发。
         boolean rememberSession = "true".equals(form.get("remember_session"));
         io.micronaut.http.MutableHttpResponse<?> response = HttpResponse.seeOther(URI.create(from));
         if (rememberSession) {
             String sessionId = sessionService.create(subject);
             response.cookie(sessionService.sessionCookie(request, sessionId));
+        } else if (from != null && from.startsWith("/oidc/authorize")) {
+            // 不勾选 + 本次是 SSO 授权请求：登录 POST 的 from 指向 /oidc/authorize，
+            // authorize 端点靠 oidc_session 判定已认证——若这里不建会话，303 回跳 authorize
+            // 又会因为没有会话被 302 打回登录页（死循环，实测）。所以创建【一次性会话】：
+            // 短 TTL、不滑动，authorize 颁发 code 后立即服务端撤销（用户认可的
+            // "成功颁发 token 后直接删除 OP session"语义）——本次 SSO 完成，下次仍要重新认证。
+            String sessionId = sessionService.createOneShot(subject);
+            response.cookie(sessionService.sessionCookie(request, sessionId, OidcSessionService.ONE_SHOT_TTL));
         } else {
             // 语义一致：不勾选 = 不要 IdP 会话。主动清掉浏览器上可能残留的 oidc_session，
             // 否则一次勾选登录留下的会话会在后续不勾选登录后继续生效。
@@ -296,8 +303,14 @@ public class OidcLoginController {
             response.cookie(uiAuthFlagCookie(request, configuration.getRefreshTokenTtl()));
 
             // Best-effort: keep the IdP SSO session alive for the same active user.
+            // One-shot sessions are never slid — they must die right after their single
+            // authorize use (remember_session unchecked).
             var sessionId = sessionService.sessionIdFrom(request);
-            sessionId.ifPresent(sessionService::extend);
+            sessionId.ifPresent(id -> {
+                if (!sessionService.isOneShot(id)) {
+                    sessionService.extend(id);
+                }
+            });
             return response;
         } catch (Exception e) {
             return unauthorized("invalid refresh token: " + e.getMessage());
@@ -409,8 +422,32 @@ public class OidcLoginController {
     }
 
     private boolean isRegisteredRedirectUri(String uri) {
+        String normalized = normalizeRootSlash(uri);
         return clientService.list().stream()
-            .anyMatch(client -> client.redirectUris().contains(uri));
+            .flatMap(client -> client.redirectUris().stream())
+            .anyMatch(registered -> normalizeRootSlash(registered).equals(normalized));
+    }
+
+    /**
+     * Treat {@code http://host} and {@code http://host/} as the same origin root. Relying
+     * parties (e.g. Nacos) send {@code post_logout_redirect_uri} without a trailing slash
+     * while our clients are registered with one — exact matching would silently reject the
+     * redirect and fall back to the IdP login. Non-root paths are left untouched.
+     */
+    private static String normalizeRootSlash(String value) {
+        if (value.length() <= 1 || !value.endsWith("/")) {
+            return value;
+        }
+        try {
+            URI u = URI.create(value);
+            String path = u.getRawPath();
+            if (path == null || path.isEmpty() || "/".equals(path)) {
+                return value.substring(0, value.length() - 1);
+            }
+        } catch (IllegalArgumentException ignored) {
+            // not parseable as a URI — leave as-is, exact match will simply fail
+        }
+        return value;
     }
 
     private static Cookie clearCookie(String name, boolean secure) {
