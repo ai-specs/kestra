@@ -4,9 +4,9 @@ import {useClient} from "@kestra-io/kestra-sdk"
 
 // Under the dsh OIDC deployment the server session is the IdP's `oidc_session` cookie
 // (HttpOnly, Max-Age = session TTL) plus the `JWT` cookie Kestra's SecurityFilter validates.
-// The server issues a non-HttpOnly flag cookie in lockstep — same name as the session it
-// mirrors, same Max-Age — so the UI can read the login state client-side; it carries no
-// credentials.
+// The boot guard needs a SYNCHRONOUS login check, and `oidc_session` is HttpOnly — unreadable
+// from JS. The server therefore issues a non-HttpOnly flag cookie in lockstep — same
+// lifetime, no credentials — as the client-readable mirror of the session.
 const AUTH_FLAG_COOKIE_NAME = "oidcAuthenticated"
 // Upstream OSS flag name, retired by the OIDC unification. The server never sets it anymore
 // (only clears it); kept here so browsers logged in before the upgrade are not kicked out
@@ -57,11 +57,15 @@ function hasFlagCookie(name: string) {
 }
 
 export async function logout() {
-    // Clear the client-readable flags too, so isLoggedIn() flips immediately even if the
-    // POST fails (under OIDC the OSS /logout endpoint has no backing bean — the real logout
-    // is /oidc/logout, used by the account menu).
+    // Clear the client-readable flags too, so isLoggedIn() flips immediately.
     for (const name of [AUTH_FLAG_COOKIE_NAME, LEGACY_FLAG_COOKIE_NAME]) {
         document.cookie = `${name}=; Max-Age=0; path=/; SameSite=Strict`
+    }
+    if (oidcAuthEnabled) {
+        // Under OIDC the OSS POST /logout has no backing bean (it would only 4xx, swallowed
+        // by callers); the real logout is /oidc/logout, used by the account menu and the
+        // session-expired paths.
+        return true
     }
     try {
         await fetch(`${apiUrlWithoutTenants()}/logout`, {

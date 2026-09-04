@@ -1,6 +1,7 @@
 import NProgress from "nprogress"
 import type {Router} from "vue-router"
 import {configureClient, useClient, asProblem, type ProblemDetail} from "@kestra-io/kestra-sdk"
+import {idpLogin, isOidcAuthEnabled} from "./basicAuth"
 
 let pendingRoute = false
 let requestsTotal = 0
@@ -136,6 +137,13 @@ export function setupKestraHttp(
     } = options
 
     function navigateToLogin() {
+        // OIDC: the SPA login route is a dead end (no Basic Auth endpoint behind it) — the
+        // IdP login is the only entry, and it must be a full-page navigation so the server
+        // re-issues the session cookies. Deep link carries the current path.
+        if (isOidcAuthEnabled()) {
+            idpLogin(window.location.pathname + window.location.search)
+            return
+        }
         if (!router) return
         const currentPath = window.location.pathname
         router.push({

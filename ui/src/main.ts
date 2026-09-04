@@ -36,12 +36,14 @@ app.provide(TASK_ICON_INJECTION_KEY, TaskIcon)
 // Fail closed: an error probing the pre-auth endpoints is no evidence that setup is needed.
 const handleAuthError = (to: {fullPath: string}, error: unknown) => {
     if ((error as {response?: {status?: number}} | null)?.response?.status === 401) {
-        BasicAuth.logout()
         if (BasicAuth.isOidcAuthEnabled()) {
             // OIDC: the SPA login route has no backing endpoint — re-login happens at the IdP.
+            // No BasicAuth.logout() here: the OSS POST /logout has no backing bean under OIDC
+            // and would only 4xx (swallowed); the IdP login re-issues every cookie anyway.
             BasicAuth.idpLogin(to.fullPath)
             return false
         }
+        BasicAuth.logout()
         const fromPath = to.fullPath !== "/ui/login" ? to.fullPath : undefined
         return {name: "login", query: fromPath ? {from: fromPath} : {}}
     }

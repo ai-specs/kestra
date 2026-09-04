@@ -149,7 +149,7 @@ public class OidcLoginController {
             .generateToken(
                 Authentication.build(subject, userService.bySubject(subject).roles()),
                 Math.toIntExact(configuration.getSessionTtl().toSeconds()))
-            .ifPresent(token -> response.cookie(jwtCookie(request, token))));
+            .ifPresent(token -> response.cookie(jwtCookie(request, token, configuration.getSessionTtl()))));
         // UI 的 SPA 引导守卫读这个非 HttpOnly 标志 cookie 判定「已登录」；没有它即使 JWT
         // 已落地，SPA 内部导航仍会误判未登录。该 cookie 是 oidc_session 的镜像：与
         // oidc_session / JWT 同寿命（Max-Age = session TTL），三者一起过期，不会出现
@@ -163,13 +163,17 @@ public class OidcLoginController {
     /**
      * The {@code JWT} cookie Kestra's Micronaut SecurityFilter validates (default cookie name).
      * Same attributes as the session cookie: HttpOnly, SameSite=Strict, TLS-only when applicable.
+     * Max-Age = session TTL so the browser drops it in lockstep with the {@code exp} claim and
+     * the {@code oidc_session}/{@code oidcAuthenticated} cookies — an expired JWT never lingers
+     * as a session cookie that SecurityFilter would reject on every navigation.
      */
-    private static Cookie jwtCookie(HttpRequest<?> request, String token) {
+    private static Cookie jwtCookie(HttpRequest<?> request, String token, Duration sessionTtl) {
         return Cookie.of("JWT", token)
             .path("/")
             .httpOnly(true)
             .secure(request.isSecure())
-            .sameSite(SameSite.Strict);
+            .sameSite(SameSite.Strict)
+            .maxAge(sessionTtl);
     }
 
     /**
