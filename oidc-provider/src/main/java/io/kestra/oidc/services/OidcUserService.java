@@ -988,6 +988,13 @@ public class OidcUserService {
         final String insertMethod = """
             INSERT INTO oidc_user_auth_method (user_id, type, credential)
             VALUES (?, 'PASSWORD', ?) ON CONFLICT (user_id, type) DO NOTHING""";
+        // 项目指派是角色的权威来源（2.0.35 起 oidc_user.roles 仅存展示副本）——
+        // 运行时播种若只写旧列，全新环境里所有账号（含 admin）解析出的角色都是
+        // 空，管理面会陷入"需要 admin 角色才能进管理页发角色"的自举死锁。
+        final String insertAssignments = """
+            INSERT INTO oidc_role_assignment (user_id, project_id, role_name)
+            SELECT ?, 'dsh', role FROM jsonb_array_elements_text(?::jsonb) AS role
+            ON CONFLICT (user_id, project_id, role_name) DO NOTHING""";
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try (PreparedStatement ps = connection.prepareStatement(insertUser)) {
@@ -1000,6 +1007,11 @@ public class OidcUserService {
             try (PreparedStatement ps = connection.prepareStatement(insertMethod)) {
                 ps.setString(1, username);
                 ps.setString(2, hash);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = connection.prepareStatement(insertAssignments)) {
+                ps.setString(1, username);
+                ps.setString(2, objectMapper.writeValueAsString(roles));
                 ps.executeUpdate();
             }
             connection.commit();
