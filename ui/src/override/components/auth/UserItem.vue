@@ -162,9 +162,53 @@
             box-shadow: 0 0 0 1px var(--ks-border-subtle) inset;
         }
     }
+
+    .menu-item {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        color: var(--ks-text-primary);
+        text-decoration: none;
+
+        .menu-icon {
+            color: var(--ks-text-dim);
+            font-size: var(--ks-font-size-xl);
+            flex-shrink: 0;
+        }
+    }
 </style>
 
 <!-- eslint-disable-next-line vue/enforce-style-attribute -->
 <style lang="scss">
-    // Reuses the .user-select dropdown chrome shipped by Auth.vue (width, shadow, menu-item).
+    // 弹层外观：接管自 Auth.vue 的 .user-select 全局块（Auth 已不在挂载树里，
+    // 其样式不再进包；popperClass="user-select" 依赖这段才有多宽/描边/投影）。
+    .user-select {
+        &.kel-select-dropdown {
+            width: 328px;
+            background: var(--ks-bg-input);
+            box-shadow: 2px 3px 3px var(--ks-shadow-element);
+            border-radius: var(--kel-border-radius-base);
+            border: 1px solid var(--ks-border-default) !important;
+
+            .kel-select-dropdown__item {
+                min-height: 30px;
+                height: fit-content;
+                padding: 10px 16px 8px 16px;
+                font-weight: var(--ks-font-weight-bold);
+            }
+
+            .kel-select-dropdown__footer {
+                padding: 5px 0;
+
+                .kel-select-dropdown__item {
+                    margin: 0 !important;
+                }
+            }
+        }
+    }
+
+    .user-avatar {
+        padding: 0.25rem;
+        border-radius: var(--ks-radius-base);
+    }
 </style>
