@@ -2625,6 +2625,13 @@
       "dismiss": "Not now"
     },
     "dsh": {
+      "account": {
+        "title": "Signed in as",
+        "preferences": "Preferences",
+        "logout": "Sign out",
+        "roles": "Roles",
+        "notLoggedIn": "Not signed in"
+      },
       "users": {
         "title": "Users",
         "add": "New user",

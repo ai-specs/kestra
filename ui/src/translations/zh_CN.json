@@ -2625,8 +2625,15 @@
       "dismiss": "暂不"
     },
     "dsh": {
+      "account": {
+        "title": "当前用户",
+        "preferences": "偏好设置",
+        "logout": "注销",
+        "roles": "角色",
+        "notLoggedIn": "未登录"
+      },
       "users": {
-        "title": "用户控制",
+        "title": "用户管理",
         "add": "新建用户",
         "searchPlaceholder": "搜索用户名、姓名或邮箱…",
         "type": "类型",
@@ -2673,7 +2680,7 @@
         }
       },
       "project": {
-        "title": "项目",
+        "title": "项目管理",
         "add": "新建项目",
         "searchPlaceholder": "搜索项目名或描述…",
         "view": "查看",

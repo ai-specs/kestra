@@ -63,6 +63,49 @@ public class OidcUserAdminController {
 
     // ------------------------------------------------------------------ list / create
 
+    /**
+     * Returns the caller's own profile — username, display name, email, and the caller's
+     * dsh-project roles — resolved from the OIDC session cookie (Kestra UI) or a Bearer
+     * access token (service clients). Powers the sidebar account popover; requires only
+     * authentication, not the admin role.
+     */
+    @Get("/me")
+    public HttpResponse<?> me(HttpRequest<?> request) {
+        Optional<OidcUser> fromSession = userService.authenticatedUser(request);
+        if (fromSession.isPresent()) {
+            OidcUser user = fromSession.get();
+            return HttpResponse.ok(Map.of(
+                "username", user.sub(),
+                "name", user.name() == null ? user.sub() : user.name(),
+                "email", user.email() == null ? "" : user.email(),
+                "roles", user.roles() == null ? List.of() : user.roles(),
+                "admin", hasRole(user.roles(), ADMIN_ROLE)));
+        }
+        String authorization = request.getHeaders().get(HttpHeaders.AUTHORIZATION);
+        if (authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, "Bearer ".length())) {
+            try {
+                JWTClaimsSet claims = tokenService.validateAccessToken(authorization.substring("Bearer ".length()).trim());
+                List<String> roles = claims.getStringListClaim("roles") == null
+                    ? List.of()
+                    : claims.getStringListClaim("roles");
+                String sub = claims.getSubject();
+                return HttpResponse.ok(Map.of(
+                    "username", sub,
+                    "name", claims.getStringClaim("name") == null ? sub : claims.getStringClaim("name"),
+                    "email", claims.getStringClaim("email") == null ? "" : claims.getStringClaim("email"),
+                    "roles", roles,
+                    "admin", hasRole(roles, ADMIN_ROLE)));
+            } catch (Exception e) {
+                throw new HttpStatusException(HttpStatus.UNAUTHORIZED, Map.of(
+                    "error", "invalid_token",
+                    "error_description", e.getMessage()));
+            }
+        }
+        throw new HttpStatusException(HttpStatus.UNAUTHORIZED, Map.of(
+            "error", "authentication required",
+            "error_description", "OIDC session cookie or Bearer access token required"));
+    }
+
     /** Lists users, newest first. {@code search} filters on username/name/email;
      *  {@code type} filters on identity type ({@code human} / {@code machine}, empty = human only).
      *  Machine identities are OIDC clients (Applications), not users — they are listed via /clients. */
