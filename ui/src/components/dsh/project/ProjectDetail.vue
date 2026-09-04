@@ -284,7 +284,7 @@
     import {computed, onMounted, ref, watch} from "vue"
     import {useI18n} from "vue-i18n"
     import {useRoute} from "vue-router"
-    import {ElMessage, ElMessageBox} from "element-plus"
+    import {useToast} from "../../../utils/toast"
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
     import {getCsrfToken} from "../../../utils/csrf"
@@ -318,6 +318,8 @@
     }
 
     const {t, te} = useI18n({useScope: "global"})
+
+    const toast = useToast()
     const route = useRoute()
     const routeInfo = computed(() => ({title: t("dsh.project.title")}))
     useRouteContext(routeInfo)
@@ -381,7 +383,7 @@
         selectedRole.value = roleName
         // 延迟聚焦到添加用户的下拉框
         setTimeout(() => {
-            const select = document.querySelector(".member-add-select .el-select__input") as HTMLInputElement
+            const select = document.querySelector(".member-add-select .kel-select__input") as HTMLInputElement
             if (select) select.focus()
         }, 100)
     }
@@ -433,7 +435,7 @@
                 api("/api/v1/oidc/users/clients"),
             ])
             if (usersRes.status === 403 || rolesRes.status === 403 || clientsRes.status === 403) {
-                ElMessage.error(t("dsh.users.notAdmin"))
+                toast.error(t("dsh.users.notAdmin"))
                 return
             }
             if (!usersRes.ok) throw new Error(await usersRes.text())
@@ -444,7 +446,7 @@
             clients.value = await clientsRes.json()
         } catch (e) {
             if (e instanceof SessionExpiredError) return
-            ElMessage.error(t("dsh.users.loadFailed", {message: String(e)}))
+            toast.error(t("dsh.users.loadFailed", {message: String(e)}))
         } finally {
             loading.value = false
         }
@@ -461,24 +463,18 @@
         })
         memberToAdd.value = ""
         if (!res.ok) {
-            ElMessage.error(await res.text())
+            toast.error(await res.text())
             return
         }
-        ElMessage.success(t("dsh.roles.memberAdded", {user: username, role: selectedRole.value}))
+        toast.success(t("dsh.roles.memberAdded", {user: username, role: selectedRole.value}))
         load()
     }
 
     async function confirmRemove(row: UserRow) {
-        try {
-            await ElMessageBox.confirm(
-                t("dsh.roles.confirmRemove", {user: row.username, role: selectedRole.value}),
-                t("dsh.roles.remove"),
-                {type: "warning", confirmButtonText: t("dsh.roles.remove"), cancelButtonText: t("cancel")},
-            )
-        } catch {
-            return
-        }
-        await removeMember(row)
+        await toast.confirm(
+            t("dsh.roles.confirmRemove", {user: row.username, role: selectedRole.value}),
+            async () => removeMember(row),
+        )
     }
 
     async function removeMember(row: UserRow) {
@@ -488,10 +484,10 @@
             body: JSON.stringify({roles: next}),
         })
         if (!res.ok) {
-            ElMessage.error(await res.text())
+            toast.error(await res.text())
             return
         }
-        ElMessage.success(t("dsh.roles.memberRemoved", {user: row.username, role: selectedRole.value}))
+        toast.success(t("dsh.roles.memberRemoved", {user: row.username, role: selectedRole.value}))
         load()
     }
 

@@ -76,7 +76,7 @@
     import {computed, onMounted, ref} from "vue"
     import {useI18n} from "vue-i18n"
     import {useRouter} from "vue-router"
-    import {ElMessage} from "element-plus"
+    import {useToast} from "../../../utils/toast"
     import Plus from "vue-material-design-icons/Plus.vue"
     import Magnify from "vue-material-design-icons/Magnify.vue"
     import TopNavBar from "../../layout/TopNavBar.vue"
@@ -92,6 +92,8 @@
     }
 
     const {t} = useI18n({useScope: "global"})
+
+    const toast = useToast()
     const router = useRouter()
     const routeInfo = computed(() => ({title: t("dsh.project.title")}))
     useRouteContext(routeInfo)
@@ -144,7 +146,7 @@
     }
 
     function onCreateProject() {
-        ElMessage.info(t("dsh.project.createNotAvailable"))
+        toast.warning(t("dsh.project.createNotAvailable"))
     }
 
     onMounted(load)
@@ -172,7 +174,7 @@
             overflow-x: auto !important;
         }
 
-        :deep(.el-table__row) {
+        :deep(.kel-table__row) {
             cursor: pointer;
         }
     }

@@ -182,7 +182,7 @@
     import {computed, onMounted, reactive, ref} from "vue"
     import {useI18n} from "vue-i18n"
     import {useRouter} from "vue-router"
-    import {ElMessage, ElMessageBox} from "element-plus"
+    import {useToast} from "../../../utils/toast"
     import Plus from "vue-material-design-icons/Plus.vue"
     import Magnify from "vue-material-design-icons/Magnify.vue"
     import TopNavBar from "../../layout/TopNavBar.vue"
@@ -192,6 +192,8 @@
 
     const router = useRouter()
     const {t} = useI18n({useScope: "global"})
+
+    const toast = useToast()
     const routeInfo = computed(() => ({title: t("dsh.users.title")}))
     useRouteContext(routeInfo)
 
@@ -267,7 +269,7 @@
             params.set("size", "500")
             const res = await api(`/api/v1/oidc/users?${params.toString()}`)
             if (res.status === 403) {
-                ElMessage.error(t("dsh.users.notAdmin"))
+                toast.error(t("dsh.users.notAdmin"))
                 return
             }
             if (!res.ok) {
@@ -276,7 +278,7 @@
             users.value = await res.json()
         } catch (e) {
             if (e instanceof SessionExpiredError) return
-            ElMessage.error(t("dsh.users.loadFailed", {message: String(e)}))
+            toast.error(t("dsh.users.loadFailed", {message: String(e)}))
         } finally {
             loading.value = false
         }
@@ -335,7 +337,7 @@
                 }),
             })
             if (!res.ok) {
-                ElMessage.error(await res.text())
+                toast.error(await res.text())
                 return
             }
             // persist roles too (authorisation)
@@ -343,7 +345,7 @@
                 method: "PUT",
                 body: JSON.stringify({roles: form.roles}),
             })
-            ElMessage.success(t("dsh.users.saved"))
+            toast.success(t("dsh.users.saved"))
         } else if (form.type === "machine") {
             const res = await api("/api/v1/oidc/users", {
                 method: "POST",
@@ -358,10 +360,10 @@
                 }),
             })
             if (!res.ok) {
-                ElMessage.error(await res.text())
+                toast.error(await res.text())
                 return
             }
-            ElMessage.success(t("dsh.users.created"))
+            toast.success(t("dsh.users.created"))
         } else {
             const res = await api("/api/v1/oidc/users", {
                 method: "POST",
@@ -376,10 +378,10 @@
                 }),
             })
             if (!res.ok) {
-                ElMessage.error(await res.text())
+                toast.error(await res.text())
                 return
             }
-            ElMessage.success(t("dsh.users.created"))
+            toast.success(t("dsh.users.created"))
         }
         dialogVisible.value = false
         load()
@@ -393,7 +395,7 @@
 
     async function submitPassword() {
         if (!passwordTarget.value || !newPassword.value) {
-            ElMessage.error(
+            toast.error(
                 passwordTarget.value?.type === "machine"
                     ? t("dsh.users.secretRequired")
                     : t("dsh.users.passwordRequired"),
@@ -410,35 +412,26 @@
             body: JSON.stringify({[bodyKey]: newPassword.value}),
         })
         if (!res.ok) {
-            ElMessage.error(await res.text())
+            toast.error(await res.text())
             return
         }
-        ElMessage.success(
+        toast.success(
             target.type === "machine" ? t("dsh.users.secretRotated") : t("dsh.users.passwordUpdated"),
         )
         passwordDialogVisible.value = false
     }
 
     async function confirmRemove(row: UserRow) {
-        try {
-            await ElMessageBox.confirm(
-                t("dsh.users.confirmDelete"),
-                t("delete"),
-                {type: "warning", confirmButtonText: t("delete"), cancelButtonText: t("cancel")},
-            )
-        } catch {
-            return
-        }
-        await removeUser(row)
+        await toast.confirm(t("dsh.users.confirmDelete"), async () => removeUser(row))
     }
 
     async function removeUser(row: UserRow) {
         const res = await api(`/api/v1/oidc/users/${encodeURIComponent(row.username)}`, {method: "DELETE"})
         if (!res.ok && res.status !== 204) {
-            ElMessage.error(await res.text())
+            toast.error(await res.text())
             return
         }
-        ElMessage.success(t("dsh.users.deleted"))
+        toast.success(t("dsh.users.deleted"))
         load()
     }
 
