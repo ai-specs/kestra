@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jwk.RSAKey;
@@ -74,6 +75,14 @@ public class OidcTokenService {
     private final ObjectMapper objectMapper;
     private final OidcConfiguration configuration;
     private final OidcJwkService jwkService;
+
+    /**
+     * The Micronaut Security secret-signing key behind the kestra-self {@code JWT} cookie
+     * (same property the webserver's SecurityFilter trusts). Read only to validate that
+     * cookie for the self-validating user-directory API — never to issue tokens.
+     */
+    @io.micronaut.context.annotation.Value("${micronaut.security.token.jwt.signatures.secret.generator.secret:}")
+    private String kestraSessionJwtSecret;
 
     @Inject
     public OidcTokenService(
@@ -191,6 +200,38 @@ public class OidcTokenService {
             throw new OidcException(OAuth2Error.INVALID_GRANT.appendDescription(": not an access token"));
         }
         return claims;
+    }
+
+    /**
+     * Validates the kestra-self session JWT — the HS256 {@code JWT} cookie issued by
+     * {@code POST /oidc/login} that Micronaut's SecurityFilter already trusts for every other
+     * {@code /api/**} route. Verifies the HMAC signature against the configured secret and the
+     * {@code exp} claim; unlike {@link #validateAccessToken(String)} there is no introspection —
+     * the cookie is deliberately stateless (it survives server restarts, which is exactly why
+     * the directory API accepts it). Callers must re-derive authorisation from the directory by
+     * subject, never from the token's role claims.
+     */
+    public Optional<JWTClaimsSet> validateSessionJwt(String value) {
+        if (value == null || value.isBlank() || kestraSessionJwtSecret == null || kestraSessionJwtSecret.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            SignedJWT signedJWT = SignedJWT.parse(value);
+            if (!JWSAlgorithm.HS256.equals(signedJWT.getHeader().getAlgorithm())) {
+                return Optional.empty();
+            }
+            if (!signedJWT.verify(new MACVerifier(kestraSessionJwtSecret))) {
+                return Optional.empty();
+            }
+            JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
+            Date exp = claims.getExpirationTime();
+            if (exp == null || exp.before(new Date())) {
+                return Optional.empty();
+            }
+            return Optional.of(claims);
+        } catch (Exception e) {
+            return Optional.empty();
+        }
     }
 
     /** Validates a refresh token for exchange, returning its stored record. */

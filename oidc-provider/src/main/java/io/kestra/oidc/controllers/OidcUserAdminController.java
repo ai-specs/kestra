@@ -36,10 +36,13 @@ import jakarta.inject.Inject;
  *
  * <p>
  * Sits under {@code /api/v1/oidc/users} — <b>not</b> under {@code /api/v1/dsh/} — so it is
- * <i>not</i> subject to the Bearer-only {@link OidcBearerAuthFilter} guard: the UI calls it with
- * the OIDC session cookie, while dsh service clients (and the e2e suite) may call it with a
- * provider-issued Bearer access token. Both paths are validated here and both require the
- * {@code admin} role.
+ * <i>not</i> subject to the Bearer-only {@link OidcBearerAuthFilter} guard. Three credentials are
+ * validated here, all requiring the {@code admin} role (except {@code /me}, authentication only):
+ * the UI's OIDC session cookie, the UI's kestra-self {@code JWT} cookie (the same token
+ * SecurityFilter accepts everywhere else — it survives server restarts that wipe the in-memory
+ * sessions), and a provider-issued Bearer access token for dsh service clients (and the e2e
+ * suite). For cookie credentials roles are always re-derived from the directory; the Bearer path
+ * trusts the token's {@code roles} claim (machine tokens carry no directory row).
  *
  * <p>
  * Only the profile/authorisation surface is exposed; credential hashes are never read back.
@@ -101,11 +104,39 @@ public class OidcUserAdminController {
                     "error_description", e.getMessage()));
             }
         }
+        // 3) JWT-cookie path — the same token SecurityFilter trusts for every other /api/**
+        // route. The oidc_session lives in memory (a server restart invalidates it) while the
+        // JWT survives; without this path the sidebar showed "not signed in" and the directory
+        // pages logged the user out while the rest of the UI kept working on the JWT.
+        Optional<OidcUser> fromJwt = userFromSessionJwt(request);
+        if (fromJwt.isPresent()) {
+            OidcUser user = fromJwt.get();
+            return HttpResponse.ok(Map.of(
+                "username", user.sub(),
+                "name", user.name() == null ? user.sub() : user.name(),
+                "email", user.email() == null ? "" : user.email(),
+                "roles", user.roles() == null ? List.of() : user.roles(),
+                "admin", hasRole(user.roles(), ADMIN_ROLE)));
+        }
         throw new HttpStatusException(HttpStatus.UNAUTHORIZED, Map.of(
             "error", "authentication required",
-            "error_description", "OIDC session cookie or Bearer access token required"));
+            "error_description", "OIDC session cookie, JWT cookie or Bearer access token required"));
     }
 
+    /**
+     * Resolves the caller from the kestra-self {@code JWT} cookie: validates the token, then
+     * looks the subject up STRICTLY in the directory (no default-roles fallback — an unknown
+     * subject must not inherit configured defaults). Roles always come from the database, so a
+     * revoked role applies immediately despite the token's embedded claims.
+     */
+    private Optional<OidcUser> userFromSessionJwt(HttpRequest<?> request) {
+        var cookie = request.getCookies().findCookie("JWT");
+        if (cookie.isEmpty() || cookie.get().getValue().isBlank()) {
+            return Optional.empty();
+        }
+        return tokenService.validateSessionJwt(cookie.get().getValue())
+            .flatMap(claims -> userService.directoryUser(claims.getSubject()));
+    }
     /** Lists users, newest first. {@code search} filters on username/name/email;
      *  {@code type} filters on identity type ({@code human} / {@code machine}, empty = human only).
      *  Machine identities are OIDC clients (Applications), not users — they are listed via /clients. */
@@ -300,9 +331,18 @@ public class OidcUserAdminController {
             }
         }
 
-        throw new HttpStatusException(HttpStatus.UNAUTHORIZED, Map.of(
-            "error", "authentication required",
-            "error_description", "OIDC session cookie or Bearer access token required"));
+        // 3) JWT-cookie path — the Kestra UI's own login token (the same one SecurityFilter
+        // accepts everywhere else). Keeps the directory API on the UI's primary credential:
+        // the in-memory oidc_session dies with a server restart while the JWT survives.
+        Optional<OidcUser> fromJwt = userFromSessionJwt(request);
+        if (fromJwt.isPresent()) {
+            if (hasRole(fromJwt.get().roles(), ADMIN_ROLE)) {
+                return;
+            }
+            throw new HttpStatusException(HttpStatus.FORBIDDEN, Map.of(
+                "error", "forbidden",
+                "error_description", "admin role is required"));
+        }
     }
 
     private static boolean hasRole(List<String> roles, String role) {

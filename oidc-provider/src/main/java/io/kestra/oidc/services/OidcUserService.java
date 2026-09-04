@@ -278,6 +278,22 @@ public class OidcUserService {
         return bySubjectFromConfig(subject);
     }
 
+    /**
+     * Strict directory lookup by subject — unlike {@link #bySubject(String)} there is NO
+     * fallback: an unknown subject yields empty instead of mapping to the configured default
+     * roles. This is the authorisation source for the JWT-cookie path of the user-directory
+     * API, where a default-roles fallback would hand admin to any validly signed token whose
+     * subject is not a directory user.
+     */
+    public Optional<OidcUser> directoryUser(String subject) {
+        ensureDirectory();
+        if (!tableAvailable()) {
+            return Optional.empty();
+        }
+        return findUser(subject, "dsh")
+            .map(user -> new OidcUser(subject, user.name(), user.email(), user.roles()));
+    }
+
     // ------------------------------------------------------------------
     // Admin / management API (user-directory CRUD for the Kestra UI)
     // ------------------------------------------------------------------
