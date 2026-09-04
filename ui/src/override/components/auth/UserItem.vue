@@ -27,7 +27,7 @@
                     <div v-if="profile && profile.name && profile.name !== username" class="user-item__line">
                         {{ profile.name }}
                     </div>
-                    <div v-if="profile && profile.email" class="user-item__line">{{ profile.email }}</div>
+                    <div v-if="profile && profile.email && profile.email !== username" class="user-item__line">{{ profile.email }}</div>
                     <div v-if="roleLabel" class="user-item__line">
                         {{ $t("dsh.account.roles") }}: {{ roleLabel }}
                     </div>
@@ -35,6 +35,12 @@
             </div>
         </template>
 
+        <KsOption label="tour" value="tour">
+            <RouterLink :to="startTutorial" class="menu-item">
+                <RocketLaunchOutline class="menu-icon" />
+                {{ $t("product_tour") }}
+            </RouterLink>
+        </KsOption>
         <KsOption label="preferences" value="preferences">
             <a class="menu-item" href="#" @click.prevent="openPreferences">
                 <CogOutline class="menu-icon" />
@@ -61,6 +67,7 @@
     import ChevronRight from "vue-material-design-icons/ChevronRight.vue"
     import CogOutline from "vue-material-design-icons/CogOutline.vue"
     import Logout from "vue-material-design-icons/Logout.vue"
+    import RocketLaunchOutline from "vue-material-design-icons/RocketLaunchOutline.vue"
 
     interface MeProfile {
         username: string
@@ -92,6 +99,12 @@
             // 未登录/网络失败：按钮退化为未登录占位，弹出层仍提供注销入口
         }
     })
+
+    const startTutorial = computed(() => ({
+        name: "ai",
+        query: {tour: "start"},
+        params: {tenant: route.params.tenant},
+    }))
 
     function openPreferences() {
         router.push({name: "preferences", params: {tenant: route.params.tenant}})
