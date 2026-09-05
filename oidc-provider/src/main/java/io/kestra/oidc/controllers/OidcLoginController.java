@@ -163,7 +163,8 @@ public class OidcLoginController {
         // → 每次进入其他应用都要重新认证（复用是显式选择，不是默认行为）。Kestra UI 自身的登录态
         // （JWT + oidc_refresh）与此无关，两种选择下都正常颁发。
         boolean rememberSession = "true".equals(form.get("remember_session"));
-        io.micronaut.http.MutableHttpResponse<?> response = HttpResponse.seeOther(URI.create(from));
+        io.micronaut.http.MutableHttpResponse<?> response = HttpResponse.seeOther(URI.create(from))
+            .header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
         if (rememberSession) {
             String sessionId = sessionService.create(subject);
             response.cookie(sessionService.sessionCookie(request, sessionId));
@@ -311,7 +312,9 @@ public class OidcLoginController {
                     sessionService.extend(id);
                 }
             });
-            return response;
+
+            // Rotates long-lived credentials — the response must never be stored or replayed.
+            return response.header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
         } catch (Exception e) {
             return unauthorized("invalid refresh token: " + e.getMessage());
         }
@@ -347,7 +350,7 @@ public class OidcLoginController {
             + "&redirect_uri=" + urlEncode(redirectUri)
             + "&scope=" + urlEncode("openid profile email")
             + "&state=" + urlEncode(randomState());
-        return HttpResponse.redirect(URI.create(authorize));
+        return OidcRedirects.temporary(authorize);
     }
 
     /**
@@ -382,7 +385,7 @@ public class OidcLoginController {
         } catch (Exception e) {
             return HttpResponse.badRequest("invalid authorization code: " + e.getMessage());
         }
-        return HttpResponse.redirect(URI.create(DEFAULT_LANDING));
+        return OidcRedirects.temporary(DEFAULT_LANDING);
     }
 
     /**
@@ -413,7 +416,7 @@ public class OidcLoginController {
             .filter(this::isRegisteredRedirectUri)
             .map(URI::create)
             .orElseGet(() -> URI.create(configuration.getExternalBaseUrl() + "/oidc/login"));
-        return HttpResponse.redirect(target)
+        return OidcRedirects.temporary(target)
             .cookie(clearCookie(OidcSessionService.SESSION_COOKIE_NAME, secure))
             .cookie(clearCookie("JWT", secure))
             .cookie(clearCookie(REFRESH_COOKIE_NAME, secure))

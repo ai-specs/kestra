@@ -216,7 +216,7 @@ public class OidcProviderController {
                 sessionService.revoke(id);
             }
         });
-        return HttpResponse.redirect(success.toURI());
+        return OidcRedirects.temporary(success.toURI());
     }
 
     // ------------------------------------------------------------------------
@@ -302,11 +302,15 @@ public class OidcProviderController {
             SignedJWT idToken = tokenService.issueIdToken(
                 client.clientId(), user.sub(), user.name(), user.email(), user.roles(), stored.nonce());
             OIDCTokenResponse response = new OIDCTokenResponse(new OIDCTokens(idToken, accessToken, refreshToken));
-            return HttpResponse.ok(toMap(response.toJSONObject()));
+            // RFC 6749 §5.1: token responses must not be stored or replayed.
+        return HttpResponse.ok(toMap(response.toJSONObject()))
+            .header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
         }
         AccessTokenResponse response = new AccessTokenResponse(new com.nimbusds.oauth2.sdk.token.Tokens(
             accessToken, refreshToken));
-        return HttpResponse.ok(toMap(response.toJSONObject()));
+        // RFC 6749 §5.1: token responses must not be stored or replayed.
+        return HttpResponse.ok(toMap(response.toJSONObject()))
+            .header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
     }
 
     private HttpResponse<?> clientCredentialsToken(
@@ -336,7 +340,9 @@ public class OidcProviderController {
 
         AccessTokenResponse response = new AccessTokenResponse(
             new com.nimbusds.oauth2.sdk.token.Tokens(accessToken, null));
-        return HttpResponse.ok(toMap(response.toJSONObject()));
+        // RFC 6749 §5.1: token responses must not be stored or replayed.
+        return HttpResponse.ok(toMap(response.toJSONObject()))
+            .header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
     }
 
     private HttpResponse<?> refreshTokenToken(
@@ -369,11 +375,15 @@ public class OidcProviderController {
             SignedJWT idToken = tokenService.issueIdToken(
                 client.clientId(), user.sub(), user.name(), user.email(), user.roles(), null);
             OIDCTokenResponse response = new OIDCTokenResponse(new OIDCTokens(idToken, accessToken, refreshToken));
-            return HttpResponse.ok(toMap(response.toJSONObject()));
+            // RFC 6749 §5.1: token responses must not be stored or replayed.
+        return HttpResponse.ok(toMap(response.toJSONObject()))
+            .header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
         }
         AccessTokenResponse response = new AccessTokenResponse(
             new com.nimbusds.oauth2.sdk.token.Tokens(accessToken, refreshToken));
-        return HttpResponse.ok(toMap(response.toJSONObject()));
+        // RFC 6749 §5.1: token responses must not be stored or replayed.
+        return HttpResponse.ok(toMap(response.toJSONObject()))
+            .header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
     }
 
     // ------------------------------------------------------------------------
@@ -469,7 +479,9 @@ public class OidcProviderController {
             builder.audience(List.of(new Audience(token.clientId())));
         }
         TokenIntrospectionSuccessResponse response = builder.build();
-        return HttpResponse.ok(toMap(response.toJSONObject()));
+        // RFC 6749 §5.1: token responses must not be stored or replayed.
+        return HttpResponse.ok(toMap(response.toJSONObject()))
+            .header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
     }
 
     // ------------------------------------------------------------------------
@@ -533,7 +545,7 @@ public class OidcProviderController {
     private HttpResponse<?> authorizeError(URI redirectUri, State state, ErrorObject error) {
         AuthenticationErrorResponse response = new AuthenticationErrorResponse(
             redirectUri, error, state, ResponseMode.QUERY);
-        return HttpResponse.redirect(response.toURI());
+        return OidcRedirects.temporary(response.toURI());
     }
 
     /** Redirects to the Kestra login page, preserving the current authorize request as {@code from}. */
@@ -541,7 +553,7 @@ public class OidcProviderController {
         String from = request.getUri().toString();
         String loginUri = configuration.getLoginUrl()
             + "?from=" + URLEncoder.encode(from, StandardCharsets.UTF_8);
-        return HttpResponse.redirect(URI.create(loginUri));
+        return OidcRedirects.temporary(loginUri);
     }
 
     private HttpResponse<?> tokenErrorResponse(ErrorObject error) {
