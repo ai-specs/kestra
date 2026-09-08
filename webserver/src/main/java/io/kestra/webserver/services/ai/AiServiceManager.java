@@ -14,6 +14,8 @@ import io.kestra.core.services.InstanceService;
 import io.kestra.core.utils.VersionProvider;
 import io.kestra.webserver.services.ai.gemini.GeminiAiService;
 import io.kestra.webserver.services.ai.gemini.GeminiConfiguration;
+import io.kestra.webserver.services.ai.openai.OpenAiAiService;
+import io.kestra.webserver.services.ai.openai.OpenAiConfiguration;
 import io.kestra.webserver.services.posthog.PosthogService;
 
 import io.micronaut.context.annotation.Requires;
@@ -127,16 +129,28 @@ public class AiServiceManager {
             return null;
         }
 
-        if (!"gemini".equals(type)) {
+        if (!"gemini".equals(type) && !"openai".equals(type)) {
             throw new IllegalArgumentException(
-                "Unsupported AI provider type '" + type + "' for Kestra OSS. Only 'gemini' is supported. " +
-                    "Other providers (openai, anthropic, ollama, etc.) require Kestra Enterprise Edition."
+                "Unsupported AI provider type '" + type + "' for Kestra OSS. Only 'gemini' and 'openai' (any OpenAI-compatible endpoint via 'base-url') are supported. " +
+                    "Other providers (anthropic, ollama, etc.) require Kestra Enterprise Edition."
             );
         }
 
         try {
             ObjectMapper mapper = JacksonMapper.ofJson().copy()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+            if ("openai".equals(type)) {
+                OpenAiConfiguration openAiConfig = mapper.convertValue(configMap, OpenAiConfiguration.class);
+                AiService<?> service = new OpenAiAiService(
+                    pluginRegistry, jsonSchemaGenerator, versionProvider, instanceService, posthogService, this.namespaceContextTool, provider.displayName(), listeners, openAiConfig,
+                    expressionContextService, flowParsingService
+                );
+                if (this.kestraDocsContextTool != null) {
+                    service.setKestraDocsContextTool(this.kestraDocsContextTool);
+                }
+                return service;
+            }
 
             GeminiConfiguration geminiConfig = mapper.convertValue(configMap, GeminiConfiguration.class);
             AiService<?> service = new GeminiAiService(
