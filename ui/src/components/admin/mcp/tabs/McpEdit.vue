@@ -50,26 +50,8 @@
                 />
             </KsFormItem>
 
-            <KsFormItem
-                :label="$t('mcp.private_server')"
-                labelPosition="left"
-                class="spread-row"
-            >
-                <KsSwitch
-                    v-model="privateServer"
-                    :disabled="readOnly"
-                />
-            </KsFormItem>
-
-            <KsAlert
-                v-if="!isPrivate"
-                type="warning"
-                :closable="false"
-                class="type-hint"
-            >
-                {{ $t("mcp.public_hint") }}
-            </KsAlert>
-
+            <!-- dsh：本项目语境下不需要 PUBLIC（公开 MCP server），serverType 恒为 PRIVATE，
+                 认证方式由下方单选决定；上游的私有/公开可见性开关已移除 -->
             <KsFormItem v-if="isPrivate">
                 <KsRadioCardGroup
                     v-model="form.authType"
@@ -84,7 +66,9 @@
                 prop="oauthProvider"
                 :rules="oauthProviderRules"
             >
+                <!-- dsh：仅一个 OAuth 提供商时不提供下拉框，直接显示固定值（不可更改） -->
                 <KsSelect
+                    v-if="oauthProviders.length > 1"
                     v-model="form.oauthProvider"
                     :placeholder="$t('mcp.oauth_provider_placeholder')"
                     :disabled="readOnly"
@@ -97,6 +81,12 @@
                         :value="provider"
                     />
                 </KsSelect>
+                <div
+                    v-else
+                    class="fixed-value"
+                >
+                    {{ form.oauthProvider || (oauthProviders[0] ?? "") }}
+                </div>
             </KsFormItem>
 
             <KsFormItem
@@ -129,8 +119,9 @@
                 />
             </KsFormItem>
 
+            <!-- dsh：内容未变更时不显示操作按钮，避免无意义保存 -->
             <div
-                v-if="canSave"
+                v-if="canSave && isDirty"
                 class="form-actions"
             >
                 <KsButton @click="cancel">
@@ -176,12 +167,14 @@
     const miscStore = useMiscStore()
     const {listRoute} = useHelpers()
 
-    const DEFAULT_OAUTH_SCOPES = ["openid", "profile", "email"]
+    // dsh：默认 scope 与内置 kestra-oidc 的 scopes_supported 保持一致（含 mcp，供 MCP 过滤器判定）
+    const DEFAULT_OAUTH_SCOPES = ["openid", "profile", "email", "mcp"]
 
+    // dsh 定制：BASIC 认证已从本项目移除（OIDC-only 设计，见 docs/deprecated.md §4），
+    // OAUTH 走内置 kestra-oidc（OSS 自实现，见 docs/mcp-oauth.md）；API_TOKEN 仅 EE 可用。
     const AUTH_OPTIONS = [
-        {value: "BASIC", labelKey: "mcp.basic_auth", hintKey: "mcp.username_password", ee: false},
+        {value: "OAUTH", labelKey: "mcp.oauth", hintKey: "mcp.oauth_hint", ee: false},
         {value: "API_TOKEN", labelKey: "mcp.api_token", hintKey: "mcp.bearer_token", ee: true},
-        {value: "OAUTH", labelKey: "mcp.oauth", hintKey: "mcp.oauth_hint", ee: true},
     ] as const
 
     type AuthOption = (typeof AUTH_OPTIONS)[number]
@@ -193,7 +186,7 @@
         description: "",
         instructions: "",
         serverType: "PRIVATE",
-        authType: "BASIC",
+        authType: "OAUTH", // dsh：默认启用 OAuth
         oauthProvider: "",
         oauthScopesSupported: [...DEFAULT_OAUTH_SCOPES],
         disabled: false,
@@ -203,20 +196,19 @@
     const form = ref<McpForm>(defaultForm())
     const submitting = ref(false)
 
+    // dsh：pristine 快照对比实现"内容变更后才出现取消/保存"。
+    // 服务器加载、系统默认值回填、保存成功后都会重置快照，用户改动才会置脏。
+    const pristine = ref<string>(JSON.stringify(form.value))
+    const isDirty = computed(() => JSON.stringify(form.value) !== pristine.value)
+
     const isOss = computed(() => miscStore.configs?.edition === "OSS")
     const oauthProviders = computed<string[]>(() => authStore.auths?.oauths ?? [])
     const noOauthProviders = computed(() => oauthProviders.value.length === 0)
 
     const isUpdate = computed(() => !!route.params.id)
-    const isPrivate = computed(() => form.value.serverType === "PRIVATE")
-    const isOAuth = computed(() => isPrivate.value && form.value.authType === "OAUTH")
-
-    const privateServer = computed({
-        get: () => form.value.serverType === "PRIVATE",
-        set: (value: boolean) => {
-            form.value.serverType = value ? "PRIVATE" : "PUBLIC"
-        },
-    })
+    // dsh：serverType 恒为 PRIVATE（本项目不需要 PUBLIC），authType 表单始终显示
+    const isPrivate = true
+    const isOAuth = computed(() => form.value.authType === "OAUTH")
 
     const canSave = computed(() => {
         if (isUpdate.value) {
@@ -320,6 +312,8 @@
                         params: {id: created.id, tab: "edit", tenant: route.params.tenant},
                     })
                 }
+                // 保存成功后内容与服务器一致，隐藏操作按钮
+                pristine.value = JSON.stringify(form.value)
             } catch (e) {
                 console.error("Failed to save MCP server", e)
             } finally {
@@ -332,9 +326,15 @@
         router.push(listRoute.value)
     }
 
-    onMounted(() => {
+    onMounted(async () => {
         if (!authStore.auths) {
-            authStore.loadAuths({})
+            await authStore.loadAuths({})
+        }
+        // dsh：唯一 OAuth 提供商时自动作为默认值（可能在 server watch 之后才可用）
+        if (oauthProviders.value.length === 1 && !form.value.oauthProvider) {
+            form.value.oauthProvider = oauthProviders.value[0]
+            // 系统默认回填不算用户变更，重置脏标记
+            pristine.value = JSON.stringify(form.value)
         }
     })
 
@@ -346,14 +346,23 @@
                     id: server.id,
                     description: server.description ?? "",
                     instructions: server.instructions ?? "",
-                    serverType: server.serverType,
-                    authType: server.authType,
-                    oauthProvider: server.oauthProvider ?? "",
-                    oauthScopesSupported: server.oauthScopesSupported ?? [],
+                    // dsh：PUBLIC 已移除，存量 PUBLIC 服务器打开时强制映射为 PRIVATE
+                    serverType: "PRIVATE",
+                    // dsh：BASIC 选项已移除，存量 BASIC 服务器打开时映射为 OAuth（默认启用）
+                    authType: server.authType === "OAUTH" || server.authType === "API_TOKEN"
+                        ? server.authType
+                        : "OAUTH",
+                    // dsh：唯一提供商自动作为默认值；服务器未存 scope 时回退默认集
+                    oauthProvider: server.oauthProvider ?? (oauthProviders.value.length === 1 ? oauthProviders.value[0] : ""),
+                    oauthScopesSupported: server.oauthScopesSupported?.length
+                        ? server.oauthScopesSupported
+                        : [...DEFAULT_OAUTH_SCOPES],
                     disabled: server.disabled,
                 }
+                pristine.value = JSON.stringify(form.value)
             } else if (!isUpdate.value) {
                 form.value = defaultForm()
+                pristine.value = JSON.stringify(form.value)
             }
         },
         {immediate: true},
@@ -442,6 +451,21 @@
         margin-top: var(--ks-spacing-1);
         font-size: var(--ks-font-size-sm);
         color: var(--ks-text-secondary);
+    }
+
+    /* dsh：唯一 OAuth 提供商时的只读展示（不可编辑） */
+    .fixed-value {
+        display: flex;
+        align-items: center;
+        min-height: 32px;
+        padding: 0 var(--ks-spacing-3);
+        border: 1px solid var(--ks-border-default);
+        border-radius: var(--ks-radius-sm, 6px);
+        background: var(--ks-bg-subtle, rgba(0, 0, 0, 0.03));
+        font-size: var(--ks-font-size-sm);
+        color: var(--ks-text-secondary);
+        cursor: not-allowed;
+        user-select: none;
     }
 
     .type-hint {

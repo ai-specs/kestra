@@ -2,6 +2,7 @@ import NProgress from "nprogress"
 import type {Router} from "vue-router"
 import {configureClient, useClient, asProblem, type ProblemDetail} from "@kestra-io/kestra-sdk"
 import {idpLogin, isOidcAuthEnabled, refreshSession} from "./basicAuth"
+import {getCsrfToken} from "./csrf"
 
 let pendingRoute = false
 let requestsTotal = 0
@@ -208,6 +209,24 @@ export function setupKestraHttp(
 
     client.interceptors.request.use((request, opts: unknown) => {
         if (typeof document !== "undefined" && !(opts as Record<string, unknown>)?.[SKIP_PROGRESS]) initProgress()
+        // dsh: OIDC cookie 认证下，所有非安全写方法须携带后端签发的 CSRF token
+        // （页面 meta[name="csrf-token"]，与 csrfToken cookie 同值，后端 CsrfTokenFilter 校验）。
+        // 缺少该 header 时 cookie 认证的 POST/PATCH/DELETE 会被 403 拒绝。
+        if (typeof document !== "undefined") {
+            const method = String(request?.method ?? "").toUpperCase()
+            if (method && !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
+                const csrf = getCsrfToken()
+                if (csrf) {
+                    const headers = (request as {headers?: any}).headers ?? {}
+                    if (headers instanceof Headers) {
+                        if (!headers.has("X-CSRF-TOKEN")) headers.set("X-CSRF-TOKEN", csrf)
+                    } else if (!headers["X-CSRF-TOKEN"]) {
+                        headers["X-CSRF-TOKEN"] = csrf
+                        ;(request as {headers?: any}).headers = headers
+                    }
+                }
+            }
+        }
         return request
     })
 

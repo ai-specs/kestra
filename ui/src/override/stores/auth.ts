@@ -55,7 +55,11 @@ export const useAuthStore = defineStore("auth", {
             return Promise.resolve(true)
         },
         loadAuths(_options: any): Promise<AuthMethods | undefined> {
-            return Promise.resolve(undefined)
+            // dsh fork：MCP OAuth 走内置 kestra-oidc 授权服务器（RFC 8414 发现 + RFC 7591
+            // 动态注册，docs/mcp-oauth.md）；上游在此处查询的 /api/v1/auths 在本部署不存在，
+            // 直接返回受支持的 oauth 提供方列表，使 MCP 编辑页的 OAuth 认证方式可用。
+            this.auths = {oauths: ["kestra-oidc"]}
+            return Promise.resolve(this.auths)
         },
     },
 })

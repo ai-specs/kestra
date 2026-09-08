@@ -90,18 +90,18 @@ public class McpServerController {
             throw new InvalidException(mcpServer, "MCP id '" + McpServer.DEFAULT_ID + "' is reserved");
         }
 
-        validateMcp(mcpServer);
-
         if (mcpServerRepository.get(tenantId, mcpServer.id()).isPresent()) {
             throw new ConflictException("MCP server already exists with id: '" + mcpServer.id() + "'");
         }
 
+        ApiMcpServer validated = validateMcp(mcpServer);
+
         McpServer toSave = new McpServer(
             tenantId,
-            mcpServer.id(), mcpServer.description(), mcpServer.instructions(),
-            mcpServer.serverType(), mcpServer.authType(), mcpServer.oauthProvider(),
-            mcpServer.oauthScopesSupported(),
-            mcpServer.disabled(), false, false, null, null
+            validated.id(), validated.description(), validated.instructions(),
+            validated.serverType(), validated.authType(), validated.oauthProvider(),
+            validated.oauthScopesSupported(),
+            validated.disabled(), false, false, null, null
         );
 
         return HttpResponse.ok(ApiMcpServer.from(mcpServerRepository.save(null, toSave)));
@@ -124,47 +124,105 @@ public class McpServerController {
             throw new InvalidException(mcpServer, "MCP id '" + McpServer.DEFAULT_ID + "' is reserved");
         }
 
-        validateMcp(mcpServer);
+        // dsh：合并语义 —— 请求体缺省（null）的字段保留原值，避免部分字段 PUT 清空其余字段。
+        // 显式清空字符串字段请传 ""，清空 scope 列表请传 []。
+        ApiMcpServer merged = new ApiMcpServer(
+            id,
+            mcpServer.description() != null ? mcpServer.description() : existing.get().description(),
+            mcpServer.instructions() != null ? mcpServer.instructions() : existing.get().instructions(),
+            mcpServer.serverType() != null ? mcpServer.serverType() : existing.get().serverType(),
+            mcpServer.authType() != null ? mcpServer.authType() : existing.get().authType(),
+            mcpServer.oauthProvider() != null ? mcpServer.oauthProvider() : existing.get().oauthProvider(),
+            mcpServer.oauthScopesSupported() != null ? mcpServer.oauthScopesSupported() : existing.get().oauthScopesSupported(),
+            mcpServer.disabled() != null ? mcpServer.disabled() : existing.get().disabled(),
+            existing.get().isDefault(), existing.get().created(), existing.get().updated()
+        );
+
+        ApiMcpServer validated = validateMcp(merged);
 
         McpServer toSave = new McpServer(
             tenantId, id,
-            mcpServer.description(), mcpServer.instructions(),
-            mcpServer.serverType(), mcpServer.authType(), mcpServer.oauthProvider(),
-            mcpServer.oauthScopesSupported(),
-            mcpServer.disabled(), false, false, null, null
+            validated.description(), validated.instructions(),
+            validated.serverType(), validated.authType(), validated.oauthProvider(),
+            validated.oauthScopesSupported(),
+            validated.disabled(), false, false, null, null
         );
 
         return HttpResponse.ok(ApiMcpServer.from(mcpServerRepository.save(existing.get(), toSave)));
     }
 
-    protected void validateMcp(ApiMcpServer mcpServer) {
-        McpServer.AuthType authType = mcpServer.authType();
+    /**
+     * dsh 默认值：内置 kestra-oidc 是唯一 OAuth 提供商；缺省时由服务器落库，
+     * UI 只负责展示（docs/mcp-oauth.md）。
+     */
+    private static final String DEFAULT_OAUTH_PROVIDER = "kestra-oidc";
+    private static final java.util.List<String> DEFAULT_OAUTH_SCOPES =
+        java.util.List.of("openid", "profile", "email", "mcp");
+
+    /** Rebuilds the DTO with OAuth default fields filled in (OAUTH authType only). */
+    private static ApiMcpServer withOAuthDefaults(ApiMcpServer s, String provider, java.util.List<String> scopes) {
+        return new ApiMcpServer(
+            s.id(), s.description(), s.instructions(), s.serverType(), s.authType(),
+            provider, scopes, s.disabled(), s.isDefault(), s.created(), s.updated()
+        );
+    }
+
+    /** Rebuilds the DTO with a forced serverType (dsh：PUBLIC 已移除，统一 PRIVATE). */
+    private static ApiMcpServer withServerType(ApiMcpServer s, McpServer.ServerType serverType) {
+        return new ApiMcpServer(
+            s.id(), s.description(), s.instructions(), serverType, s.authType(),
+            s.oauthProvider(), s.oauthScopesSupported(), s.disabled(), s.isDefault(), s.created(), s.updated()
+        );
+    }
+
+    protected ApiMcpServer validateMcp(ApiMcpServer mcpServer) {
+        // dsh：缺省字段归一为项目默认（PRIVATE + OAUTH + 启用）；PUBLIC 已移除，一律转 PRIVATE。
+        ApiMcpServer normalized = new ApiMcpServer(
+            mcpServer.id(),
+            mcpServer.description(),
+            mcpServer.instructions(),
+            mcpServer.serverType() == null ? McpServer.ServerType.PRIVATE : mcpServer.serverType(),
+            mcpServer.authType() == null ? McpServer.AuthType.OAUTH : mcpServer.authType(),
+            mcpServer.oauthProvider(),
+            mcpServer.oauthScopesSupported(),
+            mcpServer.disabled() == null ? false : mcpServer.disabled(),
+            mcpServer.isDefault(), mcpServer.created(), mcpServer.updated()
+        );
+        if (normalized.serverType() == McpServer.ServerType.PUBLIC) {
+            normalized = withServerType(normalized, McpServer.ServerType.PRIVATE);
+        }
+
+        McpServer.AuthType authType = normalized.authType();
 
         if (
             editionProvider.get() == EditionProvider.Edition.OSS
-                && (authType == McpServer.AuthType.API_TOKEN || authType == McpServer.AuthType.OAUTH)
+                && authType == McpServer.AuthType.API_TOKEN
         ) {
-            throw new HttpStatusException(HttpStatus.FORBIDDEN, "Auth type '" + authType + "' requires Enterprise Edition");
+            throw new HttpStatusException(HttpStatus.FORBIDDEN, "Auth type 'API_TOKEN' requires Enterprise Edition");
         }
+        // OAUTH 在本 fork 的 OSS 上可用：MCP 客户端以内置 kestra-oidc 为授权服务器
+        // （RFC 8414 发现 + RFC 7591 动态注册，OidcMcpOAuthController / OidcMcpBearerAuthFilter，
+        // docs/mcp-oauth.md），与上游 EE 的"接入第三方 OAuth Provider"语义一致但实现不同。
 
-        boolean hasOauthProvider = mcpServer.oauthProvider() != null && !mcpServer.oauthProvider().isBlank();
-        boolean hasScopes = !ListUtils.isEmpty(mcpServer.oauthScopesSupported());
+        boolean hasOauthProvider = normalized.oauthProvider() != null && !normalized.oauthProvider().isBlank();
+        boolean hasScopes = !ListUtils.isEmpty(normalized.oauthScopesSupported());
 
         if (authType == McpServer.AuthType.OAUTH) {
-            if (!hasOauthProvider) {
-                throw new HttpStatusException(HttpStatus.BAD_REQUEST, "oauthProvider is required when authType is OAUTH");
-            }
-            if (!hasScopes) {
-                throw new HttpStatusException(HttpStatus.BAD_REQUEST, "oauthScopesSupported is required when authType is OAUTH");
-            }
-        } else {
-            if (hasOauthProvider) {
-                throw new HttpStatusException(HttpStatus.BAD_REQUEST, "oauthProvider must not be set when authType is not OAUTH");
-            }
-            if (hasScopes) {
-                throw new HttpStatusException(HttpStatus.BAD_REQUEST, "oauthScopesSupported must not be set when authType is not OAUTH");
-            }
+            // dsh：缺省字段由服务器落默认值（唯一提供商 + 内置 scope 集），不再要求客户端必填
+            return withOAuthDefaults(
+                normalized,
+                hasOauthProvider ? normalized.oauthProvider() : DEFAULT_OAUTH_PROVIDER,
+                hasScopes ? normalized.oauthScopesSupported() : DEFAULT_OAUTH_SCOPES
+            );
         }
+
+        if (hasOauthProvider) {
+            throw new HttpStatusException(HttpStatus.BAD_REQUEST, "oauthProvider must not be set when authType is not OAUTH");
+        }
+        if (hasScopes) {
+            throw new HttpStatusException(HttpStatus.BAD_REQUEST, "oauthScopesSupported must not be set when authType is not OAUTH");
+        }
+        return normalized;
     }
 
     @ExecuteOn(TaskExecutors.IO)

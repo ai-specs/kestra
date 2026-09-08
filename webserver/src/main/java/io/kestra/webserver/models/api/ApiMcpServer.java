@@ -35,7 +35,7 @@ public record ApiMcpServer(
         description = "Scopes advertised in the server's RFC 9728 Protected Resource Metadata document. Only meaningful when authType is OAUTH. When null or empty the field is omitted from the PRM document."
     ) List<String> oauthScopesSupported,
 
-    @Schema(description = "Whether the MCP server is disabled.") boolean disabled,
+    @Schema(description = "Whether the MCP server is disabled.") Boolean disabled,
 
     @Schema(description = "Whether this is the default MCP server, auto-provisioned per tenant.", accessMode = Schema.AccessMode.READ_ONLY) boolean isDefault,
 
