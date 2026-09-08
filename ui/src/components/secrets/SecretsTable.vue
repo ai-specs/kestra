@@ -508,6 +508,13 @@
         return JSON.stringify(filters)
     })
 
+    // filter/搜索变化（KSFilter 内部更新 URL）后必须重新加载列表：
+    // KsDataTable 只监听 page/size/sort，不监听 route.query —— 缺失此 watch 时
+    // 「清除所有」与搜索框 x 清除都只改 URL，列表不刷新（用户实测 403 页同款问题）。
+    watch(filterQueryKey, () => {
+        dataTable.value?.resetAndReload()
+    })
+
     const hasActiveFilters = computed(() => routeQueryToQueryFilters(route.query).length > 0)
 
     // The filter query the rows on screen were loaded for; until it catches up, `total` still answers

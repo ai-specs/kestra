@@ -46,16 +46,24 @@ export const useMiscStore = defineStore("misc", () => {
 
     async function loadConfigs() {
         const response = await axios.get(`${apiUrlWithoutTenants()}/configs`)
-        configs.value = response.data
         // dsh managed secrets：探测 DB 托管 secret 端点。可用（已配置加密密钥）→ 置
         // secretsEnabled=true，Secrets 页切换到 EE 式管理模式（UI 增删改）；
         // 不可用（仅环境变量 SECRET_* 注入）→ 保持 undefined，页面显示 OSS env 提示。
+        // 一次性组装完成后再整体赋值，避免「先清后置」的中间态——否则每次导航
+        // （beforeResolve 守卫会重跑 loadConfigs）都会让 Secrets 页在 v-if/v-else 间
+        // 抖动、SecretsTable 重挂载，重挂载的筛选器从 URL 重新读回搜索条件，
+        // 导致「清除所有」/搜索清空被立即写回、整页交互失效（KV 页无此双模式故不受影响）。
+        let config: Record<string, any> = response.data
         try {
             await axios.get(`${apiUrl()}/secrets/managed`)
-            configs.value = {...configs.value, secretsEnabled: true}
+            config = {...config, secretsEnabled: true}
         } catch {
-            // env-only：不改变 configs（secretsEnabled 保持 undefined）
+            // 探测失败：保留已确认的 secretsEnabled，避免重复导航时 true→undefined→true 抖动
+            if (configs.value?.secretsEnabled === true) {
+                config = {...config, secretsEnabled: true}
+            }
         }
+        configs.value = config
         // Best-effort: flush any queued analytics events once configs are known.
         void useApiStore().flushQueuedEvents()
         return response.data
