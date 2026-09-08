@@ -65,12 +65,10 @@
                             :value="scope.row.namespace"
                             :to="{name: 'namespaces/update', params: {id: scope.row.namespace}}"
                         />
+                        <span v-else class="secret-global-namespace">{{ $t('secret.globalNamespace') }}</span>
                     </template>
                     <template v-else-if="col.prop === 'description'">
                         {{ scope.row?.description }}
-                    </template>
-                    <template v-else-if="col.prop === 'tags'">
-                        <Labels v-if="scope.row?.tags !== undefined" :labels="scope.row.tags" readOnly class="no-pointer-events" />
                     </template>
                 </template>
             </KsTableColumn>
@@ -168,17 +166,10 @@
                     <KsPassword v-model="secret.value" :placeholder="$t('secret.valuePlaceholder')" />
                 </KsFormItem>
                 <KsFormItem v-if="secret.update" :label="$t('secret.name')" prop="value" inline class="field-item">
-                    <div class="secret-value-control">
-                        <KsPassword
-                            v-model="secret.value"
-                            :placeholder="$t('secret.valuePlaceholder')"
-                            :disabled="!secret.updateValue"
-                        />
-                        <KsSwitch
-                            inlinePrompt
-                            v-model="secret.updateValue"
-                        />
-                    </div>
+                    <KsPassword
+                        v-model="secret.value"
+                        :placeholder="$t('secret.valuePlaceholderUpdate')"
+                    />
                 </KsFormItem>
                 <KsFormItem :label="$t('secret.description')" prop="description" labelPosition="top">
                     <KsInput
@@ -188,21 +179,6 @@
                         :rows="2"
                         resize="vertical"
                     />
-                </KsFormItem>
-                <KsFormItem prop="tags" labelPosition="top" class="secret-tags-item">
-                    <template #label>
-                        <div class="secret-tags-label">
-                            <span>{{ $t('secret.tags') }}</span>
-                            <KsButton :icon="Plus" @click="addSecretTag" type="default" size="small">
-                                {{ $t('secret.addTag') }}
-                            </KsButton>
-                        </div>
-                    </template>
-                    <div class="secret-tag-row" v-for="(tag, index) in secret.tags" :key="index">
-                        <KsInput class="tag-key" required v-model="tag.key" :placeholder="$t('key')" />
-                        <KsInput class="tag-value" required v-model="tag.value" :placeholder="$t('value')" />
-                        <KsButton :icon="Delete" @click="removeSecretTag(index)" />
-                    </div>
                 </KsFormItem>
             </KsForm>
 
@@ -226,14 +202,12 @@
     import _merge from "lodash/merge"
 
     import Lock from "vue-material-design-icons/Lock.vue"
-    import Plus from "vue-material-design-icons/Plus.vue"
     import Delete from "vue-material-design-icons/Delete.vue"
     import ContentCopy from "vue-material-design-icons/ContentCopy.vue"
     import ContentSave from "vue-material-design-icons/ContentSave.vue"
     import FileDocumentEdit from "vue-material-design-icons/FileDocumentEdit.vue"
 
     import {KsId, KsIconButton, KsPassword} from "@kestra-io/design-system"
-    import Labels from "../layout/Labels.vue"
     import {KsFilter as KSFilter} from "@kestra-io/design-system"
     import {routeQueryToQueryFilters} from "../../utils/queryFilters"
     import NamespaceSelect from "../namespaces/components/NamespaceSelect.vue"
@@ -242,6 +216,8 @@
     import resource from "../../models/resource"
     import * as Utils from "../../utils/utils"
     import {useToast} from "../../utils/toast"
+    import {apiUrl} from "override/utils/route"
+    import {useClient} from "@kestra-io/kestra-sdk"
     import {storageKeys} from "../../utils/constants"
     import * as SecretsAPI from "@kestra-io/kestra-sdk/secrets"
     import {useAuthStore} from "override/stores/auth"
@@ -259,15 +235,12 @@
         key?: string;
         description?: string;
         update?: boolean;
-        updateValue?: boolean;
-        tags: {key?: string; value?: string}[];
     }
 
     interface NamespaceSecret {
         key: string;
         namespace?: string;
         description?: string;
-        tags?: {key?: string; value?: string}[];
     }
 
     const props = withDefaults(defineProps<{
@@ -309,14 +282,58 @@
     const areNamespaceSecretsReadOnly = ref(false)
     const secrets = ref<(NamespaceSecret & {namespace?: string})[]>()
 
+    // dsh managed secrets：DB 托管的 (namespace,key) 集合——仅托管行可增删改，
+    // 环境变量注入的 secret（SECRET_*）保持只读。键格式 `${namespace}\u0000${key}`。
+    const managedKeys = ref(new Set<string>())
+    // key → 所属 namespace 列表（字典序）：OSS list 端点只返回扁平 key，
+    // 用 managed 端点反查给每行补 namespace 列（DB 托管行），env 行保持无 namespace（只读）。
+    const keyNamespaces = ref(new Map<string, string[]>())
+    // `${namespace}\u0000${key}` → 元数据（description）：列表协议不返回 description，
+    // 由 managed 端点补齐展示。
+    const secretMeta = ref(new Map<string, {description?: string}>())
+    const axios = useClient()
+
+    async function loadManagedKeys(): Promise<Set<string>> {
+        try {
+            const response = await axios.get(`${apiUrl()}/secrets/managed`)
+            // managed 返回 {"secrets":[{namespace,key,description}]}——一次拿到
+            // 托管行判定（ns+key）、namespace 反查、description 展示三份信息。
+            const list: {namespace?: string; key?: string; description?: string}[] = response.data?.secrets ?? []
+            const keys = new Set<string>()
+            const nsByKey = new Map<string, Set<string>>()
+            const metaByNsKey = new Map<string, {description?: string}>()
+            for (const item of list ?? []) {
+                const namespace = item.namespace
+                const key = item.key
+                if (namespace === undefined || key === undefined) continue
+                keys.add(`${namespace}\u0000${key}`)
+                if (!nsByKey.has(key)) nsByKey.set(key, new Set())
+                nsByKey.get(key)!.add(namespace)
+                metaByNsKey.set(`${namespace}\u0000${key}`, {description: item.description})
+            }
+            managedKeys.value = keys
+            const sorted = new Map<string, string[]>()
+            for (const [key, namespaces] of nsByKey) {
+                sorted.set(key, [...namespaces].sort())
+            }
+            keyNamespaces.value = sorted
+            secretMeta.value = metaByNsKey
+            return keys
+        } catch {
+            // 后端未启用 managed secrets（未配置加密密钥）→ 全部只读
+            managedKeys.value = new Set()
+            keyNamespaces.value = new Map()
+            secretMeta.value = new Map()
+            return new Set()
+        }
+    }
+
     const secret = ref<SecretForm>({
         namespace: props.namespace,
         key: undefined,
         value: "",
         description: undefined,
-        tags: [{key: undefined, value: undefined}],
         update: undefined,
-        updateValue: undefined,
     })
 
     const secretBaseline = ref("")
@@ -343,18 +360,11 @@
                 default: true,
                 description: t("filter.table_column.secrets.description"),
             },
-            {
-                label: t("tags"),
-                prop: "tags",
-                default: true,
-                description: t("filter.table_column.secrets.tags"),
-            },
         ]
 
         return columns.filter(col => {
             if (col.prop === "namespace" && !hasNamespaceColumn) return false
             if (col.prop === "description" && props.keyOnly) return false
-            if (col.prop === "tags" && (props.keyOnly || props.paneView)) return false
             return true
         })
     })
@@ -386,30 +396,9 @@
     })
 
     const checkSecretValue = (_rule: any, _value: any, callback: any) => {
-        if (secret.value?.updateValue && (secret.value.value === undefined || secret.value.value.length === 0)) {
+        // 创建：值必填；更新：空值 = 不修改秘密值（防止把占位空值写回真实值）
+        if (!secret.value?.update && (secret.value.value === undefined || secret.value.value.trim().length === 0)) {
             callback(new Error("Value must not be empty."))
-        } else {
-            callback()
-        }
-    }
-
-    const checkSecretTags = (_rule: any, _value: any, callback: any) => {
-        const keys = secret.value?.tags?.map((it) => it.key)
-
-        if (secret.value?.tags?.length === 1) {
-            if (secret.value?.tags?.[0]?.key === undefined && secret.value?.tags?.[0]?.value === undefined) {
-                callback()
-                return
-            }
-        }
-
-        const nullKeys = keys?.filter(item => item === undefined)
-        const duplicateKeys = keys?.filter((item, index) => keys.indexOf(item) !== index)
-
-        if (nullKeys?.length > 0) {
-            callback(new Error("Tag key must not be empty."))
-        } else if (duplicateKeys?.length > 0) {
-            callback(new Error("Duplicate tags for keys: " + Array.from(new Set(duplicateKeys))))
         } else {
             callback()
         }
@@ -429,23 +418,18 @@
         secret: [
             {required: true, trigger: "change"},
         ],
-        tags: [
-            {
-                validator: checkSecretTags,
-                trigger: ["blur"],
-                required: false,
-            },
-        ],
     }
 
     const canUpdate = (item: NamespaceSecret & {namespace?: string}) => {
         return item?.namespace !== undefined &&
+            managedKeys.value.has(`${item.namespace}\u0000${item.key}`) &&
             authStore.user?.isAllowed(resource.SECRET, action.UPDATE, item.namespace) &&
             !areNamespaceSecretsReadOnly.value
     }
 
     const canDelete = (item: NamespaceSecret & {namespace?: string}) => {
         return item?.namespace !== undefined &&
+            managedKeys.value.has(`${item.namespace}\u0000${item.key}`) &&
             authStore.user?.isAllowed(resource.SECRET, action.DELETE, item.namespace) &&
             !areNamespaceSecretsReadOnly.value
     }
@@ -499,8 +483,19 @@
         }
 
         hasData.value = (allSecrets.length ?? 0) !== 0
-        areNamespaceSecretsReadOnly.value = secretsResponse.readOnly ?? false
-        secrets.value = allSecrets
+        // dsh：OSS list 端点恒返回 readOnly=true（环境变量模式）。启用 DB 托管
+        // （managed 端点返回数据）后，托管行可增删改，仅 env 行保持只读。
+        const managed = await loadManagedKeys()
+        areNamespaceSecretsReadOnly.value = (secretsResponse.readOnly ?? false) && managed.size === 0
+        // 等 managed 元数据就绪后再标注 namespace/description：DB 托管行显示
+        // 所属 namespace 与 description（列表协议只返回扁平 key），env 行（SECRET_*）
+        // 无 namespace 保持只读。
+        secrets.value = allSecrets.map((s: any) => {
+            const ns = keyNamespaces.value.get(s?.key)?.[0]
+            if (ns === undefined) return s
+            const meta = secretMeta.value.get(`${ns}\u0000${s.key}`)
+            return {...s, namespace: ns, description: s.description ?? meta?.description}
+        })
         total.value = secretsResponse.total ?? 0
         loadedFilterKey.value = filterQueryKey.value
     }
@@ -535,18 +530,9 @@
         secret.value.namespace = secretData?.namespace
         secret.value.key = secretData?.key
         secret.value.description = secretData?.description
-        secret.value.tags = secretData?.tags?.map((x: any) => ({...x})) ?? [{key: undefined, value: undefined}]
+        secret.value.value = ""
         secret.value.update = true
-        secret.value.updateValue = false
         addSecretDrawerVisible.value = true
-    }
-
-    const addSecretTag = () => {
-        secret.value?.tags?.push({key: "" as any, value: "" as any})
-    }
-
-    const removeSecretTag = (index: number) => {
-        secret.value?.tags?.splice(index, 1)
     }
 
     const copyKey = async (key: string) => {
@@ -565,8 +551,12 @@
         })
     }
 
-    const isSecretValueUpdated = () => {
-        return !secret.value?.update || secret.value?.updateValue
+    // 是否随本次保存提交新秘密值：更新模式值为空 = 不修改值（仅元数据）；
+    // 创建模式恒传值。更新永远是 PATCH（value 可选），创建永远是 POST。
+    const shouldUpdateValue = () => {
+        if (!secret.value?.update) return true
+        const v = secret.value?.value
+        return v !== undefined && v !== null && v.trim() !== ""
     }
 
     const saveSecret = (formRef: FormInstance | undefined) => {
@@ -580,18 +570,16 @@
             const secretData: any = {
                 key: secret.value?.key,
                 description: secret.value?.description,
-                tags: secret.value?.tags
-                    ?.map(item => item.value !== undefined ? item : {key: item.key, value: ""})
-                    ?.filter(item => item.key !== undefined),
             }
 
-            if (isSecretValueUpdated()) {
+            const updateValue = shouldUpdateValue()
+            if (updateValue) {
                 secretData.value = secret.value?.value
             }
 
-            const actionMethod = isSecretValueUpdated()
-                ? namespacesStore.createSecrets
-                : namespacesStore.patchSecret
+            const actionMethod = secret.value?.update === true
+                ? namespacesStore.patchSecret
+                : namespacesStore.createSecrets
 
             // Snapshot before the request: resetForm() swaps secret.value out when the drawer closes,
             // and the .then() would then read the flag off a different object.
@@ -604,7 +592,6 @@
                         type: wasUpdate ? "SECRET_UPDATED" : "SECRET_CREATED",
                         secret_type: "secret",
                         namespace,
-                        has_tags: (secretData.tags?.length ?? 0) > 0,
                     })
 
                     secret.value!.update = true
@@ -622,9 +609,7 @@
             key: undefined,
             value: "",
             description: undefined,
-            tags: [{key: undefined, value: undefined}],
             update: undefined,
-            updateValue: undefined,
         }
     }
 
@@ -676,28 +661,6 @@
     }
 
     .field-item :deep(.kel-form-item__content) > * {
-        width: 100%;
-    }
-
-    .secret-value-control {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: var(--ks-spacing-2);
-    }
-
-    .secret-value-control > :first-child {
-        width: 100%;
-    }
-
-    .secret-tags-item :deep(.kel-form-item__label) {
-        width: 100%;
-    }
-
-    .secret-tags-label {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
         width: 100%;
     }
 </style>

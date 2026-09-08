@@ -126,7 +126,7 @@ export const useBaseNamespacesStore = () => {
         return data
     }
 
-    async function listSecrets({id}: {id: string; commit: boolean | undefined; [key: string]: any}): Promise<{total: number, results: {key: string, description?: string, tags?: {key: string, value: string}[]}[], readOnly?: boolean}> {
+    async function listSecrets({id}: {id: string; commit: boolean | undefined; [key: string]: any}): Promise<{total: number, results: {key: string, description?: string}[], readOnly?: boolean}> {
         try {
             const data = await SecretsAPI.listSecrets({filters: [{field: "namespace", operation: "EQUALS", value: id}] as any}) as any
             return data
@@ -143,16 +143,24 @@ export const useBaseNamespacesStore = () => {
         ]
     }
 
-    async function createSecrets(_: {namespace: string; secret: any}) {
-        // NOOP IN OSS
+    async function createSecrets({namespace, secret}: {namespace: string; secret: any}) {
+        // dsh managed secrets (OSS self-implemented, EE-style): POST /secrets/{namespace}/{key}
+        await axios.post(`${apiUrl()}/secrets/${namespace}/${secret.key}`, {
+            value: secret.value,
+            description: secret.description,
+        })
     }
 
-    async function patchSecret(_: {namespace: string; secret: any}) {
-        // NOOP IN OSS
+    async function patchSecret({namespace, secret}: {namespace: string; secret: any}) {
+        // PATCH: value 缺省 = 仅更新元数据（description），与后端合并语义一致
+        await axios.patch(`${apiUrl()}/secrets/${namespace}/${secret.key}`, {
+            value: secret.value,
+            description: secret.description,
+        })
     }
 
-    async function deleteSecrets(_: {namespace: string; key: string}) {
-        // NOOP IN OSS
+    async function deleteSecrets({namespace, key}: {namespace: string; key: string}) {
+        await axios.delete(`${apiUrl()}/secrets/${namespace}/${key}`)
     }
 
     async function loadInheritedVariables(_: {id: string, commit?: boolean}) {

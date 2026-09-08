@@ -47,6 +47,15 @@ export const useMiscStore = defineStore("misc", () => {
     async function loadConfigs() {
         const response = await axios.get(`${apiUrlWithoutTenants()}/configs`)
         configs.value = response.data
+        // dsh managed secrets：探测 DB 托管 secret 端点。可用（已配置加密密钥）→ 置
+        // secretsEnabled=true，Secrets 页切换到 EE 式管理模式（UI 增删改）；
+        // 不可用（仅环境变量 SECRET_* 注入）→ 保持 undefined，页面显示 OSS env 提示。
+        try {
+            await axios.get(`${apiUrl()}/secrets/managed`)
+            configs.value = {...configs.value, secretsEnabled: true}
+        } catch {
+            // env-only：不改变 configs（secretsEnabled 保持 undefined）
+        }
         // Best-effort: flush any queued analytics events once configs are known.
         void useApiStore().flushQueuedEvents()
         return response.data
