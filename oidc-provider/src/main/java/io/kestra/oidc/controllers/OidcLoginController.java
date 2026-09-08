@@ -80,6 +80,16 @@ public class OidcLoginController {
     static final String LEGACY_BASIC_AUTH_FLAG_COOKIE = "kestraBasicAuthenticated";
 
     /**
+     * Kestra's CSRF token cookie (Micronaut {@code CsrfConfiguration#getCookieName()},
+     * default {@code csrfToken}). It is a session cookie — no Max-Age — and {@code UiIndexService}
+     * REUSES an existing cookie value when rendering the page meta, so a token signed under an
+     * earlier random signature key survives restarts/refresh/logout and fails validation forever
+     * (every UI write then 403s). Clearing it on login/logout guarantees a fresh token is issued
+     * with the current signature key.
+     */
+    static final String CSRF_COOKIE_NAME = "csrfToken";
+
+    /**
      * The browser's refresh-token cookie (OAuth2 model): LONG-lived ({@code refreshTokenTtl}),
      * DB-backed in {@code oidc_token} — revocable and rotated on every use. The {@code JWT}
      * cookie is deliberately SHORT-lived ({@code accessTokenTtl}): stealing it buys an attacker
@@ -201,6 +211,10 @@ public class OidcLoginController {
         response.cookie(uiAuthFlagCookie(request, configuration.getRefreshTokenTtl()));
         // 退役命名一次性清理：旧标志 cookie 若还在，立即失效。
         response.cookie(clearCookie(LEGACY_BASIC_AUTH_FLAG_COOKIE, request.isSecure()));
+        // CSRF token 是 session cookie 且 UiIndexService 复用它渲染页面 meta：
+        // 旧签名（随机密钥时代）的 token 永不失效，会导致 UI 写操作持续 403。
+        // 登录即视为新会话，清掉旧 token，让首次页面渲染用当前签名密钥重新签发。
+        response.cookie(clearCookie(CSRF_COOKIE_NAME, request.isSecure()));
         return response;
     }
 
@@ -421,7 +435,9 @@ public class OidcLoginController {
             .cookie(clearCookie("JWT", secure))
             .cookie(clearCookie(REFRESH_COOKIE_NAME, secure))
             .cookie(clearCookie(OIDC_AUTH_FLAG_COOKIE, secure))
-            .cookie(clearCookie(LEGACY_BASIC_AUTH_FLAG_COOKIE, secure));
+            .cookie(clearCookie(LEGACY_BASIC_AUTH_FLAG_COOKIE, secure))
+            // 与 login 对称：退出登录即结束会话，一并清除可能为旧签名签发的 CSRF token。
+            .cookie(clearCookie(CSRF_COOKIE_NAME, secure));
     }
 
     private boolean isRegisteredRedirectUri(String uri) {
