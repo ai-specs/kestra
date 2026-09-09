@@ -45,6 +45,19 @@ const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 30000;
 const TERMINAL_STATES = new Set(["SUCCESS", "FAILED", "KILLED", "WARNING"]);
 
+// The poll URL is taken from the first response (executionUrl), never constructed
+// from an out-of-band rule. Validate it before polling: it must resolve to this
+// origin under /api/v1/apps/ — a malformed or hostile value must not be able to
+// point polling anywhere else.
+function isTrustedPollUrl(u: string): boolean {
+    try {
+        const url = new URL(u, window.location.origin);
+        return url.origin === window.location.origin && url.pathname.startsWith("/api/v1/apps/");
+    } catch {
+        return false;
+    }
+}
+
 async function pollExecution(pollUrl: string): Promise<unknown> {
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     // eslint-disable-next-line no-constant-condition
@@ -125,12 +138,11 @@ const env: RenderOptions = {
             if (method === "post" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(url)) {
                 const p = parsed as {executionId?: string; executionUrl?: string} | null;
                 const executionId = p?.executionId;
-                if (executionId) {
-                    // Self-described polling URL: the 202 body carries executionUrl (and
-                    // the Location header has the same value), so the client polls exactly
-                    // that URL instead of reconstructing it from an out-of-band rule.
-                    // Legacy fallback: POST url + /executions/{executionId}.
-                    const pollUrl = p?.executionUrl ?? `${url}/executions/${executionId}`;
+                // Poll exactly the URL the first response told us about — never
+                // reconstruct it from the request URL. If the response carries no
+                // (trusted) executionUrl, do not poll: the 202 body is returned as-is.
+                const pollUrl = p?.executionUrl;
+                if (executionId && pollUrl && isTrustedPollUrl(pollUrl)) {
                     const polled = await pollExecution(pollUrl);
                     if (polled !== null) {
                         parsed = polled;
