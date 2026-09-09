@@ -2,6 +2,7 @@ import type {RouteRecordRaw} from "vue-router"
 // @ts-ignore - no type declarations available for this component
 import OnlyLeftMenuLayout from "../components/layout/OnlyLeftMenuLayout.vue"
 import FullScreenLayout from "../components/layout/FullScreenLayout.vue"
+import AppShellLayout from "../components/dsh/apps/AppShellLayout.vue"
 import Errors from "../components/errors/Errors.vue"
 import {EXECUTION_ROUTE} from "../components/executions/executionTabs"
 import {FLOW_ROUTE} from "../components/flows/flowTabs"
@@ -17,7 +18,10 @@ const routes: KestraRouteRecord[] = [
     {name: "ai",path: "/:tenant?/ai", component: () => import("../components/ai/copilot/CopilotPage.vue")},
 
     //dsh Apps (Amis-powered declarative apps, one flow = one app)
-    {name: "apps/view", path: "/:tenant?/apps/:appName/:pageId", component: () => import("../components/dsh/apps/AppView.vue"), props: true},
+    //standalone: render without the Kestra topbar/sidebar shell — an app page is an
+    //independent page, only gated by the OIDC session (no other coupling to the Kestra UI).
+    {name: "apps/list", path: "/:tenant?/apps", component: () => import("../components/dsh/apps/AppList.vue")},
+    {name: "apps/view", path: "/:tenant?/apps/:appName/:pageId", component: () => import("../components/dsh/apps/AppView.vue"), props: true, meta: {layout: AppShellLayout, standalone: true}},
 
     //Dashboards
     {
@@ -119,7 +123,7 @@ const routes: KestraRouteRecord[] = [
     //Demo Pages
     {name: "dashboards/create", path: "/:tenant?/dashboards/new", component: () => import("../components/demo/Dashboards.vue")},
     {name: "dashboards/update", path: "/:tenant?/dashboards/:dashboard/edit", component: () => import("../components/demo/Dashboards.vue")},
-    {name: "apps/list", path: "/:tenant?/apps", component: () => import("../components/demo/Apps.vue")},
+    // apps list replaced by dsh AppList.vue (declared in the dsh Apps block above); upstream demo page removed
     {name: "tests/list", path: "/:tenant?/tests", component: () => import("../components/demo/Tests.vue")},
     {name: "assets/list", path: "/:tenant?/assets", component: () => import("../components/demo/Assets.vue")},
     {name: "cases/list", path: "/:tenant?/cases", component: () => import("../components/demo/Cases.vue")},

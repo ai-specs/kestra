@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -194,5 +195,35 @@ public class AppRouteRegistry {
 
     public List<ApiRoute> apiRoutes(String tenant, String appName, String apiId) {
         return apiRoutes.getOrDefault(key(KIND_API, tenant, appName, apiId), List.of());
+    }
+
+    public record AppSummary(String appName, String namespace, List<String> pages, List<String> apis) {
+    }
+
+    /**
+     * Aggregate the route index into per-app summaries (for the "应用程序" list page).
+     * Tenant comparison uses the same normalized key both sides (null tenant = "main").
+     */
+    public List<AppSummary> apps(String tenant) {
+        Map<String, AppSummary> byApp = new java.util.TreeMap<>();
+        pageRoutes.forEach((key, list) -> {
+            if (list.isEmpty()) return;
+            PageRoute r = list.get(0);
+            if (Objects.equals(tenant, r.flow().getTenantId() == null ? "main" : r.flow().getTenantId())) {
+                byApp.computeIfAbsent(r.appName(),
+                        k -> new AppSummary(k, r.flow().getNamespace(), new ArrayList<>(), new ArrayList<>()))
+                    .pages().add(r.pageId());
+            }
+        });
+        apiRoutes.forEach((key, list) -> {
+            if (list.isEmpty()) return;
+            ApiRoute r = list.get(0);
+            if (Objects.equals(tenant, r.flow().getTenantId() == null ? "main" : r.flow().getTenantId())) {
+                byApp.computeIfAbsent(r.appName(),
+                        k -> new AppSummary(k, r.flow().getNamespace(), new ArrayList<>(), new ArrayList<>()))
+                    .apis().add(r.apiId());
+            }
+        });
+        return new ArrayList<>(byApp.values());
     }
 }

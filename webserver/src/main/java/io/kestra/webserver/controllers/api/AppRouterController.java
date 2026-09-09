@@ -76,6 +76,17 @@ public class AppRouterController {
     private StorageInterface storageInterface;
 
     /**
+     * GET /api/v1/apps — aggregate list of every app (name, namespace, pages, apis)
+     * visible to the current tenant, for the "应用程序" list page.
+     */
+    @Get(uri = "/")
+    @Operation(summary = "List all dsh apps")
+    public HttpResponse<List<AppRouteRegistry.AppSummary>> apps() {
+        String tenant = tenantService.resolveTenant();
+        return HttpResponse.ok(routeRegistry.apps(tenant));
+    }
+
+    /**
      * GET /api/v1/apps/{appName}/{pageId} — resolve the PageTrigger and return its Amis schema.
      */
     @Get(uri = "/{appName}/{pageId}")

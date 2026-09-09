@@ -3,17 +3,17 @@
     <ErrorToast v-if="coreStore.message" :noAutoHide="true" :message="coreStore.message" />
     <component :is="SdkDriftBanner" v-if="SdkDriftBanner" />
     <div id="app-shell">
-        <AppTopNavBar  v-if="loaded && route?.name && !route.meta?.anonymous"  />
+        <AppTopNavBar  v-if="loaded && route?.name && !route.meta?.anonymous && !route.meta?.standalone"  />
         <div id="app-body">
             <component :is="route.meta.layout ?? DefaultLayout" v-if="loaded">
                 <router-view />
             </component>
         </div>
     </div>
-    <TourOverlay v-if="loaded && route?.name && !route.meta?.anonymous" />
+    <TourOverlay v-if="loaded && route?.name && !route.meta?.anonymous && !route.meta?.standalone" />
     <UnsavedChangesDialog />
     <DrillDownDrawer />
-    <PwaInstallPrompt v-if="loaded && route?.name && !route.meta?.anonymous" />
+    <PwaInstallPrompt v-if="loaded && route?.name && !route.meta?.anonymous && !route.meta?.standalone" />
 </template>
 
 <script lang="ts" setup>
