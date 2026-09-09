@@ -93,18 +93,22 @@ public class ApiTrigger extends AbstractTrigger {
      * {@link ResponseMode} — the page scenario picks the mode, the body shape is
      * about who consumes the response.
      * <ul>
-     *   <li>{@code KESTRA}: {@code {executionId, state, outputs, error}} — native
-     *   shape for the standalone shell's custom fetcher.</li>
+     *   <li>{@code KESTRA}: {@code {executionId, executionState, outputs, error}} —
+     *   native shape for the standalone shell's custom fetcher. Uses the same
+     *   {@code executionState} field name as AMIS, so a client reads the execution
+     *   state from one field regardless of the format; the format itself is
+     *   distinguishable by the presence of {@code status}/{@code data} (AMIS) versus
+     *   {@code outputs}/{@code error} (KESTRA).</li>
      *   <li>{@code AMIS}: amis standard payload {@code {status, msg, data}} plus
      *   top-level {@code executionId} and {@code executionState} (both ignored by
      *   amis; they let an ASYNC client poll and tell a running execution from a
-     *   finished one). {@code data} is the pure outputs map — execution metadata
-     *   only lives at the top level, so no output field can collide with it.
-     *   Success is {@code {status: 0, msg: "", executionId, executionState: "SUCCESS",
-     *   data: <outputs>}}; still running is {@code {status: 0, msg: "",
-     *   executionId, executionState: "RUNNING", data: {}}}; failure is
-     *   {@code {status: 2, msg: <error>, msgTimeout: 10000, executionId,
-     *   executionState: "FAILED", data: {}}}.</li>
+     *   finished one). {@code data} is always an object — the outputs map, or
+     *   {@code {}} when there is nothing yet (never null or an empty string, as amis
+     *   requires a key-value structure). Success is {@code {status: 0, msg: "",
+     *   executionId, executionState: "SUCCESS", data: <outputs>}}; still running is
+     *   {@code {status: 0, msg: "", executionId, executionState: "RUNNING",
+     *   data: {}}}; failure is {@code {status: 2, msg: <error>, msgTimeout: 10000,
+     *   executionId, executionState: "FAILED", data: {}}}.</li>
      * </ul>
      */
     public enum ResponseBody {

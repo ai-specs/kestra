@@ -308,18 +308,17 @@ public class AppRouterController {
             : (execution.getState().getCurrent() == null ? "CREATED" : execution.getState().getCurrent().name());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("executionId", execution.getId());
-        body.put("state", stateName);
+        body.put("executionState", stateName);
         body.put("outputs", outputs);
         body.put("error", error);
         // AMIS: amis standard payload {status, msg, data} plus top-level executionId
         // and executionState (both ignored by amis, but they let an ASYNC client poll
-        // and tell a running execution from a finished one). data stays the pure
-        // outputs map — execution metadata lives at the top level only, so no output
-        // field can collide with it:
-        //   - still running : status 0, data: {} (or partial), executionState: RUNNING
-        //   - success        : status 0, data: <outputs>, executionState: SUCCESS
-        //   - failure        : status 2, msg: <error>, msgTimeout: 10000,
-        //                       data: {}, executionState: FAILED
+        // and tell a running execution from a finished one). data is always an object
+        // (the outputs map, or {} when there is nothing yet) — never null or "" — and
+        // amis requires a key-value structure:
+        //   - still running : status 0, msg "", data: {}
+        //   - success        : status 0, msg "", data: <outputs>
+        //   - failure        : status 2, msg: <error>, msgTimeout: 10000, data: {}
         if ("AMIS".equals(responseBody)) {
             Map<String, Object> amis = new LinkedHashMap<>();
             amis.put("executionId", execution.getId());
