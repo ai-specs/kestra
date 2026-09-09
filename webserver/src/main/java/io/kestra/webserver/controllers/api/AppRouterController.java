@@ -200,7 +200,7 @@ public class AppRouterController {
         String error = null;
         if (terminal == State.Type.SUCCESS || terminal == State.Type.WARNING) {
             try {
-                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId());
+                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId(), apiId);
             } catch (Exception e) {
                 error = "Unable to read execution outputs: " + e.getMessage();
             }
@@ -213,40 +213,32 @@ public class AppRouterController {
 
     /**
      * Apps convention: every branch of an app api flow ends with an OutputValues task
-     * whose values carry a {@code result} key (task ids are globally unique in Kestra, so
-     * the convention is the key, not the task id). The api response body is the value of
-     * that {@code result} key only — there is no flow-level outputs aggregation, so
-     * sibling branches never leak empty keys into the response.
+     * whose id is {@code {apiId}_result} (task ids are globally unique in Kestra, and the
+     * apiId is known from the route, so the trigger reads exactly that task's outputs).
+     * The api response body is that task's {@code values} map itself — no flow-level
+     * outputs aggregation, no wrapper key, so sibling branches never leak into the
+     * response and the body is exactly what the page expects (an amis page schema for a
+     * schemaApi branch, a plain data map otherwise).
      *
-     * @return the map under the {@code result} key of the executing branch's last output,
-     *         or the convention error when no task output carries it
+     * @return the {@code values} of the {@code {apiId}_result} task run, or the
+     *         convention error when the task is missing or produced no values
      */
-    private Map<String, Object> extractResultOutputs(Execution execution) throws Exception {
+    private Map<String, Object> extractResultOutputs(Execution execution, String apiId) throws Exception {
+        String taskId = apiId + "_result";
         Map<String, Object> all = taskOutputService.computeOutputs(execution);
-        if (all == null || all.isEmpty()) {
+        Object taskOuts = all == null ? null : all.get(taskId);
+        if (!(taskOuts instanceof Map<?, ?> taskOutsMap)) {
             throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "No task outputs found — app api flows must end each Switch branch with an OutputValues task whose values carry a 'result' key.");
+                "No task with id '%s' found — app api flows must end each %s branch with an OutputValues task whose id is '<apiId>_result'.".formatted(taskId, apiId));
         }
-        for (Map.Entry<String, Object> entry : all.entrySet()) {
-            if (!(entry.getValue() instanceof Map<?, ?> taskOuts)) {
-                continue;
-            }
-            Object values = taskOuts.get("values");
-            if (!(values instanceof Map<?, ?> valuesMap) || !valuesMap.containsKey("result")) {
-                continue;
-            }
-            Object result = valuesMap.get("result");
-            if (!(result instanceof Map<?, ?> resultMap)) {
-                throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                    "The 'result' key of task '%s' must hold an object (map), got %s.".formatted(
-                        entry.getKey(), result == null ? "null" : result.getClass().getSimpleName()));
-            }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> unwrapped = (Map<String, Object>) resultMap;
-            return unwrapped;
+        Object values = taskOutsMap.get("values");
+        if (!(values instanceof Map<?, ?> valuesMap)) {
+            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
+                "Task '%s' produced no values — make it an OutputValues task (or any task that emits an OutputValues-shaped output).".formatted(taskId));
         }
-        throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-            "No task output carries a 'result' key — app api flows must end each Switch branch with an OutputValues task whose values carry a 'result' key.");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> unwrapped = (Map<String, Object>) valuesMap;
+        return unwrapped;
     }
 
     /**
@@ -256,7 +248,7 @@ public class AppRouterController {
      * briefly, bounded and best-effort; a persistent missing {@code result} task surfaces
      * as the convention error once the short window elapses.
      */
-    private Map<String, Object> awaitResultOutputs(String tenant, String namespace, String flowId, String executionId) throws Exception {
+    private Map<String, Object> awaitResultOutputs(String tenant, String namespace, String flowId, String executionId, String apiId) throws Exception {
         Map<String, Object> outputs = null;
         HttpStatusException lastConventionError = null;
         for (int i = 0; i < 20; i++) {
@@ -265,7 +257,7 @@ public class AppRouterController {
                 return null;
             }
             try {
-                outputs = extractResultOutputs(fresh.get());
+                outputs = extractResultOutputs(fresh.get(), apiId);
             } catch (HttpStatusException e) {
                 // Convention error, but the repository write may still be in flight — keep polling briefly.
                 lastConventionError = e;
@@ -314,7 +306,7 @@ public class AppRouterController {
         State.Type current = execution.getState().getCurrent();
         if (current == State.Type.SUCCESS || current == State.Type.WARNING) {
             try {
-                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId());
+                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId(), apiId);
             } catch (Exception e) {
                 error = "Unable to read execution outputs: " + e.getMessage();
             }
