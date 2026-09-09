@@ -123,9 +123,15 @@ const env: RenderOptions = {
                 // non-JSON body — keep the text
             }
             if (method === "post" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(url)) {
-                const executionId = (parsed as {executionId?: string} | null)?.executionId;
+                const p = parsed as {executionId?: string; executionUrl?: string} | null;
+                const executionId = p?.executionId;
                 if (executionId) {
-                    const polled = await pollExecution(`${url}/executions/${executionId}`);
+                    // Self-described polling URL: the 202 body carries executionUrl (and
+                    // the Location header has the same value), so the client polls exactly
+                    // that URL instead of reconstructing it from an out-of-band rule.
+                    // Legacy fallback: POST url + /executions/{executionId}.
+                    const pollUrl = p?.executionUrl ?? `${url}/executions/${executionId}`;
+                    const polled = await pollExecution(pollUrl);
                     if (polled !== null) {
                         parsed = polled;
                     }
