@@ -197,12 +197,15 @@ public class AppRouteRegistry {
         return apiRoutes.getOrDefault(key(KIND_API, tenant, appName, apiId), List.of());
     }
 
-    public record AppSummary(String appName, String namespace, List<String> pages, List<String> apis) {
+    public record AppSummary(String appName, String namespace, String flowId, List<String> pages,
+                             List<String> apis) {
     }
 
     /**
      * Aggregate the route index into per-app summaries (for the "应用程序" list page).
      * Tenant comparison uses the same normalized key both sides (null tenant = "main").
+     * flowId is the declaring flow (an app flow declares Page/Api triggers in its own
+     * yaml; the list page links back to that flow's editor).
      */
     public List<AppSummary> apps(String tenant) {
         Map<String, AppSummary> byApp = new java.util.TreeMap<>();
@@ -211,7 +214,7 @@ public class AppRouteRegistry {
             PageRoute r = list.get(0);
             if (Objects.equals(tenant, r.flow().getTenantId() == null ? "main" : r.flow().getTenantId())) {
                 byApp.computeIfAbsent(r.appName(),
-                        k -> new AppSummary(k, r.flow().getNamespace(), new ArrayList<>(), new ArrayList<>()))
+                        k -> new AppSummary(k, r.flow().getNamespace(), r.flow().getId(), new ArrayList<>(), new ArrayList<>()))
                     .pages().add(r.pageId());
             }
         });
@@ -220,7 +223,7 @@ public class AppRouteRegistry {
             ApiRoute r = list.get(0);
             if (Objects.equals(tenant, r.flow().getTenantId() == null ? "main" : r.flow().getTenantId())) {
                 byApp.computeIfAbsent(r.appName(),
-                        k -> new AppSummary(k, r.flow().getNamespace(), new ArrayList<>(), new ArrayList<>()))
+                        k -> new AppSummary(k, r.flow().getNamespace(), r.flow().getId(), new ArrayList<>(), new ArrayList<>()))
                     .apis().add(r.apiId());
             }
         });

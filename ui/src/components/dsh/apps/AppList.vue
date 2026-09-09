@@ -1,30 +1,42 @@
 <template>
     <div class="dsh-app-list">
-        <h1 class="dsh-app-list__title">应用程序</h1>
+        <h1 class="dsh-app-list__title">{{ t("apps") }}</h1>
+        <p class="dsh-app-list__hint">
+            声明了 <code>PageTrigger</code> / <code>ApiTrigger</code> 的 flow 会出现在这里，点击进入对应的 flow 编辑器。
+        </p>
         <div v-if="loading" class="dsh-app-list__status">Loading apps…</div>
         <div v-else-if="error" class="dsh-app-list__status dsh-app-list__error">{{ error }}</div>
         <div v-else-if="apps.length === 0" class="dsh-app-list__status">
             还没有应用程序。在 flow 的 triggers 中声明 <code>io.kestra.plugin.dsh.apps.PageTrigger</code> 即可创建一个 App。
         </div>
-        <div v-else class="dsh-app-list__grid">
-            <div v-for="app in apps" :key="app.appName" class="dsh-app-list__card">
-                <div class="dsh-app-list__card-head">
-                    <span class="dsh-app-list__card-name">{{ app.appName }}</span>
-                    <span class="dsh-app-list__card-ns">{{ app.namespace }}</span>
-                </div>
-                <div v-if="app.pages.length > 0" class="dsh-app-list__section">
-                    <div class="dsh-app-list__section-title">页面</div>
+        <div v-else class="dsh-app-list__table">
+            <div class="dsh-app-list__row dsh-app-list__row--head">
+                <span class="dsh-app-list__col dsh-app-list__col--flow">Flow</span>
+                <span class="dsh-app-list__col dsh-app-list__col--ns">Namespace</span>
+                <span class="dsh-app-list__col dsh-app-list__col--pages">页面</span>
+                <span class="dsh-app-list__col dsh-app-list__col--apis">API</span>
+            </div>
+            <div
+                v-for="app in apps"
+                :key="`${app.namespace}/${app.flowId}`"
+                class="dsh-app-list__row"
+            >
+                <span class="dsh-app-list__col dsh-app-list__col--flow">
                     <a
-                        v-for="page in app.pages"
-                        :key="page"
-                        class="dsh-app-list__link"
-                        :href="`${basePath}/apps/${app.appName}/${page}`"
-                    >{{ page }}</a>
-                </div>
-                <div v-if="app.apis.length > 0" class="dsh-app-list__section">
-                    <div class="dsh-app-list__section-title">API</div>
-                    <span v-for="api in app.apis" :key="api" class="dsh-app-list__api">{{ api }}</span>
-                </div>
+                        class="dsh-app-list__flow-link"
+                        :href="`${basePath}/flows/edit/${encodeURIComponent(app.namespace)}/${encodeURIComponent(app.flowId)}/edit`"
+                    >{{ app.flowId }}</a>
+                    <span class="dsh-app-list__app-name">(app: {{ app.appName }})</span>
+                </span>
+                <span class="dsh-app-list__col dsh-app-list__col--ns">{{ app.namespace }}</span>
+                <span class="dsh-app-list__col dsh-app-list__col--pages">
+                    <span v-for="p in app.pages" :key="p" class="dsh-app-list__tag">{{ p }}</span>
+                    <span v-if="app.pages.length === 0" class="dsh-app-list__muted">—</span>
+                </span>
+                <span class="dsh-app-list__col dsh-app-list__col--apis">
+                    <span v-for="a in app.apis" :key="a" class="dsh-app-list__tag">{{ a }}</span>
+                    <span v-if="app.apis.length === 0" class="dsh-app-list__muted">—</span>
+                </span>
             </div>
         </div>
     </div>
@@ -32,14 +44,18 @@
 
 <script setup lang="ts">
     import {computed, onMounted, ref} from "vue";
+    import {useI18n} from "vue-i18n";
     import {apiUrlWithoutTenants} from "override/utils/route";
 
     interface AppSummary {
         appName: string;
         namespace: string;
+        flowId: string;
         pages: string[];
         apis: string[];
     }
+
+    const {t} = useI18n({useScope: "global"});
 
     const apps = ref<AppSummary[]>([]);
     const loading = ref(true);
@@ -79,6 +95,11 @@
     .dsh-app-list__title {
         font-size: 20px;
         font-weight: 600;
+        margin-bottom: 4px;
+    }
+    .dsh-app-list__hint {
+        font-size: 13px;
+        color: var(--bs-secondary-color);
         margin-bottom: 16px;
     }
     .dsh-app-list__status {
@@ -89,58 +110,68 @@
     .dsh-app-list__error {
         color: var(--bs-danger);
     }
-    .dsh-app-list__grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 16px;
-    }
-    .dsh-app-list__card {
-        flex: 1 1 280px;
-        min-width: 0;
+    .dsh-app-list__table {
         border: 1px solid var(--bs-border-color);
         border-radius: 8px;
-        padding: 16px;
+        overflow: hidden;
+    }
+    .dsh-app-list__row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--bs-border-color);
         background: #fff;
     }
-    .dsh-app-list__card-head {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 8px;
-        margin-bottom: 12px;
+    .dsh-app-list__row:last-child {
+        border-bottom: none;
     }
-    .dsh-app-list__card-name {
-        font-size: 16px;
+    .dsh-app-list__row--head {
+        background: var(--bs-tertiary-bg, #f8f9fa);
+        font-size: 12px;
+        color: var(--bs-secondary-color);
+        text-transform: uppercase;
+    }
+    .dsh-app-list__col--flow {
+        flex: 2;
+        min-width: 0;
+    }
+    .dsh-app-list__col--ns {
+        flex: 1;
+        min-width: 0;
+    }
+    .dsh-app-list__col--pages,
+    .dsh-app-list__col--apis {
+        flex: 1.2;
+        min-width: 0;
+    }
+    .dsh-app-list__flow-link {
+        color: var(--bs-link-color);
+        text-decoration: none;
         font-weight: 600;
         word-break: break-all;
     }
-    .dsh-app-list__card-ns {
-        font-size: 12px;
-        color: var(--bs-secondary-color);
-        word-break: break-all;
-    }
-    .dsh-app-list__section {
-        margin-bottom: 8px;
-    }
-    .dsh-app-list__section-title {
-        font-size: 12px;
-        color: var(--bs-secondary-color);
-        margin-bottom: 4px;
-    }
-    .dsh-app-list__link {
-        display: inline-block;
-        margin: 2px 8px 2px 0;
-        color: var(--bs-link-color);
-        text-decoration: none;
-    }
-    .dsh-app-list__link:hover {
+    .dsh-app-list__flow-link:hover {
         text-decoration: underline;
     }
-    .dsh-app-list__api {
+    .dsh-app-list__app-name {
+        font-size: 12px;
+        color: var(--bs-secondary-color);
+        margin-left: 6px;
+        white-space: nowrap;
+    }
+    .dsh-app-list__tag {
         display: inline-block;
-        margin: 2px 8px 2px 0;
+        margin: 2px 6px 2px 0;
+        padding: 1px 8px;
+        border-radius: 10px;
+        background: var(--bs-tertiary-bg, #f0f2f5);
         font-family: ui-monospace, monospace;
-        font-size: 13px;
+        font-size: 12px;
         color: var(--bs-body-color);
+        word-break: break-all;
+    }
+    .dsh-app-list__muted {
+        color: var(--bs-secondary-color);
     }
 </style>

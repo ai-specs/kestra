@@ -162,9 +162,8 @@ export function useLeftMenu() {
                         icon: {
                             element: LayersTripleOutline,
                         },
-                        attributes: {
-                            locked: true,
-                        },
+                        // dsh fork: apps is a real dsh feature (declarative Amis apps, plugin-dsh-apps),
+                        // not an EE upsell — no locked attribute so the menu renders like any normal item.
                     },
                     {
                         id: "tests",
