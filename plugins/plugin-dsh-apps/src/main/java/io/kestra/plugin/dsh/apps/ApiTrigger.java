@@ -74,6 +74,7 @@ import java.time.Duration;
                     appName: hello
                     apiId: query
                     responseMode: ASYNC
+                    responseBody: AMIS
                 """
         )
     }
@@ -83,6 +84,22 @@ public class ApiTrigger extends AbstractTrigger {
     public enum ResponseMode {
         SYNC,
         ASYNC
+    }
+
+    /**
+     * Shape of the HTTP response body returned by the route.
+     * <ul>
+     *   <li>{@code KESTRA} (default): {@code {executionId, state, outputs, error}} — the
+     *   native shape consumed by the standalone amis shell's custom fetcher.</li>
+     *   <li>{@code AMIS}: wraps the same fields in the amis standard payload
+     *   {@code {status, msg, data}} ({@code status: 0} on success, {@code 1} with the
+     *   error message otherwise), so amis {@code service}/{@code app} components and
+     *   {@code schemaApi} can consume the route directly without a response adaptor.</li>
+     * </ul>
+     */
+    public enum ResponseBody {
+        KESTRA,
+        AMIS
     }
 
     @NotBlank
@@ -103,6 +120,14 @@ public class ApiTrigger extends AbstractTrigger {
         description = "ASYNC (default): POST returns 202 + executionId immediately, client polls the status endpoint. SYNC: POST waits for a terminal state (bounded by `timeout`) and returns outputs; on timeout or PAUSED it degrades to 202 + executionId."
     )
     private ResponseMode responseMode = ResponseMode.ASYNC;
+
+    @Builder.Default
+    @PluginProperty
+    @Schema(
+        title = "Response body shape.",
+        description = "KESTRA (default): {executionId, state, outputs, error}. AMIS: wraps the same fields as {status, msg, data} (status 0 = success, 1 = error) for direct consumption by amis service/app components and schemaApi."
+    )
+    private ResponseBody responseBody = ResponseBody.KESTRA;
 
     @Builder.Default
     @PluginProperty

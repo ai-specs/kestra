@@ -52,7 +52,7 @@ public class AppRouteRegistry {
     }
 
     public record ApiRoute(Flow flow, AbstractTrigger trigger, String appName, String apiId,
-                           String responseMode, Duration timeout) {
+                           String responseMode, Duration timeout, String responseBody) {
     }
 
     private static final String KIND_PAGE = "page";
@@ -159,8 +159,12 @@ public class AppRouteRegistry {
                     } catch (Exception ignored) {
                     }
                 }
+                String responseBody = str(fields.get("responseBody"));
+                if (responseBody == null || responseBody.isBlank()) {
+                    responseBody = "KESTRA";
+                }
                 apiRoutes.computeIfAbsent(key(KIND_API, flow.getTenantId(), appName, apiId), k -> new CopyOnWriteArrayList<>())
-                    .add(new ApiRoute(flow, trigger, appName, apiId, responseMode, timeout));
+                    .add(new ApiRoute(flow, trigger, appName, apiId, responseMode, timeout, responseBody));
             }
         }
     }

@@ -168,13 +168,13 @@ public class AppRouterController {
         }
 
         if (!sync) {
-            return HttpResponse.status(HttpStatus.ACCEPTED).body(stateBody(execution, null, null));
+            return HttpResponse.status(HttpStatus.ACCEPTED).body(stateBody(execution, null, null, route.responseBody()));
         }
 
         // SYNC: wait for a terminal state (or PAUSED), bounded by the trigger's timeout; degrade to 202 on timeout.
         State.Type terminal = awaitTerminal(execution, flow, timeout);
         if (terminal == null || terminal == State.Type.PAUSED) {
-            return HttpResponse.status(HttpStatus.ACCEPTED).body(stateBody(execution, null, null));
+            return HttpResponse.status(HttpStatus.ACCEPTED).body(stateBody(execution, null, null, route.responseBody()));
         }
 
         Map<String, Object> outputs = null;
@@ -188,7 +188,7 @@ public class AppRouterController {
         } else {
             error = "Execution ended with state " + terminal;
         }
-        return HttpResponse.ok(stateBody(execution, outputs, error));
+        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody()));
     }
 
     /**
@@ -213,7 +213,7 @@ public class AppRouterController {
         Execution execution = maybe.get();
 
         if (!execution.getState().isTerminated()) {
-            return HttpResponse.ok(stateBody(execution, null, null));
+            return HttpResponse.ok(stateBody(execution, null, null, route.responseBody()));
         }
 
         Map<String, Object> outputs = null;
@@ -228,7 +228,7 @@ public class AppRouterController {
         } else {
             error = "Execution ended with state " + current;
         }
-        return HttpResponse.ok(stateBody(execution, outputs, error));
+        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody()));
     }
 
     /**
@@ -277,12 +277,22 @@ public class AppRouterController {
         return flow;
     }
 
-    private static Map<String, Object> stateBody(Execution execution, Map<String, Object> outputs, String error) {
+    private static Map<String, Object> stateBody(Execution execution, Map<String, Object> outputs, String error, String responseBody) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("executionId", execution.getId());
         body.put("state", execution.getState().getCurrent() == null ? "CREATED" : execution.getState().getCurrent().name());
         body.put("outputs", outputs);
         body.put("error", error);
+        // AMIS: wrap the native fields in the amis standard payload so service/app
+        // components and schemaApi can consume the route directly (status 0 = success,
+        // msg carries the error text, data holds the native body).
+        if ("AMIS".equals(responseBody)) {
+            Map<String, Object> amis = new LinkedHashMap<>();
+            amis.put("status", error == null ? 0 : 1);
+            amis.put("msg", error == null ? "" : error);
+            amis.put("data", body);
+            return amis;
+        }
         return body;
     }
 }
