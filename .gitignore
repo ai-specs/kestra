@@ -79,3 +79,6 @@ charts/kestra-starter/charts/
 
 # Local dev server data (embedded H2, namespace files, KV) — never commit
 cli/data/
+
+# Custom plugin jars baked into the image at build time (built by root `bun run build:plugins`)
+locals/

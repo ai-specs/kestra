@@ -17,11 +17,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * In-memory route index for dsh Apps: maps {@code (tenant, kind, appName, pageId|apiId)}
@@ -57,6 +57,8 @@ public class AppRouteRegistry {
     private static final String KIND_PAGE = "page";
     private static final String KIND_API = "api";
 
+    // CopyOnWriteArrayList: the queue thread re-indexes (add/removeIf) while HTTP threads
+    // iterate the same lists — a plain ArrayList risks ConcurrentModificationException.
     private final Map<String, List<PageRoute>> pageRoutes = new ConcurrentHashMap<>();
     private final Map<String, List<ApiRoute>> apiRoutes = new ConcurrentHashMap<>();
 
@@ -137,7 +139,7 @@ public class AppRouteRegistry {
                     LOG.warn("PageTrigger {} in flow {}/{} misses appName/pageId/amis", trigger.getId(), flow.getNamespace(), flow.getId());
                     continue;
                 }
-                pageRoutes.computeIfAbsent(key(KIND_PAGE, flow.getTenantId(), appName, pageId), k -> new ArrayList<>())
+                pageRoutes.computeIfAbsent(key(KIND_PAGE, flow.getTenantId(), appName, pageId), k -> new CopyOnWriteArrayList<>())
                     .add(new PageRoute(flow, trigger, appName, pageId, amis));
             } else if (API_TRIGGER_CLASS.equals(type)) {
                 Map<String, Object> fields = JacksonMapper.ofJson().convertValue(trigger, JacksonMapper.MAP_TYPE_REFERENCE);
@@ -156,7 +158,7 @@ public class AppRouteRegistry {
                     } catch (Exception ignored) {
                     }
                 }
-                apiRoutes.computeIfAbsent(key(KIND_API, flow.getTenantId(), appName, apiId), k -> new ArrayList<>())
+                apiRoutes.computeIfAbsent(key(KIND_API, flow.getTenantId(), appName, apiId), k -> new CopyOnWriteArrayList<>())
                     .add(new ApiRoute(flow, trigger, appName, apiId, responseMode, timeout));
             }
         }
@@ -180,7 +182,10 @@ public class AppRouteRegistry {
     }
 
     private static String key(String kind, String tenant, String appName, String id) {
-        return tenant + "|" + kind + "|" + appName + "|" + id;
+        // OSS stores flows without a tenant (null) while TenantService.resolveTenant() always
+        // returns "main" — normalize both sides to the same key or null-tenant flows become
+        // invisible to route lookups.
+        return (tenant == null ? "main" : tenant) + "|" + kind + "|" + appName + "|" + id;
     }
 
     public List<PageRoute> pageRoutes(String tenant, String appName, String pageId) {
