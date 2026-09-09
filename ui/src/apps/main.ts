@@ -55,7 +55,11 @@ async function pollExecution(pollUrl: string): Promise<unknown> {
         });
         if (r.ok) {
             const d = await r.json().catch(() => null);
-            const state = (d as {state?: string} | null)?.state;
+            // executionState is the unified field name for BOTH response bodies
+            // (KESTRA {executionId, executionState, outputs, error} and AMIS
+            // {executionId, executionState, status, msg, data}); the old `state`
+            // field no longer exists, so polling on it never terminates.
+            const state = (d as {executionState?: string} | null)?.executionState;
             if (state && TERMINAL_STATES.has(state)) {
                 return d;
             }
