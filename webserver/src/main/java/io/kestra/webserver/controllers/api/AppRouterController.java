@@ -7,6 +7,7 @@ import io.kestra.core.storages.Namespace;
 import io.kestra.core.storages.NamespaceFactory;
 import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.tenant.TenantService;
+import io.kestra.core.models.triggers.AbstractTrigger;
 import io.kestra.webserver.services.AppRouteRegistry;
 import io.kestra.webserver.services.AppsService;
 import io.micronaut.http.HttpResponse;
@@ -100,6 +101,7 @@ public class AppRouterController {
         List<AppRouteRegistry.PageRoute> routes = routeRegistry.pageRoutes(tenant, appName, pageId);
         AppRouteRegistry.PageRoute route = resolveUnique(routes, "page", appName + "/" + pageId);
         Flow flow = executableFlow(route.flow());
+        executableTrigger(route.trigger());
 
         // nsfile:///path — three slashes pin to the declaring flow's own namespace (no parent inheritance).
         String amisUri = route.amis();
@@ -142,6 +144,10 @@ public class AppRouterController {
         List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, appName, apiId);
         AppRouteRegistry.ApiRoute route = resolveUnique(routes, "api", appName + "/" + apiId);
         Flow flow = executableFlow(route.flow());
+        // Disabled is checked at route-activation time only: the polling endpoint below
+        // keeps serving in-flight executions when a trigger is disabled mid-run, matching
+        // the webhook contract (disabled rejects execution creation, not status reads).
+        executableTrigger(route.trigger());
 
         boolean sync = "SYNC".equals(route.responseMode());
         Duration timeout = route.timeout() != null ? route.timeout() : Duration.ofSeconds(30);
@@ -310,6 +316,14 @@ public class AppRouterController {
             throw new HttpStatusException(HttpStatus.CONFLICT, "Cannot execute app route: flow is disabled.");
         }
         return flow;
+    }
+
+    private static AbstractTrigger executableTrigger(AbstractTrigger trigger) {
+        if (trigger.isDisabled()) {
+            throw new HttpStatusException(HttpStatus.CONFLICT,
+                "Cannot serve app route: the trigger '%s' is disabled.".formatted(trigger.getId()));
+        }
+        return trigger;
     }
 
     private static Map<String, Object> stateBody(Execution execution, Map<String, Object> outputs, String error, String responseBody,

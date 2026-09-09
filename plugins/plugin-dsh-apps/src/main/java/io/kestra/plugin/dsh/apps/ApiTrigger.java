@@ -138,7 +138,7 @@ public class ApiTrigger extends AbstractTrigger {
     @PluginProperty
     @Schema(
         title = "Response body shape. Required — must be explicitly declared (KESTRA or AMIS).",
-        description = "KESTRA: {executionId, state, outputs, error} (native, keeps execution metadata for polling). AMIS: amis standard payload — success is {status: 0, msg: \"\", data: outputs} (data is the outputs map itself, no execution metadata); failure is {status: 2, msg: <error>, msgTimeout: 10000, data: {}}. Behavior-critical: no default, an ApiTrigger without an explicit responseBody is rejected."
+        description = "KESTRA: {executionId, executionState, outputs, error} (native, keeps execution metadata for polling). AMIS: amis standard payload — success is {status: 0, msg: \"\", data: outputs} (data is the outputs map itself, no execution metadata); failure is {status: 2, msg: <error>, msgTimeout: 10000, data: {}}. Behavior-critical: no default, an ApiTrigger without an explicit responseBody is rejected."
     )
     private ResponseBody responseBody;
 
