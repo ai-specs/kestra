@@ -136,15 +136,17 @@ const env: RenderOptions = {
                 // non-JSON body — keep the text
             }
             if (method === "post" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(url)) {
-                const p = parsed as {executionId?: string; executionUrl?: string; executionState?: string} | null;
-                const executionId = p?.executionId;
+                const p = parsed as {executionUrl?: string; executionState?: string} | null;
                 // Poll exactly the URL the first response told us about — never
-                // reconstruct it from the request URL. If the response carries no
-                // (trusted) executionUrl, do not poll: the 202 body is returned as-is.
-                // A terminal executionState means the response is already final
-                // (e.g. SYNC mode returned 200) — polling again is pointless.
+                // reconstruct it from the request URL. Polling is triggered ONLY
+                // when the response carries a trusted executionUrl AND an
+                // executionState that is present and non-terminal:
+                // - terminal state (SYNC 200 SUCCESS/FAILED/...) → already final, no poll
+                // - no executionState → nothing to stop the poll on, no poll
+                // executionId is metadata and plays no role in this decision.
                 const pollUrl = p?.executionUrl;
-                if (executionId && pollUrl && isTrustedPollUrl(pollUrl) && !TERMINAL_STATES.has(p?.executionState ?? "")) {
+                const state = p?.executionState;
+                if (pollUrl && isTrustedPollUrl(pollUrl) && state != null && !TERMINAL_STATES.has(state)) {
                     const polled = await pollExecution(pollUrl);
                     if (polled !== null) {
                         parsed = polled;
