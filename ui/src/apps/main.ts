@@ -136,13 +136,15 @@ const env: RenderOptions = {
                 // non-JSON body — keep the text
             }
             if (method === "post" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(url)) {
-                const p = parsed as {executionId?: string; executionUrl?: string} | null;
+                const p = parsed as {executionId?: string; executionUrl?: string; executionState?: string} | null;
                 const executionId = p?.executionId;
                 // Poll exactly the URL the first response told us about — never
                 // reconstruct it from the request URL. If the response carries no
                 // (trusted) executionUrl, do not poll: the 202 body is returned as-is.
+                // A terminal executionState means the response is already final
+                // (e.g. SYNC mode returned 200) — polling again is pointless.
                 const pollUrl = p?.executionUrl;
-                if (executionId && pollUrl && isTrustedPollUrl(pollUrl)) {
+                if (executionId && pollUrl && isTrustedPollUrl(pollUrl) && !TERMINAL_STATES.has(p?.executionState ?? "")) {
                     const polled = await pollExecution(pollUrl);
                     if (polled !== null) {
                         parsed = polled;
