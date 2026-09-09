@@ -168,13 +168,13 @@ public class AppRouterController {
         }
 
         if (!sync) {
-            return HttpResponse.status(HttpStatus.ACCEPTED).body(stateBody(execution, null, null, route.responseBody()));
+            return HttpResponse.status(HttpStatus.ACCEPTED).body(stateBody(execution, null, null, route.responseBody(), null));
         }
 
         // SYNC: wait for a terminal state (or PAUSED), bounded by the trigger's timeout; degrade to 202 on timeout.
         State.Type terminal = awaitTerminal(execution, flow, timeout);
         if (terminal == null || terminal == State.Type.PAUSED) {
-            return HttpResponse.status(HttpStatus.ACCEPTED).body(stateBody(execution, null, null, route.responseBody()));
+            return HttpResponse.status(HttpStatus.ACCEPTED).body(stateBody(execution, null, null, route.responseBody(), terminal));
         }
 
         Map<String, Object> outputs = null;
@@ -188,7 +188,7 @@ public class AppRouterController {
         } else {
             error = "Execution ended with state " + terminal;
         }
-        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody()));
+        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), terminal));
     }
 
     /**
@@ -237,7 +237,7 @@ public class AppRouterController {
         Execution execution = maybe.get();
 
         if (!execution.getState().isTerminated()) {
-            return HttpResponse.ok(stateBody(execution, null, null, route.responseBody()));
+            return HttpResponse.ok(stateBody(execution, null, null, route.responseBody(), null));
         }
 
         Map<String, Object> outputs = null;
@@ -252,7 +252,7 @@ public class AppRouterController {
         } else {
             error = "Execution ended with state " + current;
         }
-        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody()));
+        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), current));
     }
 
     /**
@@ -301,28 +301,40 @@ public class AppRouterController {
         return flow;
     }
 
-    private static Map<String, Object> stateBody(Execution execution, Map<String, Object> outputs, String error, String responseBody) {
-        // AMIS: amis standard payload — success data IS the outputs map (no execution
-        // metadata), failure carries a non-zero status + error msg + msgTimeout.
+    private static Map<String, Object> stateBody(Execution execution, Map<String, Object> outputs, String error, String responseBody,
+                                                 State.Type stateOverride) {
+        String stateName = stateOverride != null
+            ? stateOverride.name()
+            : (execution.getState().getCurrent() == null ? "CREATED" : execution.getState().getCurrent().name());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("executionId", execution.getId());
+        body.put("state", stateName);
+        body.put("outputs", outputs);
+        body.put("error", error);
+        // AMIS: amis standard payload {status, msg, data} plus top-level executionId
+        // and executionState (both ignored by amis, but they let an ASYNC client poll
+        // and tell a running execution from a finished one). data stays the pure
+        // outputs map — execution metadata lives at the top level only, so no output
+        // field can collide with it:
+        //   - still running : status 0, data: {} (or partial), executionState: RUNNING
+        //   - success        : status 0, data: <outputs>, executionState: SUCCESS
+        //   - failure        : status 2, msg: <error>, msgTimeout: 10000,
+        //                       data: {}, executionState: FAILED
         if ("AMIS".equals(responseBody)) {
             Map<String, Object> amis = new LinkedHashMap<>();
-            amis.put("msgTimeout", 10000);
+            amis.put("executionId", execution.getId());
+            amis.put("executionState", stateName);
             if (error != null) {
                 amis.put("status", 2);
                 amis.put("msg", error);
-                amis.put("data", Map.of());
+                amis.put("msgTimeout", 10000);
             } else {
                 amis.put("status", 0);
                 amis.put("msg", "");
-                amis.put("data", outputs == null ? Map.of() : outputs);
             }
+            amis.put("data", outputs == null ? Map.of() : outputs);
             return amis;
         }
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("executionId", execution.getId());
-        body.put("state", execution.getState().getCurrent() == null ? "CREATED" : execution.getState().getCurrent().name());
-        body.put("outputs", outputs);
-        body.put("error", error);
         return body;
     }
 }

@@ -89,17 +89,22 @@ public class ApiTrigger extends AbstractTrigger {
     }
 
     /**
-     * Shape of the HTTP response body returned by the route.
+     * Shape of the HTTP response body returned by the route. Independent of
+     * {@link ResponseMode} — the page scenario picks the mode, the body shape is
+     * about who consumes the response.
      * <ul>
-     *   <li>{@code KESTRA}: {@code {executionId, state, outputs, error}} — native shape,
-     *   keeps execution metadata so ASYNC clients can poll the status endpoint.</li>
-     *   <li>{@code AMIS}: amis standard payload. Success is
-     *   {@code {status: 0, msg: "", data: <outputs>}} — {@code data} is the outputs map
-     *   itself, no execution metadata. Failure is
-     *   {@code {status: 2, msg: <error>, msgTimeout: 10000, data: {}}} — {@code status}
-     *   stays non-zero and {@code msg} carries the error text, so amis
-     *   {@code service}/{@code app} components and {@code schemaApi} can consume the
-     *   route directly without a response adaptor.</li>
+     *   <li>{@code KESTRA}: {@code {executionId, state, outputs, error}} — native
+     *   shape for the standalone shell's custom fetcher.</li>
+     *   <li>{@code AMIS}: amis standard payload {@code {status, msg, data}} plus
+     *   top-level {@code executionId} and {@code executionState} (both ignored by
+     *   amis; they let an ASYNC client poll and tell a running execution from a
+     *   finished one). {@code data} is the pure outputs map — execution metadata
+     *   only lives at the top level, so no output field can collide with it.
+     *   Success is {@code {status: 0, msg: "", executionId, executionState: "SUCCESS",
+     *   data: <outputs>}}; still running is {@code {status: 0, msg: "",
+     *   executionId, executionState: "RUNNING", data: {}}}; failure is
+     *   {@code {status: 2, msg: <error>, msgTimeout: 10000, executionId,
+     *   executionState: "FAILED", data: {}}}.</li>
      * </ul>
      */
     public enum ResponseBody {
