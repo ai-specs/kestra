@@ -173,7 +173,8 @@ public class AppRouterController {
             // itself (self-describing; no out-of-band URL construction rule).
             return HttpResponse.status(HttpStatus.ACCEPTED)
                 .header("Location", executionUrl(appName, apiId, execution.getId()))
-                .body(stateBody(execution, null, null, route.responseBody(), null, appName, apiId));
+                .body(stateBody(execution, null, null, route.responseBody(), null, appName, apiId,
+                    executionUrl(appName, apiId, execution.getId())));
         }
 
         // SYNC: wait for a terminal state (or PAUSED), bounded by the trigger's timeout; degrade to 202 on timeout.
@@ -181,7 +182,8 @@ public class AppRouterController {
         if (terminal == null || terminal == State.Type.PAUSED) {
             return HttpResponse.status(HttpStatus.ACCEPTED)
                 .header("Location", executionUrl(appName, apiId, execution.getId()))
-                .body(stateBody(execution, null, null, route.responseBody(), terminal, appName, apiId));
+                .body(stateBody(execution, null, null, route.responseBody(), terminal, appName, apiId,
+                    executionUrl(appName, apiId, execution.getId())));
         }
 
         Map<String, Object> outputs = null;
@@ -195,7 +197,8 @@ public class AppRouterController {
         } else {
             error = "Execution ended with state " + terminal;
         }
-        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), terminal, appName, apiId));
+        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), terminal, appName, apiId,
+            executionUrl(appName, apiId, execution.getId())));
     }
 
     /**
@@ -244,7 +247,8 @@ public class AppRouterController {
         Execution execution = maybe.get();
 
         if (!execution.getState().isTerminated()) {
-            return HttpResponse.ok(stateBody(execution, null, null, route.responseBody(), null, appName, apiId));
+            // Polling endpoint: no executionUrl — the client is already on that URL.
+            return HttpResponse.ok(stateBody(execution, null, null, route.responseBody(), null, appName, apiId, null));
         }
 
         Map<String, Object> outputs = null;
@@ -259,7 +263,7 @@ public class AppRouterController {
         } else {
             error = "Execution ended with state " + current;
         }
-        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), current, appName, apiId));
+        return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), current, appName, apiId, null));
     }
 
     /**
@@ -309,26 +313,26 @@ public class AppRouterController {
     }
 
     private static Map<String, Object> stateBody(Execution execution, Map<String, Object> outputs, String error, String responseBody,
-                                                 State.Type stateOverride, String appName, String apiId) {
+                                                 State.Type stateOverride, String appName, String apiId, String executionUrl) {
         String stateName = stateOverride != null
             ? stateOverride.name()
             : (execution.getState().getCurrent() == null ? "CREATED" : execution.getState().getCurrent().name());
-        // Self-described polling URL (HATEOAS-style): the ASYNC response tells the client
-        // WHERE to poll instead of relying on an out-of-band URL construction rule. The
-        // client reads this field (or the Location header, which carries the same value)
-        // and polls exactly this URL.
-        String executionUrl = "/api/v1/apps/" + appName + "/" + apiId + "/executions/" + execution.getId();
+        // Self-described polling URL (HATEOAS-style): only the FIRST response (POST)
+        // tells the client WHERE to poll; the polling endpoint's own responses do not
+        // carry it (the client is already on that URL — a self-reference adds nothing).
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("executionId", execution.getId());
         body.put("executionState", stateName);
-        body.put("executionUrl", executionUrl);
+        if (executionUrl != null) {
+            body.put("executionUrl", executionUrl);
+        }
         body.put("outputs", outputs);
         body.put("error", error);
         // AMIS: amis standard payload {status, msg, data} plus top-level executionId,
-        // executionState and executionUrl (all ignored by amis, but they let an ASYNC
-        // client poll and tell a running execution from a finished one). data is always
-        // an object (the outputs map, or {} when there is nothing yet) — never null or
-        // "" — and amis requires a key-value structure:
+        // executionState and (on POST only) executionUrl (all ignored by amis, but they
+        // let an ASYNC client poll and tell a running execution from a finished one).
+        // data is always an object (the outputs map, or {} when there is nothing yet) —
+        // never null or "" — and amis requires a key-value structure:
         //   - still running : status 0, msg "", data: {}
         //   - success        : status 0, msg "", data: <outputs>
         //   - failure        : status 2, msg: <error>, msgTimeout: 10000, data: {}
@@ -336,7 +340,9 @@ public class AppRouterController {
             Map<String, Object> amis = new LinkedHashMap<>();
             amis.put("executionId", execution.getId());
             amis.put("executionState", stateName);
-            amis.put("executionUrl", executionUrl);
+            if (executionUrl != null) {
+                amis.put("executionUrl", executionUrl);
+            }
             if (error != null) {
                 amis.put("status", 2);
                 amis.put("msg", error);
