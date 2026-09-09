@@ -29,7 +29,15 @@ function ensureAmisStyle() {
     if (document.getElementById("dsh-apps-amis-style")) return;
     const style = document.createElement("style");
     style.id = "dsh-apps-amis-style";
-    style.textContent = amisCss;
+    // Layout height fix: with little content the amis Layout collapses (aside bg height 0,
+    // content leaves blank space at the bottom). Stretch it to the viewport like a real
+    // back-office shell.
+    style.textContent = `${amisCss}
+.cxd-Layout { min-height: 100vh; }
+.cxd-Layout-aside,
+.cxd-Layout-asideInner { height: auto !important; min-height: calc(100vh - 50px); }
+.cxd-Layout-asideInner { overflow-y: auto; }
+`;
     document.head.appendChild(style);
 }
 
@@ -58,6 +66,32 @@ async function pollExecution(pollUrl: string): Promise<unknown> {
         await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
     }
 }
+
+// ---- hash-based router for the amis App component (side nav) ----
+// The standalone shell has no react-router, but the amis `app` renderer drives its
+// side navigation through env.jumpTo() + env.watchRouteChange(): clicking a nav link
+// calls jumpTo(path), the hashchange listener fans out to watchRouteChange callbacks,
+// and the AppStore re-matches the active page via isCurrentUrl(). Pages live under the
+// page's hash, so the /apps/{app}/{page} URL itself stays stable.
+const routeListeners = new Set<() => void>();
+
+function currentRoutePath(): string {
+    const h = window.location.hash;
+    if (!h || h === "#" || h === "#/") {
+        return "/";
+    }
+    return h.startsWith("#") ? h.slice(1) : h;
+}
+
+function normalizeRoutePath(p: string): string {
+    return p.startsWith("/") ? p : `/${p}`;
+}
+
+window.addEventListener("hashchange", () => {
+    for (const cb of routeListeners) {
+        cb();
+    }
+});
 
 const env: RenderOptions = {
     fetcher: (api: Api, data?: unknown): Promise<Payload> => {
@@ -114,6 +148,34 @@ const env: RenderOptions = {
         if (msg) {
             console.log(`[amis:${type}] ${msg}`);
         }
+    },
+    jumpTo: (to: string) => {
+        if (to === "goBack") {
+            window.history.back();
+            return;
+        }
+        if (/^https?:\/\//.test(to)) {
+            window.location.href = to;
+            return;
+        }
+        const p = normalizeRoutePath(to);
+        if (currentRoutePath() !== p) {
+            window.location.hash = p;
+        }
+    },
+    isCurrentUrl: (to: string) => {
+        if (!to) {
+            return false;
+        }
+        const p = normalizeRoutePath(to);
+        const cur = currentRoutePath();
+        return cur === p || cur.startsWith(`${p}/`) || (p === "/" && cur === "/");
+    },
+    watchRouteChange: (cb: () => void) => {
+        routeListeners.add(cb);
+        return () => {
+            routeListeners.delete(cb);
+        };
     },
     theme: "default",
 };
