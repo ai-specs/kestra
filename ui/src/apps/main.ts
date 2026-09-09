@@ -155,15 +155,21 @@ const env: RenderOptions = {
             }
             // schemaApi (amis app fetchSchema) requests: amis expects json.data
             // to be the page schema itself. Our ApiTrigger AMIS response carries
-            // it as a JSON string in data.schema (fetchSchema marks its requests
-            // with `_replace=1`); unwrap it here so amis can render the page.
+            // it in data.schema — as a JSON string (fetchSchema marks its requests
+            // with `_replace=1`) or, under the `result`-key convention, already as
+            // an object; unwrap it here so amis can render the page.
             if (url.includes("_replace=1") && parsed && typeof parsed === "object" &&
-                (parsed as {data?: {schema?: string}} | null)?.data &&
-                typeof (parsed as {data?: {schema?: string}}).data?.schema === "string") {
-                try {
-                    parsed = JSON.parse((parsed as {data: {schema: string}}).data.schema);
-                } catch {
-                    // malformed schema — keep the original response
+                (parsed as {data?: {schema?: unknown}} | null)?.data &&
+                (parsed as {data: {schema: unknown}}).data.schema !== undefined) {
+                const schema = (parsed as {data: {schema: unknown}}).data.schema;
+                if (typeof schema === "string") {
+                    try {
+                        parsed = JSON.parse(schema);
+                    } catch {
+                        // malformed schema — keep the original response
+                    }
+                } else {
+                    parsed = schema;
                 }
             }
             return {

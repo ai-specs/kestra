@@ -3,6 +3,7 @@ package io.kestra.webserver.controllers.api;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.flows.State;
+import io.kestra.core.services.TaskOutputService;
 import io.kestra.core.storages.Namespace;
 import io.kestra.core.storages.NamespaceFactory;
 import io.kestra.core.storages.StorageInterface;
@@ -76,6 +77,9 @@ public class AppRouterController {
 
     @Inject
     private StorageInterface storageInterface;
+
+    @Inject
+    private TaskOutputService taskOutputService;
 
     /**
      * GET /api/v1/apps — aggregate list of every app (name, namespace, pages, apis)
@@ -196,7 +200,7 @@ public class AppRouterController {
         String error = null;
         if (terminal == State.Type.SUCCESS || terminal == State.Type.WARNING) {
             try {
-                outputs = awaitOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId());
+                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId());
             } catch (Exception e) {
                 error = "Unable to read execution outputs: " + e.getMessage();
             }
@@ -208,25 +212,73 @@ public class AppRouterController {
     }
 
     /**
-     * Execution outputs are persisted asynchronously after the execution terminates
-     * (written onto the execution record by the executor once the flow finishes), so a
-     * SYNC caller — or a poll right after the terminal event — can observe empty outputs
-     * for a short window. Re-fetch the execution from the repository on each round
-     * (the in-memory terminal event may predate the outputs write) and poll briefly,
-     * bounded and best-effort.
+     * Apps convention: every branch of an app api flow ends with an OutputValues task
+     * whose values carry a {@code result} key (task ids are globally unique in Kestra, so
+     * the convention is the key, not the task id). The api response body is the value of
+     * that {@code result} key only — there is no flow-level outputs aggregation, so
+     * sibling branches never leak empty keys into the response.
+     *
+     * @return the map under the {@code result} key of the executing branch's last output,
+     *         or the convention error when no task output carries it
      */
-    private Map<String, Object> awaitOutputs(String tenant, String namespace, String flowId, String executionId) throws Exception {
+    private Map<String, Object> extractResultOutputs(Execution execution) throws Exception {
+        Map<String, Object> all = taskOutputService.computeOutputs(execution);
+        if (all == null || all.isEmpty()) {
+            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
+                "No task outputs found — app api flows must end each Switch branch with an OutputValues task whose values carry a 'result' key.");
+        }
+        for (Map.Entry<String, Object> entry : all.entrySet()) {
+            if (!(entry.getValue() instanceof Map<?, ?> taskOuts)) {
+                continue;
+            }
+            Object values = taskOuts.get("values");
+            if (!(values instanceof Map<?, ?> valuesMap) || !valuesMap.containsKey("result")) {
+                continue;
+            }
+            Object result = valuesMap.get("result");
+            if (!(result instanceof Map<?, ?> resultMap)) {
+                throw new HttpStatusException(HttpStatus.BAD_REQUEST,
+                    "The 'result' key of task '%s' must hold an object (map), got %s.".formatted(
+                        entry.getKey(), result == null ? "null" : result.getClass().getSimpleName()));
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> unwrapped = (Map<String, Object>) resultMap;
+            return unwrapped;
+        }
+        throw new HttpStatusException(HttpStatus.BAD_REQUEST,
+            "No task output carries a 'result' key — app api flows must end each Switch branch with an OutputValues task whose values carry a 'result' key.");
+    }
+
+    /**
+     * The result task's outputs are saved when the task completes, so a terminal execution
+     * normally reads them in one shot. Re-fetch the execution from the repository on each
+     * round anyway (the in-memory terminal event may predate the repository write) and poll
+     * briefly, bounded and best-effort; a persistent missing {@code result} task surfaces
+     * as the convention error once the short window elapses.
+     */
+    private Map<String, Object> awaitResultOutputs(String tenant, String namespace, String flowId, String executionId) throws Exception {
         Map<String, Object> outputs = null;
+        HttpStatusException lastConventionError = null;
         for (int i = 0; i < 20; i++) {
             Optional<Execution> fresh = appsService.findScopedExecution(tenant, namespace, flowId, executionId);
             if (fresh.isEmpty()) {
                 return null;
             }
-            outputs = appsService.executionOutputs(fresh.get());
+            try {
+                outputs = extractResultOutputs(fresh.get());
+            } catch (HttpStatusException e) {
+                // Convention error, but the repository write may still be in flight — keep polling briefly.
+                lastConventionError = e;
+                Thread.sleep(250);
+                continue;
+            }
             if (outputs != null && !outputs.isEmpty()) {
                 return outputs;
             }
             Thread.sleep(250);
+        }
+        if (lastConventionError != null) {
+            throw lastConventionError;
         }
         return outputs;
     }
@@ -262,7 +314,7 @@ public class AppRouterController {
         State.Type current = execution.getState().getCurrent();
         if (current == State.Type.SUCCESS || current == State.Type.WARNING) {
             try {
-                outputs = awaitOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId());
+                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId());
             } catch (Exception e) {
                 error = "Unable to read execution outputs: " + e.getMessage();
             }
