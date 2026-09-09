@@ -16,6 +16,9 @@ const routes: KestraRouteRecord[] = [
 
     {name: "ai",path: "/:tenant?/ai", component: () => import("../components/ai/copilot/CopilotPage.vue")},
 
+    //dsh Apps (Amis-powered declarative apps, one flow = one app)
+    {name: "apps/view", path: "/:tenant?/apps/:appName/:pageId", component: () => import("../components/dsh/apps/AppView.vue"), props: true},
+
     //Dashboards
     {
         name: "home",

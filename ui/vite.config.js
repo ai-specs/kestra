@@ -218,6 +218,12 @@ export default defineConfig(({mode}) => {
                 // whichever storybook test is loading at that instant (the addon-vitest setup import
                 // then fails), which is what intermittently red-flags unrelated stories in CI.
                 "@kestra-io/kestra-sdk/ai",
+                // dsh Apps (Amis): amis-core/amis-ui are CJS-ish bundles whose deep imports of
+                // mobx-react-lite (CJS) must be pre-bundled as ESM, otherwise the lazy AppView
+                // chunk emits a bare `import "mobx-react-lite"` that Chromium rejects.
+                "mobx",
+                "mobx-react",
+                "mobx-react-lite",
             ],
             exclude: [
                 "* > @kestra-io/ui-libs",
