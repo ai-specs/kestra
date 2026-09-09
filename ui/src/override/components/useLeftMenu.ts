@@ -458,11 +458,23 @@ export function useLeftMenu() {
 //   - 上游把某菜单改为 unlocked → 自动显示
 //   - dsh 自定义菜单（dsh-users/dsh-roles）不带 locked → 不受影响
 //
-// 若未来需要保留某个 locked 菜单（如 secrets），可在此加显式放行：将该菜单
-// 的 `attributes.locked` 置为 false，或在下方 hideLockedMenu 前做白名单合并。
-const hideLockedMenu = (items: MenuItem[]): MenuItem[] =>
+// 开放分组（2026-09-09，用户定向）：Workspace / Resources 两个分组下的
+// locked 菜单（apps/tests/assets/cases）一并显示，分组内递归不过滤；
+// 其余分组（Tenant）维持隐藏 locked（policies/audit-logs/promote/quotas/iam）。
+// 若未来需要再开放某分组，在 OPEN_GROUPS 数组追加分组 id 即可。
+const OPEN_GROUPS = new Set(["workspace", "resources"])
+
+const hideLockedMenu = (items: MenuItem[], keepLocked = false): MenuItem[] =>
     items
-        .filter((item) => !item.attributes?.locked)
+        .filter((item) => keepLocked || !item.attributes?.locked)
         .map((item) =>
-            item.child ? {...item, child: hideLockedMenu(item.child)} : item,
+            item.child
+                ? {
+                      ...item,
+                      child: hideLockedMenu(
+                          item.child,
+                          keepLocked || (item.id !== undefined && OPEN_GROUPS.has(item.id)),
+                      ),
+                  }
+                : item,
         )
