@@ -1,0 +1,159 @@
+// Standalone dsh Apps entry (served at /apps/{app}/{page}, outside the Kestra /ui/ SPA).
+// The page is an independent HTML shell (apps.html) gated only by the OIDC session:
+// the auth-flag cookie check and API 401 both redirect to the IdP login, exactly like the
+// SPA guard (utils/basicAuth.ts). Everything else — schema fetch, amis render, execution
+// polling — mirrors AppView.vue so the page works without any Kestra UI chrome.
+import {render as amisRender, type RenderOptions} from "amis";
+import {createRoot} from "react-dom/client";
+import type {Api, Payload} from "amis-core";
+// amis CSS contains an IE media-query hack that breaks the vite lightningcss minifier,
+// so inject it at runtime as a raw string (same trick as AppView.vue).
+import amisCss from "amis/lib/themes/default.css?raw";
+
+const AUTH_FLAG_COOKIE_NAME = "oidcAuthenticated";
+
+function isLoggedIn(): boolean {
+    return document.cookie.split("; ").includes(`${AUTH_FLAG_COOKIE_NAME}=true`);
+}
+
+function redirectToLogin() {
+    const from = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.assign(`/oidc/login?from=${from}`);
+}
+
+function getCsrfToken(): string | null {
+    return document.querySelector("meta[name=\"csrf-token\"]")?.getAttribute("content") ?? null;
+}
+
+function ensureAmisStyle() {
+    if (document.getElementById("dsh-apps-amis-style")) return;
+    const style = document.createElement("style");
+    style.id = "dsh-apps-amis-style";
+    style.textContent = amisCss;
+    document.head.appendChild(style);
+}
+
+const POLL_INTERVAL_MS = 1000;
+const POLL_TIMEOUT_MS = 30000;
+const TERMINAL_STATES = new Set(["SUCCESS", "FAILED", "KILLED", "WARNING"]);
+
+async function pollExecution(pollUrl: string): Promise<unknown> {
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const r = await fetch(pollUrl, {
+            headers: {"Accept": "application/json"},
+            credentials: "include",
+        });
+        if (r.ok) {
+            const d = await r.json().catch(() => null);
+            const state = (d as {state?: string} | null)?.state;
+            if (state && TERMINAL_STATES.has(state)) {
+                return d;
+            }
+        }
+        if (Date.now() >= deadline) {
+            return null;
+        }
+        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    }
+}
+
+const env: RenderOptions = {
+    fetcher: (api: Api, data?: unknown): Promise<Payload> => {
+        const apiObject = typeof api === "string" ? {url: api} : api;
+        const url = apiObject.url;
+        const method = (apiObject.method ?? "get").toLowerCase();
+        const body = data !== undefined ? data : apiObject.data;
+        const headers: Record<string, string> = {"Content-Type": "application/json"};
+        const csrf = getCsrfToken();
+        if (csrf) headers["X-CSRF-TOKEN"] = csrf;
+        return fetch(url, {
+            method,
+            headers,
+            body: body !== undefined ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
+            credentials: "include",
+        }).then(async (resp) => {
+            if (resp.status === 401) {
+                redirectToLogin();
+            }
+            const text = await resp.text();
+            let parsed: unknown = text;
+            try {
+                parsed = text ? JSON.parse(text) : null;
+            } catch {
+                // non-JSON body — keep the text
+            }
+            if (method === "post" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(url)) {
+                const executionId = (parsed as {executionId?: string} | null)?.executionId;
+                if (executionId) {
+                    const polled = await pollExecution(`${url}/executions/${executionId}`);
+                    if (polled !== null) {
+                        parsed = polled;
+                    }
+                }
+            }
+            return {
+                ok: resp.ok,
+                status: resp.status,
+                data: parsed,
+                msg: resp.ok ? "" : `HTTP ${resp.status}`,
+                headers: resp.headers,
+            };
+        }).catch((err: unknown) => {
+            return {
+                ok: false,
+                status: 500,
+                data: null,
+                msg: (err as Error).message ?? "Request failed",
+                headers: new Headers(),
+            };
+        });
+    },
+    notify: (type: string, msg: string) => {
+        if (msg) {
+            console.log(`[amis:${type}] ${msg}`);
+        }
+    },
+    theme: "default",
+};
+
+async function boot() {
+    const match = window.location.pathname.match(/^\/apps\/([^/]+)\/([^/]+)/);
+    if (!match) {
+        document.getElementById("app")!.innerText = "Invalid app path. Expected /apps/{app}/{page}";
+        return;
+    }
+    const [, appName, pageId] = match;
+    if (!isLoggedIn()) {
+        redirectToLogin();
+        return;
+    }
+    ensureAmisStyle();
+    let schema: unknown;
+    try {
+        const resp = await fetch(`/api/v1/apps/${encodeURIComponent(appName)}/${encodeURIComponent(pageId)}`, {
+            headers: {"Accept": "application/json"},
+            credentials: "include",
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        if (!resp.ok) {
+            throw new Error(`App page returned HTTP ${resp.status}`);
+        }
+        schema = await resp.json();
+    } catch (e) {
+        document.getElementById("app")!.innerText = `Failed to load app page: ${(e as Error).message ?? e}`;
+        return;
+    }
+    const rendered = amisRender(schema as never, {}, env);
+    if (!rendered || !(rendered as {$$typeof?: unknown}).$$typeof) {
+        document.getElementById("app")!.innerText = `Amis render produced no element (schema type: ${(schema as {type?: string})?.type ?? "unknown"})`;
+        return;
+    }
+    createRoot(document.getElementById("app")!).render(rendered);
+}
+
+void boot();

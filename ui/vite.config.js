@@ -54,6 +54,13 @@ export default defineConfig(({mode}) => {
         base: "",
         build: {
             outDir: "../webserver/src/main/resources/ui",
+            rollupOptions: {
+                input: {
+                    main: path.resolve(__dirname, "index.html"),
+                    // standalone dsh Apps shell (served at /apps/{app}/{page} by UiAppController)
+                    apps: path.resolve(__dirname, "apps.html"),
+                },
+            },
         },
         server: {
             watch: {

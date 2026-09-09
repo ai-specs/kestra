@@ -14,6 +14,7 @@
                 <span class="dsh-app-list__col dsh-app-list__col--flow">Flow</span>
                 <span class="dsh-app-list__col dsh-app-list__col--ns">Namespace</span>
                 <span class="dsh-app-list__col dsh-app-list__col--pages">页面</span>
+                <span class="dsh-app-list__col dsh-app-list__col--url">页面 URL</span>
                 <span class="dsh-app-list__col dsh-app-list__col--apis">API</span>
             </div>
             <div
@@ -32,6 +33,19 @@
                 <span class="dsh-app-list__col dsh-app-list__col--pages">
                     <span v-for="p in app.pages" :key="p" class="dsh-app-list__tag">{{ p }}</span>
                     <span v-if="app.pages.length === 0" class="dsh-app-list__muted">—</span>
+                </span>
+                <span class="dsh-app-list__col dsh-app-list__col--url">
+                    <span v-if="app.pages.length > 0" class="dsh-app-list__urls">
+                        <a
+                            v-for="p in app.pages"
+                            :key="p"
+                            class="dsh-app-list__url"
+                            :href="`/apps/${encodeURIComponent(app.appName)}/${encodeURIComponent(p)}`"
+                            target="_blank"
+                            rel="noopener"
+                        >/apps/{{ app.appName }}/{{ p }}</a>
+                    </span>
+                    <span v-else class="dsh-app-list__muted">—</span>
                 </span>
                 <span class="dsh-app-list__col dsh-app-list__col--apis">
                     <span v-for="a in app.apis" :key="a" class="dsh-app-list__tag">{{ a }}</span>
@@ -141,9 +155,25 @@
         min-width: 0;
     }
     .dsh-app-list__col--pages,
+    .dsh-app-list__col--url,
     .dsh-app-list__col--apis {
         flex: 1.2;
         min-width: 0;
+    }
+    .dsh-app-list__urls {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .dsh-app-list__url {
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        color: var(--bs-link-color);
+        text-decoration: none;
+        word-break: break-all;
+    }
+    .dsh-app-list__url:hover {
+        text-decoration: underline;
     }
     .dsh-app-list__flow-link {
         color: var(--bs-link-color);

@@ -25,8 +25,9 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
 /**
- * Serves the UI {@code index.html}: the file is read from the classpath and rewritten (base path, analytics,
- * title, custom head) only once into an immutable template; per request only the CSRF meta tag is inserted.
+ * Serves the UI {@code index.html} and the standalone dsh Apps shell {@code apps.html}: each file is
+ * read from the classpath and rewritten (base path, analytics, title, custom head) only once into an
+ * immutable template; per request only the CSRF meta tag is inserted.
  * <p>
  * The response carries the user's CSRF token, so it is never cacheable and gets no entity tag.
  */
@@ -34,6 +35,7 @@ import jakarta.inject.Singleton;
 @Requires(property = "kestra.webserver.ui.enabled", notEquals = "false", defaultValue = "true")
 public class UiIndexService {
     private static final String INDEX_RESOURCE = "ui/index.html";
+    private static final String APPS_RESOURCE = "ui/apps.html";
     private static final String HEAD_TAG = "<head>";
     // 'private' keeps a shared cache from ever storing another user's token; 'no-store' would also
     // disqualify the page from the browser back/forward cache.
@@ -46,6 +48,7 @@ public class UiIndexService {
 
     // Empty when the UI is not packaged on the classpath (backend-only builds).
     private final Optional<String> template;
+    private final Optional<String> appsTemplate;
 
     @Inject
     public UiIndexService(
@@ -58,7 +61,8 @@ public class UiIndexService {
         this.webserverConfiguration = Objects.requireNonNull(webserverConfiguration);
         this.csrfConfiguration = Objects.requireNonNull(csrfConfiguration);
         this.csrfTokenGenerator = Objects.requireNonNull(csrfTokenGenerator);
-        this.template = load();
+        this.template = load(INDEX_RESOURCE);
+        this.appsTemplate = load(APPS_RESOURCE);
     }
 
     /**
@@ -67,6 +71,14 @@ public class UiIndexService {
      */
     public Optional<MutableHttpResponse<byte[]>> render(HttpRequest<?> request) {
         return template.map(html -> render(request, html));
+    }
+
+    /**
+     * Renders the standalone dsh Apps shell ({@code apps.html}) for the given request, or empty when
+     * the UI is not packaged on the classpath.
+     */
+    public Optional<MutableHttpResponse<byte[]>> renderApps(HttpRequest<?> request) {
+        return appsTemplate.map(html -> render(request, html));
     }
 
     private MutableHttpResponse<byte[]> render(HttpRequest<?> request, String template) {
@@ -113,8 +125,8 @@ public class UiIndexService {
         return html.substring(0, insertionPoint) + "\n" + metaTag + html.substring(insertionPoint);
     }
 
-    private Optional<String> load() {
-        try (InputStream is = UiIndexService.class.getClassLoader().getResourceAsStream(INDEX_RESOURCE)) {
+    private Optional<String> load(String resource) {
+        try (InputStream is = UiIndexService.class.getClassLoader().getResourceAsStream(resource)) {
             if (is == null) {
                 return Optional.empty();
             }
@@ -125,11 +137,14 @@ public class UiIndexService {
     }
 
     private String replace(String line) {
+        // Vite emits relative asset references (base: ""); both index.html and apps.html need them
+        // rewritten to the absolute /ui/ mount so they resolve from any depth (a standalone app
+        // page lives at /apps/... and must not resolve assets relative to it).
+        line = line.replace("./", (basePath != null ? basePath : "") + "/ui/");
+
         if (!line.contains("KESTRA_UI_PATH")) {
             return line;
         }
-
-        line = line.replace("./", (basePath != null ? basePath : "") + "/ui/");
 
         if (webserverConfiguration.googleAnalytics() != null) {
             line = line.replace("KESTRA_GOOGLE_ANALYTICS = null;", "KESTRA_GOOGLE_ANALYTICS = '" + webserverConfiguration.googleAnalytics() + "';");
