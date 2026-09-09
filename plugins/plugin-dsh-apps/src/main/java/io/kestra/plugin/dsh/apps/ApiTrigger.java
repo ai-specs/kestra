@@ -35,20 +35,32 @@ import java.time.Duration;
 @Plugin(
     examples = {
         @Example(
-            title = "POST /apps/hello/submit runs the flow with the form inputs",
+            title = "One flow, several APIs: POST /apps/hello/{apiId} runs the flow with the form inputs; the flow branches on the injected {{ inputs.apiId }}",
             full = true,
             code = """
                 id: hello-app
                 namespace: company.team
 
                 inputs:
+                  - id: apiId
+                    type: STRING
                   - id: user
                     type: STRING
+                    required: false
 
                 tasks:
-                  - id: greet
-                    type: io.kestra.plugin.core.log.Log
-                    message: Hello {{ inputs.user }}
+                  - id: route
+                    type: io.kestra.plugin.core.flow.Switch
+                    value: "{{ inputs.apiId }}"
+                    cases:
+                      submit:
+                        - id: greet
+                          type: io.kestra.plugin.core.log.Log
+                          message: Hello {{ inputs.user }}
+                      query:
+                        - id: query
+                          type: io.kestra.plugin.core.log.Log
+                          message: Query API called
 
                 triggers:
                   - id: hello_submit
@@ -57,6 +69,11 @@ import java.time.Duration;
                     apiId: submit
                     responseMode: ASYNC
                     timeout: PT30S
+                  - id: hello_query
+                    type: io.kestra.plugin.dsh.apps.ApiTrigger
+                    appName: hello
+                    apiId: query
+                    responseMode: ASYNC
                 """
         )
     }

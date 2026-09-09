@@ -34,6 +34,7 @@ import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -145,7 +146,14 @@ public class AppRouterController {
         boolean sync = "SYNC".equals(route.responseMode());
         Duration timeout = route.timeout() != null ? route.timeout() : Duration.ofSeconds(30);
 
-        Optional<Execution> maybeExecution = appsService.createExecution(flow, route.trigger(), body);
+        // apiId is trusted from the ApiTrigger declaration (the route is the source of
+        // truth): inject it into the execution inputs unconditionally, overriding any
+        // client-supplied value. Multi-API flows branch on {{ inputs.apiId }} via a
+        // core.flow.Switch; single-API flows simply ignore the extra input.
+        Map<String, Object> inputs = body == null ? new HashMap<>() : new HashMap<>(body);
+        inputs.put("apiId", apiId);
+
+        Optional<Execution> maybeExecution = appsService.createExecution(flow, route.trigger(), inputs);
         if (maybeExecution.isEmpty()) {
             // trigger conditions not met — same contract as webhooks
             return HttpResponse.status(HttpStatus.NO_CONTENT);
