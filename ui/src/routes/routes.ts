@@ -2,7 +2,6 @@ import type {RouteRecordRaw} from "vue-router"
 // @ts-ignore - no type declarations available for this component
 import OnlyLeftMenuLayout from "../components/layout/OnlyLeftMenuLayout.vue"
 import FullScreenLayout from "../components/layout/FullScreenLayout.vue"
-import AppShellLayout from "../components/dsh/apps/AppShellLayout.vue"
 import Errors from "../components/errors/Errors.vue"
 import {EXECUTION_ROUTE} from "../components/executions/executionTabs"
 import {FLOW_ROUTE} from "../components/flows/flowTabs"
@@ -18,10 +17,9 @@ const routes: KestraRouteRecord[] = [
     {name: "ai",path: "/:tenant?/ai", component: () => import("../components/ai/copilot/CopilotPage.vue")},
 
     //dsh Apps (Amis-powered declarative apps, one flow = one app)
-    //standalone: render without the Kestra topbar/sidebar shell — an app page is an
-    //independent page, only gated by the OIDC session (no other coupling to the Kestra UI).
+    //The 应用程序 list is a SPA view; app pages themselves live at the standalone
+    ///apps/{app}/{page} URLs (UiAppController + apps.html entry), never under /ui/.
     {name: "apps/list", path: "/:tenant?/apps", component: () => import("../components/dsh/apps/AppList.vue")},
-    {name: "apps/view", path: "/:tenant?/apps/:appName/:pageId", component: () => import("../components/dsh/apps/AppView.vue"), props: true, meta: {layout: AppShellLayout, standalone: true}},
 
     //Dashboards
     {
