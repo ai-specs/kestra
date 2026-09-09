@@ -159,6 +159,9 @@ public class AppRouteRegistry {
                     } catch (Exception ignored) {
                     }
                 }
+                // responseMode/responseBody are required on ApiTrigger (schema validation
+                // rejects undeclared flows); the fallbacks here are defensive only, for
+                // flows indexed before the fields became mandatory.
                 String responseBody = str(fields.get("responseBody"));
                 if (responseBody == null || responseBody.isBlank()) {
                     responseBody = "KESTRA";

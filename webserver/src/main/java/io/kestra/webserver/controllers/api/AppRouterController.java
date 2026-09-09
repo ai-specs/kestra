@@ -181,7 +181,7 @@ public class AppRouterController {
         String error = null;
         if (terminal == State.Type.SUCCESS || terminal == State.Type.WARNING) {
             try {
-                outputs = appsService.executionOutputs(execution);
+                outputs = awaitOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId());
             } catch (Exception e) {
                 error = "Unable to read execution outputs: " + e.getMessage();
             }
@@ -189,6 +189,30 @@ public class AppRouterController {
             error = "Execution ended with state " + terminal;
         }
         return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody()));
+    }
+
+    /**
+     * Execution outputs are persisted asynchronously after the execution terminates
+     * (written onto the execution record by the executor once the flow finishes), so a
+     * SYNC caller — or a poll right after the terminal event — can observe empty outputs
+     * for a short window. Re-fetch the execution from the repository on each round
+     * (the in-memory terminal event may predate the outputs write) and poll briefly,
+     * bounded and best-effort.
+     */
+    private Map<String, Object> awaitOutputs(String tenant, String namespace, String flowId, String executionId) throws Exception {
+        Map<String, Object> outputs = null;
+        for (int i = 0; i < 20; i++) {
+            Optional<Execution> fresh = appsService.findScopedExecution(tenant, namespace, flowId, executionId);
+            if (fresh.isEmpty()) {
+                return null;
+            }
+            outputs = appsService.executionOutputs(fresh.get());
+            if (outputs != null && !outputs.isEmpty()) {
+                return outputs;
+            }
+            Thread.sleep(250);
+        }
+        return outputs;
     }
 
     /**
@@ -221,7 +245,7 @@ public class AppRouterController {
         State.Type current = execution.getState().getCurrent();
         if (current == State.Type.SUCCESS || current == State.Type.WARNING) {
             try {
-                outputs = appsService.executionOutputs(execution);
+                outputs = awaitOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId());
             } catch (Exception e) {
                 error = "Unable to read execution outputs: " + e.getMessage();
             }
@@ -278,21 +302,27 @@ public class AppRouterController {
     }
 
     private static Map<String, Object> stateBody(Execution execution, Map<String, Object> outputs, String error, String responseBody) {
+        // AMIS: amis standard payload — success data IS the outputs map (no execution
+        // metadata), failure carries a non-zero status + error msg + msgTimeout.
+        if ("AMIS".equals(responseBody)) {
+            Map<String, Object> amis = new LinkedHashMap<>();
+            amis.put("msgTimeout", 10000);
+            if (error != null) {
+                amis.put("status", 2);
+                amis.put("msg", error);
+                amis.put("data", Map.of());
+            } else {
+                amis.put("status", 0);
+                amis.put("msg", "");
+                amis.put("data", outputs == null ? Map.of() : outputs);
+            }
+            return amis;
+        }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("executionId", execution.getId());
         body.put("state", execution.getState().getCurrent() == null ? "CREATED" : execution.getState().getCurrent().name());
         body.put("outputs", outputs);
         body.put("error", error);
-        // AMIS: wrap the native fields in the amis standard payload so service/app
-        // components and schemaApi can consume the route directly (status 0 = success,
-        // msg carries the error text, data holds the native body).
-        if ("AMIS".equals(responseBody)) {
-            Map<String, Object> amis = new LinkedHashMap<>();
-            amis.put("status", error == null ? 0 : 1);
-            amis.put("msg", error == null ? "" : error);
-            amis.put("data", body);
-            return amis;
-        }
         return body;
     }
 }

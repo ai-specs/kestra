@@ -68,13 +68,15 @@ import java.time.Duration;
                     appName: hello
                     apiId: submit
                     responseMode: ASYNC
+                    responseBody: KESTRA
                     timeout: PT30S
                   - id: hello_query
                     type: io.kestra.plugin.dsh.apps.ApiTrigger
                     appName: hello
                     apiId: query
-                    responseMode: ASYNC
+                    responseMode: SYNC
                     responseBody: AMIS
+                    timeout: PT30S
                 """
         )
     }
@@ -89,12 +91,15 @@ public class ApiTrigger extends AbstractTrigger {
     /**
      * Shape of the HTTP response body returned by the route.
      * <ul>
-     *   <li>{@code KESTRA} (default): {@code {executionId, state, outputs, error}} — the
-     *   native shape consumed by the standalone amis shell's custom fetcher.</li>
-     *   <li>{@code AMIS}: wraps the same fields in the amis standard payload
-     *   {@code {status, msg, data}} ({@code status: 0} on success, {@code 1} with the
-     *   error message otherwise), so amis {@code service}/{@code app} components and
-     *   {@code schemaApi} can consume the route directly without a response adaptor.</li>
+     *   <li>{@code KESTRA}: {@code {executionId, state, outputs, error}} — native shape,
+     *   keeps execution metadata so ASYNC clients can poll the status endpoint.</li>
+     *   <li>{@code AMIS}: amis standard payload. Success is
+     *   {@code {status: 0, msg: "", data: <outputs>}} — {@code data} is the outputs map
+     *   itself, no execution metadata. Failure is
+     *   {@code {status: 2, msg: <error>, msgTimeout: 10000, data: {}}} — {@code status}
+     *   stays non-zero and {@code msg} carries the error text, so amis
+     *   {@code service}/{@code app} components and {@code schemaApi} can consume the
+     *   route directly without a response adaptor.</li>
      * </ul>
      */
     public enum ResponseBody {
@@ -113,21 +118,20 @@ public class ApiTrigger extends AbstractTrigger {
     private String apiId;
 
     @NotNull
-    @Builder.Default
     @PluginProperty
     @Schema(
-        title = "Response mode.",
-        description = "ASYNC (default): POST returns 202 + executionId immediately, client polls the status endpoint. SYNC: POST waits for a terminal state (bounded by `timeout`) and returns outputs; on timeout or PAUSED it degrades to 202 + executionId."
+        title = "Response mode. Required — must be explicitly declared (SYNC or ASYNC).",
+        description = "ASYNC: POST returns 202 + executionId immediately, client polls the status endpoint. SYNC: POST waits for a terminal state (bounded by `timeout`) and returns outputs; on timeout or PAUSED it degrades to 202 + executionId. This is a behavior-critical field: it has no default, an ApiTrigger without an explicit responseMode is rejected."
     )
-    private ResponseMode responseMode = ResponseMode.ASYNC;
+    private ResponseMode responseMode;
 
-    @Builder.Default
+    @NotNull
     @PluginProperty
     @Schema(
-        title = "Response body shape.",
-        description = "KESTRA (default): {executionId, state, outputs, error}. AMIS: wraps the same fields as {status, msg, data} (status 0 = success, 1 = error) for direct consumption by amis service/app components and schemaApi."
+        title = "Response body shape. Required — must be explicitly declared (KESTRA or AMIS).",
+        description = "KESTRA: {executionId, state, outputs, error} (native, keeps execution metadata for polling). AMIS: amis standard payload — success is {status: 0, msg: \"\", data: outputs} (data is the outputs map itself, no execution metadata); failure is {status: 2, msg: <error>, msgTimeout: 10000, data: {}}. Behavior-critical: no default, an ApiTrigger without an explicit responseBody is rejected."
     )
-    private ResponseBody responseBody = ResponseBody.KESTRA;
+    private ResponseBody responseBody;
 
     @Builder.Default
     @PluginProperty
