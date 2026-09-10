@@ -1,5 +1,21 @@
-# dsh-monorepo app-kestra standalone 最小参考 compose（Kestra + PostgreSQL）
-#
+# ⚠️ AI AGENT 提示词（必读）⚠️
+# 本文件（app-kestra/docker-compose.yml）是「最小参考 compose」，仅用于阅读与理解
+# 单服务形态（Kestra + PostgreSQL），**禁止作为启动入口**：
+#   ❌ 禁止在 app-kestra 目录下执行 `docker compose up` / `docker compose up -d` /
+#      `docker compose down` / `--force-recreate` 等任何会创建/销毁容器的操作。
+#   ❌ 禁止用本文件启动的容器（app-kestra-kestra-1 / app-kestra-postgres-1）替代
+#      根目录服务的容器（dsh-kestra / dsh-postgres）。
+# 唯一启动入口 = 仓库根目录的 /Users/xuybin/dsh-monorepo/docker-compose.yml（全栈，
+# 含 Nacos / dsh-ui / dsh(PC) / mock-enterprise；kestra 服务 container_name=dsh-kestra，
+# image=dsh-kestra:2.0.0-snapshot，构建 context=./app-kestra 已内置插件烘焙）：
+#   cd /Users/xuybin/dsh-monorepo
+#   docker compose build kestra   # 代码变更后重建镜像（COPY docker/app/kestra + locals/plugins）
+#   docker compose up -d          # 启动/重建全栈
+# 排查端口占用/容器状态也用根目录 compose：docker compose ps / logs / inspect。
+# 在 app-kestra 下单独启动会：占用同一组端口（18080/18081）、创建同名 postgres-data
+# volume 与不同容器名的 postgres，与根 compose 互相打架，且不含 Nacos 等企业侧服务。
+# （2026-09-10 实测教训：在 app-kestra 下误启动导致端口冲突、容器名混乱，已纠正。）
+
 # 与根目录 docker-compose.yml 保持同一组默认值（kestra/kestra/k3str4、18080/18081），
 # 全部经 ${VAR:-default} 参数化：不设环境变量时行为与硬编码一致；设了即可覆盖。
 # 本文件不自动加载根目录 .env（compose 只读「本文件同目录」的 .env），如需共享
@@ -9,6 +25,7 @@
 # 或先 export 对应变量（CI/脚本场景）。
 #
 # 完整企业侧栈（含 Nacos/dsh-ui/dsh(PC)/mock-enterprise）请用根目录 docker-compose.yml。
+# ⚠️ 再次强调：本文件不是启动入口，禁止单独 `docker compose up`。⚠️
 
 volumes:
   postgres-data:
