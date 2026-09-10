@@ -61,11 +61,16 @@
                     <KsDateAgo :date="row.createdAt" inverted />
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('actions')" width="120">
+            <KsTableColumn :label="t('actions')" width="80">
                 <template #default="{row}">
-                    <KsButton size="small" type="default" @click.stop="goToDetail(row)">
-                        {{ t("dsh.project.view") }}
-                    </KsButton>
+                    <KsIconButton
+                        data-test="project-view"
+                        :tooltip="t('dsh.project.view')"
+                        placement="left"
+                        @click.stop="goToDetail(row)"
+                    >
+                        <Eye />
+                    </KsIconButton>
                 </template>
             </KsTableColumn>
         </KsTable>
@@ -79,6 +84,8 @@
     import {useToast} from "../../../utils/toast"
     import Plus from "vue-material-design-icons/Plus.vue"
     import Magnify from "vue-material-design-icons/Magnify.vue"
+    import Eye from "vue-material-design-icons/Eye.vue"
+    import {KsIconButton} from "@kestra-io/design-system"
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
 

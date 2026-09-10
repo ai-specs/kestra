@@ -76,13 +76,11 @@
                         </div>
                     </div>
 
-                    <!-- 应用详情弹窗（机器身份 = OIDC client 的完整信息） -->
-                    <KsDialog
+                    <!-- 应用详情抽屉（机器身份 = OIDC client 的完整信息；右侧滑出，同上游 KV 查看） -->
+                    <KsDrawer
                         v-model="appDialogVisible"
                         :title="t('dsh.project.appDetail', {clientId: selectedApp?.clientId || ''})"
-                        width="560"
                         class="app-detail-dialog"
-                        destroy-on-close
                     >
                         <div v-if="selectedApp" class="app-detail">
                             <div class="detail-row">
@@ -142,7 +140,7 @@
                                 </span>
                             </div>
                         </div>
-                    </KsDialog>
+                    </KsDrawer>
                 </div>
             </KsTabPane>
 
@@ -169,14 +167,15 @@
                                 </KsButton>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn :label="t('actions')" width="140">
+                        <KsTableColumn :label="t('actions')" width="80">
                             <template #default="{row}">
-                                <div class="role-actions">
-                                    <KsButton size="small" type="success" @click="addMemberToRole(row.roleName)">
-                                        <template #icon><AccountPlus /></template>
-                                        {{ t("dsh.project.addMember") }}
-                                    </KsButton>
-                                </div>
+                                <KsIconButton
+                                    :tooltip="t('dsh.project.addMember')"
+                                    placement="left"
+                                    @click="addMemberToRole(row.roleName)"
+                                >
+                                    <AccountPlus />
+                                </KsIconButton>
                             </template>
                         </KsTableColumn>
                     </KsTable>
@@ -215,11 +214,15 @@
                                     </KsTag>
                                 </template>
                             </KsTableColumn>
-                            <KsTableColumn :label="t('actions')" width="100">
+                            <KsTableColumn :label="t('actions')" width="80">
                                 <template #default="{row}">
-                                    <KsButton size="small" type="danger" link @click="confirmRemove(row)">
-                                        {{ t("dsh.roles.remove") }}
-                                    </KsButton>
+                                    <KsIconButton
+                                        :tooltip="t('dsh.roles.remove')"
+                                        placement="left"
+                                        @click="confirmRemove(row)"
+                                    >
+                                        <Delete />
+                                    </KsIconButton>
                                 </template>
                             </KsTableColumn>
                         </KsTable>
@@ -290,6 +293,8 @@
     import {getCsrfToken} from "../../../utils/csrf"
     import {SessionExpiredError, sessionExpired} from "../../../utils/dshSession"
     import AccountPlus from "vue-material-design-icons/AccountPlus.vue"
+    import Delete from "vue-material-design-icons/Delete.vue"
+    import {KsIconButton} from "@kestra-io/design-system"
 
     interface UserRow {
         username: string;
@@ -714,12 +719,6 @@
         :deep(.kel-table) {
             overflow-x: auto !important;
         }
-    }
-
-    .role-actions {
-        display: flex;
-        gap: var(--ks-spacing-2);
-        align-items: center;
     }
 
     .role-members-section {

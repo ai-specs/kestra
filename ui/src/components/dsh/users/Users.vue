@@ -78,34 +78,50 @@
                     <span v-else>—</span>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('actions')" width="180">
+            <KsTableColumn :label="t('actions')" width="140">
                 <template #default="{row}">
-                    <KsButton size="small" type="default" @click.stop="openEdit(row)">
-                        {{ t("edit") }}
-                    </KsButton>
-                    <KsButton
+                    <KsIconButton
+                        data-test="user-edit"
+                        :tooltip="t('edit')"
+                        placement="left"
+                        @click.stop="openEdit(row)"
+                    >
+                        <FileDocumentEdit />
+                    </KsIconButton>
+                    <KsIconButton
                         v-if="row.type !== 'machine'"
-                        size="small"
-                        type="default"
+                        data-test="user-reset-password"
+                        :tooltip="t('dsh.users.resetPassword')"
+                        placement="left"
                         @click.stop="openResetPassword(row)"
                     >
-                        {{ t("dsh.users.resetPassword") }}
-                    </KsButton>
-                    <KsButton v-else size="small" type="default" @click.stop="openResetPassword(row)">
-                        {{ t("dsh.users.rotateSecret") }}
-                    </KsButton>
-                    <KsButton size="small" type="danger" data-test="user-delete" @click.stop="confirmRemove(row)">
-                        {{ t("delete") }}
-                    </KsButton>
+                        <LockReset />
+                    </KsIconButton>
+                    <KsIconButton
+                        v-else
+                        data-test="user-rotate-secret"
+                        :tooltip="t('dsh.users.rotateSecret')"
+                        placement="left"
+                        @click.stop="openResetPassword(row)"
+                    >
+                        <Key />
+                    </KsIconButton>
+                    <KsIconButton
+                        data-test="user-delete"
+                        :tooltip="t('delete')"
+                        placement="left"
+                        @click.stop="confirmRemove(row)"
+                    >
+                        <Delete />
+                    </KsIconButton>
                 </template>
             </KsTableColumn>
         </KsTable>
 
-        <!-- create / edit dialog -->
-        <KsDialog
+        <!-- create / edit drawer (right side, same pattern as upstream KV) -->
+        <KsDrawer
             v-model="dialogVisible"
             :title="editing ? t('dsh.users.edit') : t('dsh.users.add')"
-            width="520"
             data-test="user-dialog"
         >
             <KsForm label-position="top" class="user-form">
@@ -147,18 +163,16 @@
                 </KsFormItem>
             </KsForm>
             <template #footer>
-                <KsButton type="default" @click="dialogVisible = false">{{ t("cancel") }}</KsButton>
-                <KsButton type="primary" data-test="user-form-submit" @click="submit">
+                <KsButton :icon="ContentSave" type="primary" data-test="user-form-submit" @click="submit">
                     {{ t("save") }}
                 </KsButton>
             </template>
-        </KsDialog>
+        </KsDrawer>
 
-        <!-- reset password / rotate secret dialog -->
-        <KsDialog
+        <!-- reset password / rotate secret drawer -->
+        <KsDrawer
             v-model="passwordDialogVisible"
             :title="passwordTarget && passwordTarget.type === 'machine' ? t('dsh.users.rotateSecret') : t('dsh.users.resetPassword')"
-            width="440"
         >
             <KsForm label-position="top">
                 <KsFormItem
@@ -169,12 +183,11 @@
                 </KsFormItem>
             </KsForm>
             <template #footer>
-                <KsButton type="default" @click="passwordDialogVisible = false">{{ t("cancel") }}</KsButton>
-                <KsButton type="primary" data-test="password-submit" @click="submitPassword">
+                <KsButton :icon="ContentSave" type="primary" data-test="password-submit" @click="submitPassword">
                     {{ t("save") }}
                 </KsButton>
             </template>
-        </KsDialog>
+        </KsDrawer>
     </section>
 </template>
 
@@ -185,6 +198,12 @@
     import {useToast} from "../../../utils/toast"
     import Plus from "vue-material-design-icons/Plus.vue"
     import Magnify from "vue-material-design-icons/Magnify.vue"
+    import ContentSave from "vue-material-design-icons/ContentSave.vue"
+    import FileDocumentEdit from "vue-material-design-icons/FileDocumentEdit.vue"
+    import LockReset from "vue-material-design-icons/LockReset.vue"
+    import Key from "vue-material-design-icons/Key.vue"
+    import Delete from "vue-material-design-icons/Delete.vue"
+    import {KsIconButton} from "@kestra-io/design-system"
     import TopNavBar from "../../layout/TopNavBar.vue"
     import useRouteContext from "../../../composables/useRouteContext"
     import {getCsrfToken} from "../../../utils/csrf"
