@@ -65,7 +65,6 @@
                             :value="scope.row.namespace"
                             :to="{name: 'namespaces/update', params: {id: scope.row.namespace}}"
                         />
-                        <span v-else class="secret-global-namespace">{{ $t('secret.globalNamespace') }}</span>
                     </template>
                     <template v-else-if="col.prop === 'description'">
                         {{ scope.row?.description }}
@@ -139,7 +138,7 @@
             v-if="addSecretDrawerVisible"
             v-model="addSecretDrawerVisible"
             :title="secretModalTitle"
-            :beforeClose="beforeSecretClose"
+            :dirty="isSecretDirty"
             formLayout
             scrollable
         >
@@ -166,10 +165,17 @@
                     <KsPassword v-model="secret.value" :placeholder="$t('secret.valuePlaceholder')" />
                 </KsFormItem>
                 <KsFormItem v-if="secret.update" :label="$t('secret.name')" prop="value" inline class="field-item">
-                    <KsPassword
-                        v-model="secret.value"
-                        :placeholder="$t('secret.valuePlaceholderUpdate')"
-                    />
+                    <div class="secret-value-control">
+                        <KsPassword
+                            v-model="secret.value"
+                            :placeholder="$t('secret.valuePlaceholder')"
+                            :disabled="!secret.updateValue"
+                        />
+                        <KsSwitch
+                            inlinePrompt
+                            v-model="secret.updateValue"
+                        />
+                    </div>
                 </KsFormItem>
                 <KsFormItem :label="$t('secret.description')" prop="description" labelPosition="top">
                     <KsInput
@@ -202,6 +208,7 @@
     import _merge from "lodash/merge"
 
     import Lock from "vue-material-design-icons/Lock.vue"
+    import Plus from "vue-material-design-icons/Plus.vue"
     import Delete from "vue-material-design-icons/Delete.vue"
     import ContentCopy from "vue-material-design-icons/ContentCopy.vue"
     import ContentSave from "vue-material-design-icons/ContentSave.vue"
@@ -216,16 +223,13 @@
     import resource from "../../models/resource"
     import * as Utils from "../../utils/utils"
     import {useToast} from "../../utils/toast"
-    import {apiUrl} from "override/utils/route"
-    import {useClient} from "@kestra-io/kestra-sdk"
     import {storageKeys} from "../../utils/constants"
     import * as SecretsAPI from "@kestra-io/kestra-sdk/secrets"
     import {useAuthStore} from "override/stores/auth"
     import {useNamespacesStore} from "override/stores/namespaces"
     import {useApiStore} from "../../stores/api"
     import {useSecretsFilter} from "../filter/configurations"
-    import {useTableColumns} from "../../composables/useTableColumns"
-    import {useDiscardGuard} from "../../composables/useDiscardGuard"
+    import {useTableColumns} from "@kestra-io/design-system"
 
     const secretsFilter = useSecretsFilter()
 
@@ -235,6 +239,7 @@
         key?: string;
         description?: string;
         update?: boolean;
+        updateValue?: boolean;
     }
 
     interface NamespaceSecret {
@@ -282,63 +287,17 @@
     const areNamespaceSecretsReadOnly = ref(false)
     const secrets = ref<(NamespaceSecret & {namespace?: string})[]>()
 
-    // dsh managed secrets：DB 托管的 (namespace,key) 集合——仅托管行可增删改，
-    // 环境变量注入的 secret（SECRET_*）保持只读。键格式 `${namespace}\u0000${key}`。
-    const managedKeys = ref(new Set<string>())
-    // key → 所属 namespace 列表（字典序）：OSS list 端点只返回扁平 key，
-    // 用 managed 端点反查给每行补 namespace 列（DB 托管行），env 行保持无 namespace（只读）。
-    const keyNamespaces = ref(new Map<string, string[]>())
-    // `${namespace}\u0000${key}` → 元数据（description）：列表协议不返回 description，
-    // 由 managed 端点补齐展示。
-    const secretMeta = ref(new Map<string, {description?: string}>())
-    const axios = useClient()
-
-    async function loadManagedKeys(): Promise<Set<string>> {
-        try {
-            const response = await axios.get(`${apiUrl()}/secrets/managed`)
-            // managed 返回 {"secrets":[{namespace,key,description}]}——一次拿到
-            // 托管行判定（ns+key）、namespace 反查、description 展示三份信息。
-            const list: {namespace?: string; key?: string; description?: string}[] = response.data?.secrets ?? []
-            const keys = new Set<string>()
-            const nsByKey = new Map<string, Set<string>>()
-            const metaByNsKey = new Map<string, {description?: string}>()
-            for (const item of list ?? []) {
-                const namespace = item.namespace
-                const key = item.key
-                if (namespace === undefined || key === undefined) continue
-                keys.add(`${namespace}\u0000${key}`)
-                if (!nsByKey.has(key)) nsByKey.set(key, new Set())
-                nsByKey.get(key)!.add(namespace)
-                metaByNsKey.set(`${namespace}\u0000${key}`, {description: item.description})
-            }
-            managedKeys.value = keys
-            const sorted = new Map<string, string[]>()
-            for (const [key, namespaces] of nsByKey) {
-                sorted.set(key, [...namespaces].sort())
-            }
-            keyNamespaces.value = sorted
-            secretMeta.value = metaByNsKey
-            return keys
-        } catch {
-            // 后端未启用 managed secrets（未配置加密密钥）→ 全部只读
-            managedKeys.value = new Set()
-            keyNamespaces.value = new Map()
-            secretMeta.value = new Map()
-            return new Set()
-        }
-    }
-
     const secret = ref<SecretForm>({
         namespace: props.namespace,
         key: undefined,
         value: "",
         description: undefined,
         update: undefined,
+        updateValue: undefined,
     })
 
     const secretBaseline = ref("")
-    const {guardedClose: guardSecretClose} = useDiscardGuard(() => JSON.stringify(secret.value) !== secretBaseline.value)
-    const beforeSecretClose = (done: () => void) => guardSecretClose(() => done())
+    const isSecretDirty = computed(() => JSON.stringify(secret.value) !== secretBaseline.value)
 
     const hasNamespaceColumn = props.namespace === undefined || props.namespaceColumn
 
@@ -396,8 +355,7 @@
     })
 
     const checkSecretValue = (_rule: any, _value: any, callback: any) => {
-        // 创建：值必填；更新：空值 = 不修改秘密值（防止把占位空值写回真实值）
-        if (!secret.value?.update && (secret.value.value === undefined || secret.value.value.trim().length === 0)) {
+        if (secret.value?.updateValue && (secret.value.value === undefined || secret.value.value.length === 0)) {
             callback(new Error("Value must not be empty."))
         } else {
             callback()
@@ -422,14 +380,12 @@
 
     const canUpdate = (item: NamespaceSecret & {namespace?: string}) => {
         return item?.namespace !== undefined &&
-            managedKeys.value.has(`${item.namespace}\u0000${item.key}`) &&
             authStore.user?.isAllowed(resource.SECRET, action.UPDATE, item.namespace) &&
             !areNamespaceSecretsReadOnly.value
     }
 
     const canDelete = (item: NamespaceSecret & {namespace?: string}) => {
         return item?.namespace !== undefined &&
-            managedKeys.value.has(`${item.namespace}\u0000${item.key}`) &&
             authStore.user?.isAllowed(resource.SECRET, action.DELETE, item.namespace) &&
             !areNamespaceSecretsReadOnly.value
     }
@@ -483,19 +439,8 @@
         }
 
         hasData.value = (allSecrets.length ?? 0) !== 0
-        // dsh：OSS list 端点恒返回 readOnly=true（环境变量模式）。启用 DB 托管
-        // （managed 端点返回数据）后，托管行可增删改，仅 env 行保持只读。
-        const managed = await loadManagedKeys()
-        areNamespaceSecretsReadOnly.value = (secretsResponse.readOnly ?? false) && managed.size === 0
-        // 等 managed 元数据就绪后再标注 namespace/description：DB 托管行显示
-        // 所属 namespace 与 description（列表协议只返回扁平 key），env 行（SECRET_*）
-        // 无 namespace 保持只读。
-        secrets.value = allSecrets.map((s: any) => {
-            const ns = keyNamespaces.value.get(s?.key)?.[0]
-            if (ns === undefined) return s
-            const meta = secretMeta.value.get(`${ns}\u0000${s.key}`)
-            return {...s, namespace: ns, description: s.description ?? meta?.description}
-        })
+        areNamespaceSecretsReadOnly.value = secretsResponse.readOnly ?? false
+        secrets.value = allSecrets
         total.value = secretsResponse.total ?? 0
         loadedFilterKey.value = filterQueryKey.value
     }
@@ -506,13 +451,6 @@
     const filterQueryKey = computed(() => {
         const {page: _p, size: _s, sort: _so, ...filters} = route.query
         return JSON.stringify(filters)
-    })
-
-    // filter/搜索变化（KSFilter 内部更新 URL）后必须重新加载列表：
-    // KsDataTable 只监听 page/size/sort，不监听 route.query —— 缺失此 watch 时
-    // 「清除所有」与搜索框 x 清除都只改 URL，列表不刷新（用户实测 403 页同款问题）。
-    watch(filterQueryKey, () => {
-        dataTable.value?.resetAndReload()
     })
 
     const hasActiveFilters = computed(() => routeQueryToQueryFilters(route.query).length > 0)
@@ -537,8 +475,8 @@
         secret.value.namespace = secretData?.namespace
         secret.value.key = secretData?.key
         secret.value.description = secretData?.description
-        secret.value.value = ""
         secret.value.update = true
+        secret.value.updateValue = false
         addSecretDrawerVisible.value = true
     }
 
@@ -558,12 +496,8 @@
         })
     }
 
-    // 是否随本次保存提交新秘密值：更新模式值为空 = 不修改值（仅元数据）；
-    // 创建模式恒传值。更新永远是 PATCH（value 可选），创建永远是 POST。
-    const shouldUpdateValue = () => {
-        if (!secret.value?.update) return true
-        const v = secret.value?.value
-        return v !== undefined && v !== null && v.trim() !== ""
+    const isSecretValueUpdated = () => {
+        return !secret.value?.update || secret.value?.updateValue
     }
 
     const saveSecret = (formRef: FormInstance | undefined) => {
@@ -579,14 +513,13 @@
                 description: secret.value?.description,
             }
 
-            const updateValue = shouldUpdateValue()
-            if (updateValue) {
+            if (isSecretValueUpdated()) {
                 secretData.value = secret.value?.value
             }
 
-            const actionMethod = secret.value?.update === true
-                ? namespacesStore.patchSecret
-                : namespacesStore.createSecrets
+            const actionMethod = isSecretValueUpdated()
+                ? namespacesStore.createSecrets
+                : namespacesStore.patchSecret
 
             // Snapshot before the request: resetForm() swaps secret.value out when the drawer closes,
             // and the .then() would then read the flag off a different object.
@@ -617,6 +550,7 @@
             value: "",
             description: undefined,
             update: undefined,
+            updateValue: undefined,
         }
     }
 
@@ -670,4 +604,16 @@
     .field-item :deep(.kel-form-item__content) > * {
         width: 100%;
     }
+
+    .secret-value-control {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--ks-spacing-2);
+    }
+
+    .secret-value-control > :first-child {
+        width: 100%;
+    }
+
 </style>
