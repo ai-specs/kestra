@@ -68,6 +68,20 @@ function ensureAmisStyle() {
 .dsh-designer-main > .Editor-Demo { flex: 1; min-height: 0; }
 .dsh-tree-node { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 16px; font-size: 13px; color: #333; cursor: pointer; }
 .dsh-tree-node:hover { background: #f2f3f7; }
+/* editor header toolbar (demo-style) */
+.Editor-header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #fff; border-bottom: 1px solid #e8e8e8; flex-wrap: wrap; }
+.Editor-title { font-size: 13px; color: #444; font-weight: 500; margin-right: auto; }
+.Editor-view-mode-group-container { flex-shrink: 0; }
+.Editor-view-mode-group { display: inline-flex; border: 1px solid #d4d6db; border-radius: 4px; overflow: hidden; }
+.Editor-view-mode-btn { border: none; background: #fff; padding: 4px 12px; font-size: 13px; color: #585858; cursor: pointer; }
+.Editor-view-mode-btn + .Editor-view-mode-btn { border-left: 1px solid #d4d6db; }
+.Editor-view-mode-btn:hover { background: #f2f3f7; }
+.Editor-view-mode-btn.is-active { background: #0057ff; color: #fff; }
+.Editor-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.header-action-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #d4d6db; border-radius: 4px; background: #fff; padding: 4px 14px; font-size: 13px; color: #333; cursor: pointer; text-decoration: none; line-height: 20px; }
+.header-action-btn:hover { border-color: #0057ff; color: #0057ff; }
+.header-action-btn.primary { background: #0057ff; border-color: #0057ff; color: #fff; }
+.header-action-btn.primary:hover { background: #0047d0; color: #fff; }
 .dsh-tree-node.is-active { background: #e8f1ff; color: #1677ff; }
 .dsh-tree-node.is-app { font-weight: 600; }
 .dsh-tree-node.is-page { padding-left: 36px; }

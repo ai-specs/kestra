@@ -59,9 +59,12 @@ RUN --mount=type=bind,target=/mnt/context \
     # 构建期注入占位 dsh.metrics 配置：`plugins install` 会启动完整 Kestra 上下文，
     # 其 @Scheduled bean（DshGoldenMetricsBinder）需要 dsh.metrics.jdbc-url 等属性，
     # 缺省时 bean 创建失败导致 install 以非零退出（构建期无 DB，占位值不会被真正使用）。
-    # 本地 m2 仓库钉死在 cache mount：网络抖动（central/aliyun SSL 偶发握手失败）导致
-    # install 中断时，已下载的构件跨次构建保留，重试即增量续传，不必每次从零下载。
-    KESTRA_CONFIGURATION=$'dsh:\n  metrics:\n    jdbc-url: jdbc:postgresql://127.0.0.1:5432/build\n    jdbc-username: build\n    jdbc-password: build\nkestra:\n  plugins:\n    management:\n      local-repository-path: /kestra-m2-cache' \
+    # 本地 m2 仓库钉死在 cache mount：网络抖动导致 install 中断时，已下载的构件跨次
+    # 构建保留，重试即增量续传，不必每次从零下载。
+    # 把默认 central（application.yml 注入，repo.maven.apache.org）的 url 覆盖为国内镜像：
+    # aether 按 [central, --repositories 追加] 顺序解析，central 排第一且国内直连常被
+    # 重置——只追加不覆盖时 jar 下载仍先打 central，随机构件会失败。
+    KESTRA_CONFIGURATION=$'dsh:\n  metrics:\n    jdbc-url: jdbc:postgresql://127.0.0.1:5432/build\n    jdbc-username: build\n    jdbc-password: build\nkestra:\n  plugins:\n    local-repository-path: /kestra-m2-cache\n    repositories:\n      central:\n        url: https://repo.huaweicloud.com/repository/maven' \
     /app/kestra plugins install -p /app/plugins $PLUGIN_WHITELIST \
         $(if [ -n "$PLUGIN_REPOSITORIES" ]; then echo "--repositories $PLUGIN_REPOSITORIES"; fi) && \
     chown -R kestra:kestra /app
