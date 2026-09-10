@@ -48,6 +48,7 @@ io.kestra.plugin:plugin-openai:LATEST \
 io.kestra.plugin:plugin-ai:LATEST"
 
 RUN --mount=type=bind,target=/mnt/context \
+    --mount=type=cache,target=/kestra-m2-cache,sharing=locked,id=kestra-plugins-m2 \
     mkdir -p /app/plugins && \
     # 定制插件（plugin-deepseek-harness）本地烘焙：jar 放 locals/plugins/（构建上下文；
     # .dockerignore 排除插件源码 plugins/ 但保留 locals/）。base 镜像自身不带任何插件。
@@ -55,6 +56,12 @@ RUN --mount=type=bind,target=/mnt/context \
     # 官方插件白名单：构建时解析 LATEST 并装入 /app/plugins（默认 Maven Central；
     # PLUGIN_REPOSITORIES 非空时经 --repositories 追加国内镜像）。
     # 此 RUN 层会被 Docker 缓存；要强制刷新最新版请用 docker compose build --no-cache kestra。
+    # 构建期注入占位 dsh.metrics 配置：`plugins install` 会启动完整 Kestra 上下文，
+    # 其 @Scheduled bean（DshGoldenMetricsBinder）需要 dsh.metrics.jdbc-url 等属性，
+    # 缺省时 bean 创建失败导致 install 以非零退出（构建期无 DB，占位值不会被真正使用）。
+    # 本地 m2 仓库钉死在 cache mount：网络抖动（central/aliyun SSL 偶发握手失败）导致
+    # install 中断时，已下载的构件跨次构建保留，重试即增量续传，不必每次从零下载。
+    KESTRA_CONFIGURATION=$'dsh:\n  metrics:\n    jdbc-url: jdbc:postgresql://127.0.0.1:5432/build\n    jdbc-username: build\n    jdbc-password: build\nkestra:\n  plugins:\n    management:\n      local-repository-path: /kestra-m2-cache' \
     /app/kestra plugins install -p /app/plugins $PLUGIN_WHITELIST \
         $(if [ -n "$PLUGIN_REPOSITORIES" ]; then echo "--repositories $PLUGIN_REPOSITORIES"; fi) && \
     chown -R kestra:kestra /app

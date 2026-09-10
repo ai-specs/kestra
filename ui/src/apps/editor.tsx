@@ -1,19 +1,32 @@
-// Standalone dsh Apps visual editor entry (served at /apps/designer and
-// /apps/{app}/{page}/edit, outside the Kestra /ui/ SPA). Dual mode, one bundle:
-//   - /apps/designer             → designer mode: left page tree (GET /api/v1/apps/pages)
-//                                  + amis-editor in the main area
-//   - /apps/{app}/{page}/edit    → single-page edit mode (page defaults to "index";
-//                                  {page} may be a group path "x/y" for third-level pages)
+// dsh Apps visual editor. One source of truth, two embedding surfaces:
+//   - standalone entry (apps-editor.html) at /apps/designer (designer mode) and
+//     /apps/{app}/{page}/edit (single-page edit)
+//   - SPA-inline mount (src/components/dsh/apps/PagesEditor.vue → mountEditor at /ui/main/pages)
 // The editor is decoupled from flow/trigger entirely: every input is a convention path
 // (apps/{app}/{page}.json) read/written through the file endpoints.
 //
-// Design: docs/dsh-apps-amis-editor.md §6.4. amis-editor@6.13.0 ships no standalone
-// .css (verified tarball) — its styling reuses the amis/amis-ui theme css injected at
-// runtime exactly like src/apps/main.ts.
+// Styling follows the upstream amis-editor-demo exactly:
+//   amis/lib/themes/cxd.css + amis/lib/helper.css + amis/sdk/iconfont.css +
+//   amis-editor-core/lib/style.css + fontawesome + themeConfig(cxd) via
+//   setDefaultTheme/setThemeConfig. Plain CSS imports (not ?raw) let Vite bundle the font
+//   files (iconfont woff2, fontawesome webfonts) referenced by these stylesheets and emit
+//   <link> tags — ?raw injection breaks those url() references at runtime (missing icons
+//   were exactly the "CSS not loaded" symptom).
+import "amis/lib/themes/cxd.css";
+import "amis/lib/helper.css";
+import "amis/sdk/iconfont.css";
+import "amis-editor-core/lib/style.css";
+import "@fortawesome/fontawesome-free/css/all.css";
+import "@fortawesome/fontawesome-free/css/v4-shims.css";
 import {Editor, ShortcutKey} from "amis-editor";
+import {setThemeConfig} from "amis-editor-core";
+import {setDefaultTheme} from "amis";
+import themeConfig from "amis-theme-editor-helper/lib/systemTheme/cxd";
 import {createRoot} from "react-dom/client";
 import {useEffect, useState} from "react";
-import amisCss from "amis/lib/themes/default.css?raw";
+
+setDefaultTheme("cxd");
+setThemeConfig(themeConfig);
 
 const AUTH_FLAG_COOKIE_NAME = "oidcAuthenticated";
 
@@ -30,21 +43,28 @@ function getCsrfToken(): string | null {
     return document.querySelector("meta[name=\"csrf-token\"]")?.getAttribute("content") ?? null;
 }
 
+const EDITOR_STYLE_ID = "dsh-apps-editor-style";
+
+// Amis/fontawesome stylesheets are regular Vite CSS imports above (auto-emitted as <link>
+// in both the standalone and the SPA-inline bundle). This function only injects the small
+// dsh-specific editor shell layout, and is guarded against double injection.
 function ensureAmisStyle() {
-    if (document.getElementById("dsh-apps-editor-style")) {
+    if (document.getElementById(EDITOR_STYLE_ID)) {
         return;
     }
     const style = document.createElement("style");
-    style.id = "dsh-apps-editor-style";
-    style.textContent = `${amisCss}
-/* editor shell layout */
-.dsh-editor-shell { display: flex; flex-direction: column; height: 100vh; }
-.dsh-editor-shell .Editor-inner { flex: 1; overflow: hidden; }
+    style.id = EDITOR_STYLE_ID;
+    style.textContent = `/* editor shell layout */
+.dsh-editor-root { display: flex; min-height: 0; }
+.dsh-editor-root.is-embedded { height: 100%; }
+.dsh-editor-root:not(.is-embedded) .dsh-editor-shell { height: 100vh; }
+.dsh-editor-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
+.dsh-editor-shell .Editor-inner { flex: 1; overflow: hidden; min-height: 0; }
 .dsh-editor-shell .Editor-Demo { height: 100%; }
-.dsh-designer { display: flex; height: 100vh; overflow: hidden; }
+.dsh-designer { display: flex; min-height: 0; flex: 1; overflow: hidden; }
 .dsh-designer-tree { width: 260px; min-width: 260px; background: #fff; border-right: 1px solid #e8e8e8; overflow-y: auto; padding: 12px 0; }
 .dsh-designer-tree h3 { font-size: 13px; color: #666; padding: 0 16px; margin: 8px 0 4px; }
-.dsh-designer-main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.dsh-designer-main { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
 .dsh-designer-main > .Editor-Demo { flex: 1; min-height: 0; }
 .dsh-tree-node { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 16px; font-size: 13px; color: #333; cursor: pointer; }
 .dsh-tree-node:hover { background: #f2f3f7; }
@@ -55,7 +75,8 @@ function ensureAmisStyle() {
 .dsh-tree-node .dsh-tree-index { color: #1677ff; font-size: 11px; border: 1px solid #1677ff; border-radius: 2px; padding: 0 3px; margin-left: 6px; }
 .dsh-tree-empty { padding: 24px 16px; color: #999; font-size: 13px; line-height: 1.8; }
 .dsh-tree-warning { margin: 4px 12px; padding: 6px 8px; background: #fff7e6; border: 1px solid #ffd591; border-radius: 4px; color: #d46b08; font-size: 12px; }
-.dsh-designer-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; color: #999; font-size: 14px; }
+.dsh-designer-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; color: #999; font-size: 14px; min-height: 0; }
+.dsh-editor-root.is-embedded .dsh-designer-placeholder { flex: 1; }
 `;
     document.head.appendChild(style);
 }
@@ -119,7 +140,7 @@ function toast(msg: string) {
 }
 
 // ---- single-page editor (also used inside designer mode) ----
-function PageEditor({appName, page}: {appName: string; page: string}) {
+function PageEditor({appName, page, embedded}: {appName: string; page: string; embedded?: boolean}) {
     const [schema, setSchema] = useState<unknown>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -168,62 +189,66 @@ function PageEditor({appName, page}: {appName: string; page: string}) {
     }
 
     return (
-        <div className="Editor-Demo">
-            <div className="Editor-header">
-                <div className="Editor-title">页面编辑器：{path}</div>
-                <div className="Editor-view-mode-group-container">
-                    <div className="Editor-view-mode-group">
-                        <button
-                            className={`Editor-view-mode-btn ${!isMobile ? "is-active" : ""}`}
-                            onClick={() => setIsMobile(false)}
-                        >
-                            PC
-                        </button>
-                        <button
-                            className={`Editor-view-mode-btn ${isMobile ? "is-active" : ""}`}
-                            onClick={() => setIsMobile(true)}
-                        >
-                            H5
-                        </button>
+        <div className={`dsh-editor-root ${embedded ? "is-embedded" : ""}`}>
+            <div className="dsh-editor-shell">
+                <div className="Editor-Demo">
+                    <div className="Editor-header">
+                        <div className="Editor-title">页面编辑器：{path}</div>
+                        <div className="Editor-view-mode-group-container">
+                            <div className="Editor-view-mode-group">
+                                <button
+                                    className={`Editor-view-mode-btn ${!isMobile ? "is-active" : ""}`}
+                                    onClick={() => setIsMobile(false)}
+                                >
+                                    PC
+                                </button>
+                                <button
+                                    className={`Editor-view-mode-btn ${isMobile ? "is-active" : ""}`}
+                                    onClick={() => setIsMobile(true)}
+                                >
+                                    H5
+                                </button>
+                            </div>
+                        </div>
+                        <div className="Editor-header-actions">
+                            <ShortcutKey />
+                            <button className="header-action-btn" onClick={() => setPreview(!preview)}>
+                                {preview ? "编辑" : "预览"}
+                            </button>
+                            <button className="header-action-btn primary" onClick={save}>
+                                保存
+                            </button>
+                            <a className="header-action-btn exit-btn" href={`/apps/${appName}/${page}`}>
+                                预览
+                            </a>
+                        </div>
+                    </div>
+                    <div className="Editor-inner">
+                        <Editor
+                            theme="cxd"
+                            preview={preview}
+                            isMobile={isMobile}
+                            value={schema}
+                            onChange={(v: unknown) => setSchema(v)}
+                            onSave={save}
+                            amisEnv={{
+                                fetcher: (api: unknown, data?: unknown) => {
+                                    const apiObject = typeof api === "string" ? {url: api, method: "get"} : (api as {url: string; method?: string});
+                                    return apiRequest(apiObject.url, (apiObject.method ?? "get").toUpperCase() === "POST" ? "PUT" : "GET", data);
+                                },
+                                notify: (type: string, msg: string) => {
+                                    if (msg) {
+                                        console.log(`[amis:${type}] ${msg}`);
+                                    }
+                                },
+                                alert: (msg: string) => toast(msg),
+                                copy: (text: string) => {
+                                    void navigator.clipboard?.writeText(text).catch(() => undefined);
+                                },
+                            }}
+                        />
                     </div>
                 </div>
-                <div className="Editor-header-actions">
-                    <ShortcutKey />
-                    <button className="header-action-btn" onClick={() => setPreview(!preview)}>
-                        {preview ? "编辑" : "预览"}
-                    </button>
-                    <button className="header-action-btn primary" onClick={save}>
-                        保存
-                    </button>
-                    <a className="header-action-btn exit-btn" href={`/apps/${appName}/${page}`}>
-                        预览
-                    </a>
-                </div>
-            </div>
-            <div className="Editor-inner">
-                <Editor
-                    theme="cxd"
-                    preview={preview}
-                    isMobile={isMobile}
-                    value={schema}
-                    onChange={(v: unknown) => setSchema(v)}
-                    onSave={save}
-                    amisEnv={{
-                        fetcher: (api: unknown, data?: unknown) => {
-                            const apiObject = typeof api === "string" ? {url: api, method: "get"} : (api as {url: string; method?: string});
-                            return apiRequest(apiObject.url, (apiObject.method ?? "get").toUpperCase() === "POST" ? "PUT" : "GET", data);
-                        },
-                        notify: (type: string, msg: string) => {
-                            if (msg) {
-                                console.log(`[amis:${type}] ${msg}`);
-                            }
-                        },
-                        alert: (msg: string) => toast(msg),
-                        copy: (text: string) => {
-                            void navigator.clipboard?.writeText(text).catch(() => undefined);
-                        },
-                    }}
-                />
             </div>
         </div>
     );
@@ -244,7 +269,7 @@ interface AppNode {
     pages: TreeNode[];
 }
 
-function Designer() {
+function Designer({embedded}: {embedded?: boolean}) {
     const [apps, setApps] = useState<AppNode[] | null>(null);
     const [selected, setSelected] = useState<{appName: string; page: string} | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -309,38 +334,70 @@ function Designer() {
     }
 
     return (
-        <div className="dsh-designer">
-            <div className="dsh-designer-tree">
-                <h3>App 设计器</h3>
-                {apps.length === 0 && <div className="dsh-tree-empty">约定目录 apps/ 下暂无页面。<br/>在目录页进入某页面的「设计」入口后首次保存会自动创建文件。</div>}
-                {apps.map(app => (
-                    <div key={app.appName}>
-                        <div className="dsh-tree-node is-app">📁 {app.appName}</div>
-                        {app.warning ? <div className="dsh-tree-warning">{app.warning}</div> : null}
-                        {renderChildren(app.appName, app.pages, 0)}
-                    </div>
-                ))}
-            </div>
-            <div className="dsh-designer-main">
-                {selected ? (
-                    <PageEditor appName={selected.appName} page={selected.page} />
-                ) : (
-                    <div className="dsh-designer-placeholder">选择左侧一个页面开始编辑</div>
-                )}
+        <div className={`dsh-editor-root ${embedded ? "is-embedded" : ""}`}>
+            <div className="dsh-designer">
+                <div className="dsh-designer-tree">
+                    <h3>App 设计器</h3>
+                    {apps.length === 0 && <div className="dsh-tree-empty">约定目录 apps/ 下暂无页面。<br/>在目录页进入某页面的「设计」入口后首次保存会自动创建文件。</div>}
+                    {apps.map(app => (
+                        <div key={app.appName}>
+                            <div className="dsh-tree-node is-app">📁 {app.appName}</div>
+                            {app.warning ? <div className="dsh-tree-warning">{app.warning}</div> : null}
+                            {renderChildren(app.appName, app.pages, 0)}
+                        </div>
+                    ))}
+                </div>
+                <div className="dsh-designer-main">
+                    {selected ? (
+                        <PageEditor appName={selected.appName} page={selected.page} embedded={embedded} />
+                    ) : (
+                        <div className="dsh-designer-placeholder">选择左侧一个页面开始编辑</div>
+                    )}
+                </div>
             </div>
         </div>
     );
 }
 
-// ---- boot: URL → mode ----
+// ---- SPA-inline mount contract (used by PagesEditor.vue) ----
+export interface MountEditorOptions {
+    mode: "designer" | "page";
+    appName?: string;
+    page?: string;
+    /** true when mounted inside the kestra-ui SPA (height 100% of the content area). */
+    embedded?: boolean;
+}
+
+export function mountEditor(container: HTMLElement, opts: MountEditorOptions): () => void {
+    ensureAmisStyle();
+    const root = createRoot(container);
+    if (opts.mode === "designer") {
+        root.render(<Designer embedded={opts.embedded} />);
+    } else {
+        root.render(<PageEditor appName={opts.appName ?? "hello"} page={opts.page ?? "index"} embedded={opts.embedded} />);
+    }
+    return () => root.unmount();
+}
+
+// ---- boot (standalone entry: /apps/designer and /apps/{app}/{page}/edit) ----
+// The SPA-inline bundle imports this module too (PagesEditor.vue → mountEditor); boot must
+// only run on the standalone entry URLs, otherwise it would grab the SPA's own #app root.
 function boot() {
+    const path = window.location.pathname;
+    const isStandalone =
+        path === "/apps/designer" ||
+        path.startsWith("/apps/designer/") ||
+        /^\/apps\/[^/]+\/(.+?)\/edit$/.test(path);
+    if (!isStandalone) {
+        return;
+    }
+
     if (!isLoggedIn()) {
         redirectToLogin();
         return;
     }
     ensureAmisStyle();
 
-    const path = window.location.pathname;
     const root = document.getElementById("app")!;
 
     // Designer entry: /apps/designer (reserved appName, UiAppController routes it here)

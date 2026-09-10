@@ -52,8 +52,27 @@ export default defineConfig(({mode}) => {
 
     return {
         base: "",
+        // src/apps/editor.tsx is React JSX inside a Vue-oriented tsconfig (jsx: preserve +
+        // jsxImportSource: vue). The SPA imports it lazily (PagesEditor.vue → mountEditor);
+        // the whole repo's only .tsx is this React file, so a global automatic+react transform
+        // is safe. The standalone apps build (vite.apps.config.js) already sets the same.
+        esbuild: {
+            jsx: "automatic",
+            jsxImportSource: "react",
+        },
+        css: {
+            lightningcss: {
+                // amis-editor-core/style.css carries legacy IE media-query hacks
+                // (@media (min-width: 0\0)) that LightningCSS minify rejects — strip them.
+                errorRecovery: true,
+            },
+        },
         build: {
             outDir: "../webserver/src/main/resources/ui",
+            // amis-editor-core/style.css carries legacy IE media-query hacks
+            // (@media (min-width: 0\0)) that the default LightningCSS minifier rejects;
+            // esbuild's CSS minifier passes them through, so use it instead.
+            cssMinify: "esbuild",
         },
         server: {
             watch: {

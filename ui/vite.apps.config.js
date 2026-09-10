@@ -16,6 +16,10 @@ export default defineConfig(() => ({
     build: {
         outDir: "../webserver/src/main/resources/ui",
         emptyOutDir: false,
+        // amis-editor-core/style.css carries legacy IE media-query hacks
+        // (@media (min-width: 0\0)) that the default LightningCSS minifier rejects;
+        // esbuild's CSS minifier passes them through, so use it instead.
+        cssMinify: "esbuild",
         rollupOptions: {
             input: {
                 apps: path.resolve(__dirname, "apps.html"),
@@ -43,6 +47,13 @@ export default defineConfig(() => ({
     esbuild: {
         jsx: "automatic",
         jsxImportSource: "react",
+    },
+    css: {
+        lightningcss: {
+            // amis-editor-core/style.css carries legacy IE media-query hacks
+            // (@media (min-width: 0\0)) that LightningCSS minify rejects — strip them.
+            errorRecovery: true,
+        },
     },
     optimizeDeps: {
         include: ["amis", "amis-core", "react", "react-dom", "react-dom/client", "amis-editor", "i18n-runtime", "amis-theme-editor-helper"],

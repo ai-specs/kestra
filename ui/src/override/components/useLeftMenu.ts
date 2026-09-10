@@ -16,6 +16,7 @@ import FileTreeOutline from "vue-material-design-icons/FileTreeOutline.vue"
 import LayersTripleOutline from "vue-material-design-icons/LayersTripleOutline.vue"
 import PlayOutline from "vue-material-design-icons/PlayOutline.vue"
 import FileDocumentOutline from "vue-material-design-icons/FileDocumentOutline.vue"
+import FileDocumentMultipleOutline from "vue-material-design-icons/FileDocumentMultipleOutline.vue"
 import FlaskOutline from "vue-material-design-icons/FlaskOutline.vue"
 import PackageVariantClosed from "vue-material-design-icons/PackageVariantClosed.vue"
 import AlertCircleOutline from "vue-material-design-icons/AlertCircleOutline.vue"
@@ -155,7 +156,7 @@ export function useLeftMenu() {
                     {
                         id: "apps",
                         title: t("apps"),
-                        routes: routeStartWith("apps").filter((r) => r !== "apps/designer"),
+                        routes: routeStartWith("apps"),
                         href: {
                             name: "apps/list",
                         },
@@ -164,19 +165,6 @@ export function useLeftMenu() {
                         },
                         // dsh fork: apps is a real dsh feature (declarative Amis apps, plugin-dsh-apps),
                         // not an EE upsell — no locked attribute so the menu renders like any normal item.
-                    },
-                    {
-                        // dsh fork: App 设计器独立入口（/apps/designer 由 apps-editor.html 提供）。
-                        // SPA 侧只做整页跳板（RedirectDesigner.vue），不内嵌编辑器。
-                        id: "apps-designer",
-                        title: "App 设计器",
-                        routes: routeStartWith("apps/designer"),
-                        href: {
-                            name: "apps/designer",
-                        },
-                        icon: {
-                            element: LayersTripleOutline,
-                        },
                     },
                     {
                         id: "tests",
@@ -207,6 +195,19 @@ export function useLeftMenu() {
                         },
                         icon: {
                             element: FolderOpenOutline,
+                        },
+                    },
+                    {
+                        // dsh fork: 可视化页面设计器（/ui/main/pages，SPA 内嵌 amis-editor，
+                        // 与"资产"同级别）。编辑器页面树在 SPA 内成为中部菜单。
+                        id: "pages",
+                        title: "页面",
+                        routes: routeStartWith("pages"),
+                        href: {
+                            name: "pages/list",
+                        },
+                        icon: {
+                            element: FileDocumentMultipleOutline,
                         },
                     },
                     {
