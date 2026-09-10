@@ -121,10 +121,6 @@ public class AppsService {
         return webhookService.followExecution(execution, flow);
     }
 
-    public Map<String, Object> executionOutputs(Execution execution) throws Exception {
-        return webhookService.executionOutputs(execution);
-    }
-
     /**
      * Look up an execution scoped to the app's flow: (tenant, namespace, flowId, id).
      * Refuses executions that do not belong to the matched flow, so the status

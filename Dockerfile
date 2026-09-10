@@ -6,11 +6,19 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY --chown=kestra:kestra docker /
 
 # DSH 插件白名单：完整覆盖被移除的 7 个 submodule（等价替换，功能不回退），
-# 构建时从 Maven Central 拉取 LATEST。复用 `kestra plugins install`
+# 构建时从 Maven 拉取 LATEST。复用 `kestra plugins install`
 # （与官方 kestra/kestra:* 镜像的发布流程一致，不自造轮子）。
 # plugin-scripts 是聚合仓库：主模块 artifact 为 plugin-script（单数），
 # 18 个语言子模块独立发布，全部纳入白名单保持等价。
 # 需要更多官方插件时往列表加一行；不需要时删对应行。
+#
+# 额外 Maven 仓库（国内源）：容器内的 kestra CLI 不读宿主机 ~/.m2/settings.xml /
+# ~/.gradle 的镜像配置，默认只认 Maven Central；国内直连 central 常被重置
+# （SSL_ERROR_SYSCALL / Remote host terminated the handshake），且 Docker Desktop
+# 配置的本地代理失效时 build 内同样不可达。经 `--repositories` 追加国内镜像
+# （如 https://maven.aliyun.com/repository/public），与 central 并存、任一可解析即成功。
+# 置空则只用 central。
+ARG PLUGIN_REPOSITORIES=""
 ARG PLUGIN_WHITELIST="\
 io.kestra.plugin:plugin-script:LATEST \
 io.kestra.plugin:plugin-script-bun:LATEST \
@@ -44,9 +52,11 @@ RUN --mount=type=bind,target=/mnt/context \
     # 定制插件（plugin-deepseek-harness）本地烘焙：jar 放 locals/plugins/（构建上下文；
     # .dockerignore 排除插件源码 plugins/ 但保留 locals/）。base 镜像自身不带任何插件。
     { cp -r /mnt/context/locals/plugins/. /app/plugins/ 2>/dev/null || true; } && \
-    # 官方插件白名单：构建时从 Maven Central 解析 LATEST 并装入 /app/plugins。
+    # 官方插件白名单：构建时解析 LATEST 并装入 /app/plugins（默认 Maven Central；
+    # PLUGIN_REPOSITORIES 非空时经 --repositories 追加国内镜像）。
     # 此 RUN 层会被 Docker 缓存；要强制刷新最新版请用 docker compose build --no-cache kestra。
-    /app/kestra plugins install -p /app/plugins $PLUGIN_WHITELIST && \
+    /app/kestra plugins install -p /app/plugins $PLUGIN_WHITELIST \
+        $(if [ -n "$PLUGIN_REPOSITORIES" ]; then echo "--repositories $PLUGIN_REPOSITORIES"; fi) && \
     chown -R kestra:kestra /app
 
 USER kestra

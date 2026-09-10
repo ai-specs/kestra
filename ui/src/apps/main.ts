@@ -153,11 +153,20 @@ const env: RenderOptions = {
                     }
                 }
             }
+            // On failure, surface the server's own error text (e.g. the {apiId}_result
+            // convention 400 carries its explanation in the body) instead of a bare
+            // "HTTP 400", so the amis toast tells the flow author what to fix.
+            let msg = "";
+            if (!resp.ok) {
+                const p = parsed as {msg?: unknown; message?: unknown; error?: unknown} | null;
+                const serverText = [p?.msg, p?.message, p?.error].find((v): v is string => typeof v === "string" && v.length > 0);
+                msg = serverText ?? `HTTP ${resp.status}`;
+            }
             return {
                 ok: resp.ok,
                 status: resp.status,
                 data: parsed,
-                msg: resp.ok ? "" : `HTTP ${resp.status}`,
+                msg,
                 headers: resp.headers,
             };
         }).catch((err: unknown) => {

@@ -200,7 +200,11 @@ public class AppRouterController {
         String error = null;
         if (terminal == State.Type.SUCCESS || terminal == State.Type.WARNING) {
             try {
-                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId(), apiId);
+                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId(), apiId, flow);
+            } catch (HttpStatusException e) {
+                // Convention violations keep their own HTTP status (400): a machine caller
+                // gets an unambiguous failure instead of 200 + SUCCESS + error.
+                throw e;
             } catch (Exception e) {
                 error = "Unable to read execution outputs: " + e.getMessage();
             }
@@ -228,8 +232,7 @@ public class AppRouterController {
         Map<String, Object> all = taskOutputService.computeOutputs(execution);
         Object taskOuts = all == null ? null : all.get(taskId);
         if (!(taskOuts instanceof Map<?, ?> taskOutsMap)) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "No task with id '%s' found — app api flows must end each %s branch with an OutputValues task whose id is '<apiId>_result'.".formatted(taskId, apiId));
+            throw missingResultTaskException(apiId);
         }
         Object values = taskOutsMap.get("values");
         if (!(values instanceof Map<?, ?> valuesMap)) {
@@ -241,14 +244,31 @@ public class AppRouterController {
         return unwrapped;
     }
 
+    private static HttpStatusException missingResultTaskException(String apiId) {
+        return new HttpStatusException(HttpStatus.BAD_REQUEST,
+            "No task with id '%s' found — app api flows must end each %s branch with an OutputValues task whose id is '<apiId>_result' (the apiId must be valid inside a task id: letters, digits, '-' or '_').".formatted(apiId + "_result", apiId));
+    }
+
+    /**
+     * Whether the flow declares any task with the convention id — checked against the raw
+     * flow from the route registry, Switch branches included via {@link Flow#allTasksWithChilds()}.
+     */
+    private static boolean hasResultTask(Flow flow, String apiId) {
+        String taskId = apiId + "_result";
+        return flow.allTasksWithChilds().stream().anyMatch(t -> t != null && taskId.equals(t.getId()));
+    }
+
     /**
      * The result task's outputs are saved when the task completes, so a terminal execution
-     * normally reads them in one shot. Re-fetch the execution from the repository on each
-     * round anyway (the in-memory terminal event may predate the repository write) and poll
-     * briefly, bounded and best-effort; a persistent missing {@code result} task surfaces
-     * as the convention error once the short window elapses.
+     * normally reads them in one shot. A flow that declares no such task at all fails fast —
+     * the retry window below exists only for the persistence lag of a task that DID run.
+     * Re-fetch the execution from the repository on each round (the in-memory terminal event
+     * may predate the repository write) and poll briefly, bounded and best-effort.
      */
-    private Map<String, Object> awaitResultOutputs(String tenant, String namespace, String flowId, String executionId, String apiId) throws Exception {
+    private Map<String, Object> awaitResultOutputs(String tenant, String namespace, String flowId, String executionId, String apiId, Flow routeFlow) throws Exception {
+        if (!hasResultTask(routeFlow, apiId)) {
+            throw missingResultTaskException(apiId);
+        }
         Map<String, Object> outputs = null;
         HttpStatusException lastConventionError = null;
         for (int i = 0; i < 20; i++) {
@@ -306,7 +326,10 @@ public class AppRouterController {
         State.Type current = execution.getState().getCurrent();
         if (current == State.Type.SUCCESS || current == State.Type.WARNING) {
             try {
-                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId(), apiId);
+                outputs = awaitResultOutputs(execution.getTenantId(), execution.getNamespace(), execution.getFlowId(), execution.getId(), apiId, flow);
+            } catch (HttpStatusException e) {
+                // Same as the POST path: convention violations surface as 400, not 200+error.
+                throw e;
             } catch (Exception e) {
                 error = "Unable to read execution outputs: " + e.getMessage();
             }
