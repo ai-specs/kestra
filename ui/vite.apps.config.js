@@ -19,10 +19,14 @@ export default defineConfig(() => ({
         rollupOptions: {
             input: {
                 apps: path.resolve(__dirname, "apps.html"),
+                // 第二入口：amis-editor 独立构建（/apps/designer 与 /apps/{app}/{page}/edit 共用，
+                // 前端按 URL 分流），与渲染入口分离 —— 渲染页不携带编辑器体积。
+                "apps-editor": path.resolve(__dirname, "apps-editor.html"),
             },
             output: {
-                // keep apps chunks clearly separated from the SPA assets
-                entryFileNames: "assets/apps-entry-[hash].js",
+                // 固定前缀在多入口下两个入口 chunk 同名（仅 hash 不同），[name] 才能区分：
+                // apps-apps-*.js（渲染入口）/ apps-apps-editor-*.js（编辑器入口）
+                entryFileNames: "assets/apps-[name]-[hash].js",
                 chunkFileNames: "assets/apps-[hash].js",
                 assetFileNames: "assets/apps-[hash][extname]",
             },
@@ -33,7 +37,14 @@ export default defineConfig(() => ({
             {find: "override", replacement: path.resolve(__dirname, "src/override/")},
         ],
     },
+    // The root tsconfig is Vue-oriented (jsx: preserve + jsxImportSource: vue) — the
+    // rolldown parser would reject the React JSX in src/apps/editor.tsx. The apps build
+    // is React-only, so override the JSX transform here.
+    esbuild: {
+        jsx: "automatic",
+        jsxImportSource: "react",
+    },
     optimizeDeps: {
-        include: ["amis", "amis-core", "react", "react-dom", "react-dom/client"],
+        include: ["amis", "amis-core", "react", "react-dom", "react-dom/client", "amis-editor", "i18n-runtime", "amis-theme-editor-helper"],
     },
 }))

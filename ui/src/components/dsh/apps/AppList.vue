@@ -47,14 +47,26 @@
             <KsTableColumn :label="'页面 URL'">
                 <template #default="scope">
                     <div v-if="scope.row.pages.length > 0" class="dsh-app-list__urls">
-                        <a
+                        <span
                             v-for="p in scope.row.pages"
                             :key="p"
-                            class="dsh-app-list__url"
-                            :href="`/apps/${encodeURIComponent(scope.row.appName)}/${encodeURIComponent(p)}`"
-                            target="_blank"
-                            rel="noopener"
-                        >/apps/{{ scope.row.appName }}/{{ p }}</a>
+                            class="dsh-app-list__url-row"
+                        >
+                            <a
+                                class="dsh-app-list__url"
+                                :href="`/apps/${encodeURIComponent(scope.row.appName)}/${encodeURIComponent(p)}`"
+                                target="_blank"
+                                rel="noopener"
+                            >/apps/{{ scope.row.appName }}/{{ p }}</a>
+                            <!-- dsh fork: 单元格内「设计」直达单页编辑器（page 段 = 文件名 = 注册表 pageId，
+                                 不变式 pageId==文件名 下成立，§4.2/§6.4；约定外页面 404→空页→保存建新文件） -->
+                            <a
+                                class="dsh-app-list__design"
+                                :href="`/apps/${encodeURIComponent(scope.row.appName)}/${encodeURIComponent(p)}/edit`"
+                                target="_blank"
+                                rel="noopener"
+                            >设计</a>
+                        </span>
                     </div>
                     <span v-else class="dsh-app-list__muted">—</span>
                 </template>
@@ -209,6 +221,11 @@
         flex-direction: column;
         gap: 2px;
     }
+    .dsh-app-list__url-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
     .dsh-app-list__url {
         font-family: ui-monospace, monospace;
         font-size: 12px;
@@ -218,6 +235,18 @@
     }
     .dsh-app-list__url:hover {
         text-decoration: underline;
+    }
+    .dsh-app-list__design {
+        font-size: 12px;
+        color: #1677ff;
+        text-decoration: none;
+        white-space: nowrap;
+        padding: 0 4px;
+        border: 1px solid #91caff;
+        border-radius: 3px;
+    }
+    .dsh-app-list__design:hover {
+        background: #e6f4ff;
     }
     .dsh-app-list__tag {
         margin: 2px 6px 2px 0;

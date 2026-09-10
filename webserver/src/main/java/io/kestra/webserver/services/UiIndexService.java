@@ -36,6 +36,7 @@ import jakarta.inject.Singleton;
 public class UiIndexService {
     private static final String INDEX_RESOURCE = "ui/index.html";
     private static final String APPS_RESOURCE = "ui/apps.html";
+    private static final String APPS_EDITOR_RESOURCE = "ui/apps-editor.html";
     private static final String HEAD_TAG = "<head>";
     // 'private' keeps a shared cache from ever storing another user's token; 'no-store' would also
     // disqualify the page from the browser back/forward cache.
@@ -49,6 +50,7 @@ public class UiIndexService {
     // Empty when the UI is not packaged on the classpath (backend-only builds).
     private final Optional<String> template;
     private final Optional<String> appsTemplate;
+    private final Optional<String> appsEditorTemplate;
 
     @Inject
     public UiIndexService(
@@ -63,6 +65,7 @@ public class UiIndexService {
         this.csrfTokenGenerator = Objects.requireNonNull(csrfTokenGenerator);
         this.template = load(INDEX_RESOURCE);
         this.appsTemplate = load(APPS_RESOURCE);
+        this.appsEditorTemplate = load(APPS_EDITOR_RESOURCE);
     }
 
     /**
@@ -79,6 +82,15 @@ public class UiIndexService {
      */
     public Optional<MutableHttpResponse<byte[]>> renderApps(HttpRequest<?> request) {
         return appsTemplate.map(html -> render(request, html));
+    }
+
+    /**
+     * Renders the standalone dsh Apps editor shell ({@code apps-editor.html}) for the given request,
+     * or empty when the UI is not packaged on the classpath. Same per-request CSRF meta injection as
+     * {@link #renderApps} (lessons-learned #1: the meta must match the login session cookie).
+     */
+    public Optional<MutableHttpResponse<byte[]>> renderAppEditor(HttpRequest<?> request) {
+        return appsEditorTemplate.map(html -> render(request, html));
     }
 
     private MutableHttpResponse<byte[]> render(HttpRequest<?> request, String template) {

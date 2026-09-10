@@ -20,6 +20,8 @@ const routes: KestraRouteRecord[] = [
     //The 应用程序 list is a SPA view; app pages themselves live at the standalone
     ///apps/{app}/{page} URLs (UiAppController + apps.html entry), never under /ui/.
     {name: "apps/list", path: "/:tenant?/apps", component: () => import("../components/dsh/apps/AppList.vue")},
+    //dsh App 设计器 SPA 跳板：整页跳转到独立编辑器入口 /apps/designer（apps-editor.html）。
+    {name: "apps/designer", path: "/:tenant?/apps/designer", component: () => import("../components/dsh/apps/RedirectDesigner.vue")},
 
     //Dashboards
     {

@@ -155,7 +155,7 @@ export function useLeftMenu() {
                     {
                         id: "apps",
                         title: t("apps"),
-                        routes: routeStartWith("apps"),
+                        routes: routeStartWith("apps").filter((r) => r !== "apps/designer"),
                         href: {
                             name: "apps/list",
                         },
@@ -164,6 +164,19 @@ export function useLeftMenu() {
                         },
                         // dsh fork: apps is a real dsh feature (declarative Amis apps, plugin-dsh-apps),
                         // not an EE upsell — no locked attribute so the menu renders like any normal item.
+                    },
+                    {
+                        // dsh fork: App 设计器独立入口（/apps/designer 由 apps-editor.html 提供）。
+                        // SPA 侧只做整页跳板（RedirectDesigner.vue），不内嵌编辑器。
+                        id: "apps-designer",
+                        title: "App 设计器",
+                        routes: routeStartWith("apps/designer"),
+                        href: {
+                            name: "apps/designer",
+                        },
+                        icon: {
+                            element: LayersTripleOutline,
+                        },
                     },
                     {
                         id: "tests",

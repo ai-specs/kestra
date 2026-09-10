@@ -21,6 +21,9 @@ import jakarta.inject.Inject;
  * Serves the standalone dsh Apps shell at {@code /apps/**} — outside the Kestra {@code /ui/} SPA.
  * Every {@code /apps/{app}/{page}} path returns the same rewritten {@code apps.html}; the entry
  * script reads the app/page ids from the URL and renders the amis page against {@code /api/v1/apps}.
+ * The editor shell {@code apps-editor.html} is served for the designer entry ({@code /apps/designer})
+ * and single-page edit mode ({@code /apps/{app}/{page}/edit}); branch priority:
+ * {@code designer} > {@code /edit} suffix > render wildcard (design docs/dsh-apps-amis-editor.md §4.3/§6.2).
  *
  * <p>Authentication is the deployment-wide SecurityFilter (docker-compose {@code intercept-url-map}
  * {@code /** → isAuthenticated()}): /apps/** matches no anonymous pattern, so an unauthenticated
@@ -35,6 +38,10 @@ import jakarta.inject.Inject;
 @Requires(property = "kestra.webserver.ui.enabled", notEquals = "false", defaultValue = "true")
 @Hidden
 public class UiAppController {
+
+    /** 保留 appName：/apps/designer 是设计器入口（约定目录与 trigger 不得使用，见 AppsFileController）。 */
+    static final String DESIGNER_ENTRY = "designer";
+    private static final String EDIT_SUFFIX = "/edit";
 
     private final UiIndexService uiIndexService;
 
@@ -52,11 +59,20 @@ public class UiAppController {
     @Get("/{path:.*}")
     @ExecuteOn(TaskExecutors.IO)
     public HttpResponse<?> serve(HttpRequest<?> request, @PathVariable String path) {
+        // 分支优先级：designer > /edit 后缀 > 渲染通配（§4.3/§6.2）。
+        if (DESIGNER_ENTRY.equals(path) || (path != null && path.endsWith(EDIT_SUFFIX))) {
+            return renderAppEditor(request);
+        }
         return renderApps(request);
     }
 
     private HttpResponse<?> renderApps(HttpRequest<?> request) {
         Optional<? extends HttpResponse<?>> index = uiIndexService.renderApps(request);
+        return index.isPresent() ? index.get() : HttpResponse.notFound();
+    }
+
+    private HttpResponse<?> renderAppEditor(HttpRequest<?> request) {
+        Optional<? extends HttpResponse<?>> index = uiIndexService.renderAppEditor(request);
         return index.isPresent() ? index.get() : HttpResponse.notFound();
     }
 }
