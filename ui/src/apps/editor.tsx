@@ -503,9 +503,6 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                             <button className="header-action-btn primary" onClick={save}>
                                 保存
                             </button>
-                            <a className="header-action-btn exit-btn" href={`/apps/${appName}/${page}`} target="_top">
-                                预览
-                            </a>
                             <a className="header-action-btn exit-to-pages" href="/ui/main/pages" target="_top">
                                 退出
                             </a>
