@@ -66,6 +66,16 @@ function ensureAmisStyle() {
    ae-Preview-body 的 16px 内边距会把深色侧栏背景盒右推，而固定定位的
    侧栏菜单仍锚在视口 x=0 —— 菜单左端落在白底上（白字白底不可见） */
 .dsh-editor-shell .ae-Preview-body:has(.cxd-Layout) { padding: 0 !important; }
+/* 预览画布里 app 侧栏菜单项：图标与文字同行（cxd 桌面态行内布局在
+   预览容器内不生效，会退化成图标一行、文字一行） */
+.dsh-editor-shell .ae-Preview-body .cxd-AsideNav-item > a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.dsh-editor-shell .ae-Preview-body .cxd-AsideNav-itemIcon { flex-shrink: 0; margin: 0; }
 .dsh-designer { display: flex; min-height: 0; flex: 1; overflow: hidden; }
 .dsh-designer-tree { width: 260px; min-width: 260px; background: #fff; border-right: 1px solid #e8e8e8; overflow-y: auto; padding: 12px 0; }
 .dsh-designer-tree h3 { font-size: 13px; color: #666; padding: 0 16px; margin: 8px 0 4px; }
@@ -107,7 +117,7 @@ interface ApiResult {
     msg: string;
 }
 
-async function apiRequest(url: string, method: "GET" | "PUT", body?: unknown): Promise<ApiResult> {
+async function apiRequest(url: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown): Promise<ApiResult> {
     const headers: Record<string, string> = {"Accept": "application/json", "Content-Type": "application/json"};
     const csrf = getCsrfToken();
     if (csrf) {
@@ -254,7 +264,8 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                             amisEnv={{
                                 fetcher: (api: unknown, data?: unknown) => {
                                     const apiObject = typeof api === "string" ? {url: api, method: "get"} : (api as {url: string; method?: string});
-                                    return apiRequest(apiObject.url, (apiObject.method ?? "get").toUpperCase() === "POST" ? "PUT" : "GET", data);
+                                    const method = (apiObject.method ?? "get").toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
+                                    return apiRequest(apiObject.url, method, data);
                                 },
                                 notify: (type: string, msg: string) => {
                                     if (msg) {
@@ -264,6 +275,24 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                                 alert: (msg: string) => toast(msg),
                                 copy: (text: string) => {
                                     void navigator.clipboard?.writeText(text).catch(() => undefined);
+                                },
+                                jumpTo: (to: string) => {
+                                    if (/^https?:\/\//.test(to)) {
+                                        window.open(to, "_blank", "noopener");
+                                        return;
+                                    }
+                                    window.location.hash = to.startsWith("/") || to.startsWith("#") ? to : `/${to}`;
+                                },
+                                isCurrentUrl: (to: string) => {
+                                    if (!to) return false;
+                                    const cur = window.location.hash.slice(1);
+                                    const t = to.startsWith("/") || to.startsWith("#") ? to.replace(/^#/, "") : `/${to}`;
+                                    return cur === t || cur.startsWith(`${t}/`);
+                                },
+                                watchRouteChange: (cb: () => void) => {
+                                    const h = () => cb();
+                                    window.addEventListener("hashchange", h);
+                                    return () => window.removeEventListener("hashchange", h);
                                 },
                             }}
                         />

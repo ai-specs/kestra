@@ -9,6 +9,9 @@ import type {Api, Payload} from "amis-core";
 // amis CSS contains an IE media-query hack that breaks the vite lightningcss minifier,
 // so inject it at runtime as a raw string (same trick as AppView.vue).
 import amisCss from "amis/lib/themes/default.css?raw";
+// app 菜单/页面里的 fa 图标依赖 fontawesome；缺它图标整体隐形（白底白字不可见）
+import "@fortawesome/fontawesome-free/css/all.css";
+import "@fortawesome/fontawesome-free/css/v4-shims.css";
 
 const AUTH_FLAG_COOKIE_NAME = "oidcAuthenticated";
 
@@ -37,6 +40,9 @@ function ensureAmisStyle() {
 .cxd-Layout-aside,
 .cxd-Layout-asideInner { height: auto !important; min-height: calc(100vh - 50px); }
 .cxd-Layout-asideInner { overflow-y: auto; }
+/* app 侧栏菜单项：图标与文字同行（fa 图标渲染后需要行内布局，否则堆成两排） */
+.cxd-Layout-aside .cxd-AsideNav-item > a { display: flex; align-items: center; gap: 8px; }
+.cxd-Layout-aside .cxd-AsideNav-itemIcon { flex-shrink: 0; margin: 0; }
 `;
     document.head.appendChild(style);
 }
