@@ -1,16 +1,18 @@
 // dsh Apps visual editor. One source of truth, two embedding surfaces:
 //   - standalone entry (apps-editor.html) at /apps/designer (designer mode) and
 //     /apps/{app}/{page}/edit (single-page edit)
-//   - SPA-inline mount (src/components/dsh/apps/PagesEditor.vue → mountEditor at /ui/main/pages)
+//   - kestra-ui SPA /ui/main/pages → PagesEditor.vue renders an <iframe src=/apps/designer?embedded=1&theme=…>
+//     so the editor runs in its own document: amis css (and any css a user schema can
+//     bring) can never leak into the shell, and dark/light follows the host via postMessage.
 // The editor is decoupled from flow/trigger entirely: every input is a convention path
 // (apps/{app}/{page}.json) read/written through the file endpoints.
 //
-// Styling follows the upstream amis-editor-demo exactly (cxd theme + editor-core style +
-// helper + iconfont + fontawesome + themeConfig). Unlike the demo (a standalone page), the
-// editor can also be mounted inline inside the kestra-ui SPA, where globally-injected
-// stylesheets would leak into every other page (especially in dark theme). So the CSS is
-// loaded as ?raw text and injected into one <style> tag that is (a) removed on unmount and
-// (b) swapped between the amis light/dark themes when the host switches theme.
+// The editor always runs in its own document — the standalone entry page, or the iframe
+// mounted on /ui/main/pages (see PagesEditor.vue). An iframe gives true isolation: amis's
+// theme css carries bare-tag / generic rules (`body`, `a`, `div`, ...) and the editor can
+// render user schema that brings arbitrary css, none of which may leak into the kestra-ui
+// shell. Within its own document those rules are safe, so the amis css is injected
+// verbatim (no selector filtering) — matching the upstream demo rendering exactly.
 // Fonts/images referenced by these stylesheets: iconfont + amis theme images are inline
 // data: URIs (no fetch); fontawesome webfonts and the editor-core nav pngs are copied into
 // ui/public/ (build root) and referenced by absolute /ui/ paths at injection time.
@@ -25,7 +27,6 @@ import {Editor, ShortcutKey} from "amis-editor";
 import {setThemeConfig} from "amis-editor-core";
 import {setDefaultTheme} from "amis";
 import lightThemeConfig from "amis-theme-editor-helper/lib/systemTheme/cxd";
-import darkThemeConfig from "amis-theme-editor-helper/lib/systemTheme/dark";
 import {createRoot} from "react-dom/client";
 import {useEffect, useState} from "react";
 
@@ -82,9 +83,22 @@ async function pollExecution(pollUrl: string): Promise<unknown> {
 // ---- editor styles: injectable, removable, theme-swappable ----
 type EditorTheme = "light" | "dark";
 
-function currentTheme(): EditorTheme {
-    // kestra-ui drives theme by toggling `dark` (and `dark-2`) classes on <html>.
-    return document.documentElement.classList.contains("dark") ? "dark" : "light";
+// The editor document is always our own (standalone entry, or the iframe on /ui/main/pages).
+// Theme resolution order: ?theme= query (set by the SPA iframe host) → localStorage("theme")
+// (kestra-ui persists its switch there) → system color scheme.
+function resolveTheme(): EditorTheme {
+    const q = new URLSearchParams(window.location.search).get("theme");
+    if (q === "dark" || q === "light") {
+        return q;
+    }
+    const stored = localStorage.getItem("theme");
+    if (stored === "dark" || stored === "dark-2") {
+        return "dark";
+    }
+    if (stored === "light") {
+        return "light";
+    }
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 // amis css is injected as raw text; rewrite the few external url() references to the
@@ -97,11 +111,21 @@ function resolveEditorCss(raw: string): string {
 }
 
 const EDITOR_STYLE_ID = "dsh-apps-editor-style";
+// The dsh shell chrome is injected as its own <style> element: amis css is huge and a
+// single unparseable rule anywhere inside it (amis ships IE-hack `@media (min-width: 0\0)`
+// rules that some parsers choke on) could swallow the rules that follow it — the shell
+// rules must never depend on surviving that blob.
+const EDITOR_SHELL_STYLE_ID = "dsh-apps-editor-shell-style";
 
 // dsh-specific editor shell layout (not part of the amis theme; injected last so it wins).
 const DSH_SHELL_CSS = `/* editor shell layout */
-.dsh-editor-root { display: flex; min-height: 0; }
-.dsh-editor-root.is-embedded { height: 100%; }
+html, body { height: 100%; margin: 0; }
+/* standalone entry + /ui/main/pages iframe: the editor owns the whole document, so pin
+   the root to the viewport height (100vh). The legacy SPA-inline mode (.is-embedded) is
+   pinned to its flex host instead. */
+.dsh-editor-root { display: flex; height: 100vh; min-height: 0; overflow: hidden; }
+.dsh-editor-root.is-embedded { height: 100%; min-height: 0; }
+.dsh-editor-root:not(.is-embedded) .dsh-editor-shell { height: 100%; min-height: 0; }
 .dsh-editor-root:not(.is-embedded) .dsh-editor-shell { height: 100vh; }
 .dsh-editor-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
 .dsh-editor-shell .Editor-inner { flex: 1; overflow: hidden; min-height: 0; }
@@ -161,17 +185,42 @@ const DSH_SHELL_CSS = `/* editor shell layout */
 .dsh-tree-warning { margin: 4px 12px; padding: 6px 8px; background: #fff7e6; border: 1px solid #ffd591; border-radius: 4px; color: #d46b08; font-size: 12px; }
 .dsh-designer-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; color: #999; font-size: 14px; min-height: 0; }
 .dsh-editor-root.is-embedded .dsh-designer-placeholder { flex: 1; }
+/* dark theme compatibility: amis/editor-core surfaces follow dark.css :root variables,
+   but the dsh shell chrome (our own classes) needs explicit dark overrides */
+html.dark .dsh-designer-tree { background: #1d1e22; border-right-color: #303136; }
+html.dark .dsh-designer-tree h3 { color: #9aa0aa; }
+html.dark .dsh-tree-node { color: #d5d7dc; }
+html.dark .dsh-tree-node:hover { background: #282a30; }
+html.dark .dsh-tree-node.is-active { background: #12253f; color: #5ab0ff; }
+html.dark .dsh-tree-node .dsh-tree-index { color: #5ab0ff; border-color: #5ab0ff; }
+html.dark .dsh-tree-empty { color: #7a7f88; }
+html.dark .dsh-tree-warning { background: #2b2410; border-color: #6b5412; color: #e8b339; }
+html.dark .Editor-header { background: #1d1e22; border-bottom-color: #303136; }
+html.dark .Editor-title { color: #c9ccd2; }
+html.dark .Editor-view-mode-group { border-color: #3c3f46; }
+html.dark .Editor-view-mode-btn { background: #24262b; color: #b6bac2; }
+html.dark .Editor-view-mode-btn + .Editor-view-mode-btn { border-left-color: #3c3f46; }
+html.dark .Editor-view-mode-btn:hover { background: #2f3238; }
+html.dark .Editor-view-mode-btn.is-active { background: #0057ff; color: #fff; }
+html.dark .header-action-btn { background: #24262b; border-color: #3c3f46; color: #d5d7dc; }
+html.dark .header-action-btn:hover { border-color: #5ab0ff; color: #5ab0ff; }
+html.dark .header-action-btn.primary { background: #0057ff; border-color: #0057ff; color: #fff; }
+html.dark .dsh-designer-placeholder { color: #7a7f88; }
 `;
 
 function buildEditorStyleText(theme: EditorTheme): string {
+    const amisThemeCss = theme === "dark" ? amisDarkCss : amisCxdCss;
+    // Injected verbatim (no filtering): the editor document is our own (standalone page or
+    // iframe), so amis's bare-tag rules can never reach the kestra-ui shell.
     return [
-        resolveEditorCss(theme === "dark" ? amisDarkCss : amisCxdCss),
+        resolveEditorCss(amisThemeCss),
         resolveEditorCss(amisHelperCss),
-        resolveEditorCss(amisIconfontCss),
+        // iconfont (.icon) and fontawesome (.fa) classes — kept whole; their rules only
+        // ever target icon elements.
+        amisIconfontCss,
         resolveEditorCss(editorCoreCss),
         resolveEditorCss(faAllCss),
         resolveEditorCss(faShimsCss),
-        DSH_SHELL_CSS,
     ].join("\n");
 }
 
@@ -183,34 +232,59 @@ function ensureEditorStyle(theme: EditorTheme): void {
         document.head.appendChild(style);
     }
     style.textContent = buildEditorStyleText(theme);
+    let shell = document.getElementById(EDITOR_SHELL_STYLE_ID) as HTMLStyleElement | null;
+    if (!shell) {
+        shell = document.createElement("style");
+        shell.id = EDITOR_SHELL_STYLE_ID;
+        document.head.appendChild(shell);
+    }
+    shell.textContent = DSH_SHELL_CSS;
 }
 
 function removeEditorStyle(): void {
     document.getElementById(EDITOR_STYLE_ID)?.remove();
+    document.getElementById(EDITOR_SHELL_STYLE_ID)?.remove();
 }
 
 function applyEditorTheme(theme: EditorTheme): void {
     ensureEditorStyle(theme);
-    if (theme === "dark") {
-        setDefaultTheme("dark");
-        setThemeConfig(darkThemeConfig);
-    } else {
-        setDefaultTheme("cxd");
-        setThemeConfig(lightThemeConfig);
-    }
+    // The dsh shell css (and any amis rule) keys dark chrome off `html.dark`. The editor
+    // document is ours (standalone entry or the /ui/main/pages iframe), so toggling the
+    // class only ever affects this document — never the kestra-ui shell.
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    // amis-theme-editor-helper ships no dark preset (only cxd/antd/component); dark is
+    // driven by injecting amis/lib/themes/dark.css, whose :root variables also recolor
+    // the editor-core chrome. setThemeConfig stays on the cxd preset for the design
+    // surface (property panels etc.) in both themes.
+    setDefaultTheme(theme === "dark" ? "dark" : "cxd");
+    setThemeConfig(lightThemeConfig);
 }
 
-// Follows the host theme only when embedded in the kestra-ui SPA (html class changes);
-// standalone entries keep the theme they booted with.
+// Theme sync. The editor document is always our own, so there is no host html class to
+// observe; instead:
+//   - the /ui/main/pages iframe host sends {type:"dsh-editor-theme", theme} via postMessage
+//     (initial theme also arrives as ?theme= in the src), and kestra-ui persists switches
+//     to localStorage("theme"), which fires the same-origin `storage` event here;
+//   - the standalone entry just resolves from query/localStorage/system once.
 function useHostTheme(embedded: boolean | undefined): EditorTheme {
-    const [theme, setTheme] = useState<EditorTheme>(currentTheme);
+    const [theme, setTheme] = useState<EditorTheme>(resolveTheme);
     useEffect(() => {
-        if (!embedded) {
-            return;
-        }
-        const mo = new MutationObserver(() => setTheme(currentTheme()));
-        mo.observe(document.documentElement, {attributes: true, attributeFilter: ["class"]});
-        return () => mo.disconnect();
+        const apply = () => setTheme(resolveTheme());
+        const onMessage = (e: MessageEvent) => {
+            if (e.origin !== window.location.origin) {
+                return;
+            }
+            const d = e.data as {type?: string; theme?: string} | null;
+            if (d?.type === "dsh-editor-theme" && (d.theme === "dark" || d.theme === "light")) {
+                setTheme(d.theme);
+            }
+        };
+        window.addEventListener("storage", apply);
+        window.addEventListener("message", onMessage);
+        return () => {
+            window.removeEventListener("storage", apply);
+            window.removeEventListener("message", onMessage);
+        };
     }, [embedded]);
     return theme;
 }
@@ -222,7 +296,12 @@ interface ApiResult {
     msg: string;
 }
 
-async function apiRequest(url: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown): Promise<ApiResult> {
+async function apiRequest(
+    url: string,
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    body?: unknown,
+    contentType?: string,
+): Promise<ApiResult> {
     // 同源请求带 CSRF + credentials（平台会话契约）；跨源请求发"简单请求"
     // （不加自定义头、不带 cookie）——自定义头会触发 CORS 预检，外部数据源
     // （如 amis 官方 mock）不允许 x-csrf-token，预检失败页面数据就加载不出。
@@ -232,19 +311,31 @@ async function apiRequest(url: string, method: "GET" | "POST" | "PUT" | "DELETE"
     } catch {
         sameOrigin = false;
     }
+    // multipart 的 boundary 由浏览器生成，手动设 Content-Type 会破坏表单
+    const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
     const headers: Record<string, string> = {Accept: "application/json"};
     if (sameOrigin) {
-        headers["Content-Type"] = "application/json";
+        if (!isFormData) {
+            headers["Content-Type"] = contentType ?? "application/json";
+        }
         const csrf = getCsrfToken();
         if (csrf) {
             headers["X-CSRF-TOKEN"] = csrf;
+        }
+    }
+    let payload: BodyInit | undefined;
+    if (body !== undefined && body !== null) {
+        if (typeof body === "string" || isFormData) {
+            payload = body as BodyInit;
+        } else if (method !== "GET") {
+            payload = JSON.stringify(body);
         }
     }
     try {
         const resp = await fetch(url, {
             method,
             headers,
-            body: body !== undefined ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
+            body: payload,
             credentials: sameOrigin ? "include" : "omit",
         });
         if (resp.status === 401) {
@@ -271,18 +362,18 @@ function encodePath(p: string): string {
     return p.split("/").map(encodeURIComponent).join("/");
 }
 
-function toast(msg: string) {
+function toast(msg: string, background = "#1677ff") {
     // Minimal inline toast (no amis dependency for the editor shell).
     const el = document.createElement("div");
     el.className = "dsh-toast";
     el.textContent = msg;
     Object.assign(el.style, {
         position: "fixed", top: "16px", left: "50%", transform: "translateX(-50%)",
-        background: "#1677ff", color: "#fff", padding: "8px 16px", borderRadius: "4px",
+        background, color: "#fff", padding: "8px 16px", borderRadius: "4px",
         fontSize: "13px", zIndex: "99999", boxShadow: "0 2px 8px rgba(0,0,0,.15)",
     });
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), 2500);
+    setTimeout(() => el.remove(), 4000);
 }
 
 // ---- single-page editor (also used inside designer mode) ----
@@ -325,6 +416,47 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
         };
     }, [path]);
 
+    // amis App (type:"app") schemas route off window.location.hash; with no hash the
+    // canvas renders amis's NotFound. Seed the landing page url so the canvas shows the
+    // app's default page (the iframe/standalone url never carries a hash on entry).
+    // Pages may be nested in groups (children[]), so the url search must recurse.
+    useEffect(() => {
+        if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+            return;
+        }
+        const s = schema as {type?: string; pages?: Array<{url?: string; isDefault?: boolean; children?: unknown[]}>};
+        if (s.type !== "app" || !Array.isArray(s.pages) || window.location.hash) {
+            return;
+        }
+        const findUrl = (nodes: Array<{url?: string; isDefault?: boolean; children?: unknown[]}>): string | undefined => {
+            const byDefault = (ns: Array<{url?: string; isDefault?: boolean; children?: unknown[]}>): string | undefined => {
+                for (const n of ns) {
+                    if (n.isDefault && n.url) {
+                        return n.url;
+                    }
+                }
+                return undefined;
+            };
+            const first = (ns: Array<{url?: string; isDefault?: boolean; children?: unknown[]}>): string | undefined => {
+                for (const n of ns) {
+                    if (n.url) {
+                        return n.url;
+                    }
+                    const u = n.children ? first(n.children as Array<{url?: string; isDefault?: boolean; children?: unknown[]}>) : undefined;
+                    if (u) {
+                        return u;
+                    }
+                }
+                return undefined;
+            };
+            return byDefault(nodes) ?? first(nodes);
+        };
+        const url = findUrl(s.pages);
+        if (url) {
+            window.location.hash = url;
+        }
+    }, [schema]);
+
     async function save() {
         const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}`, "PUT", schema as object);
         if (r.ok) {
@@ -342,7 +474,7 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
     }
 
     return (
-        <div className={`dsh-editor-root ${embedded ? "is-embedded" : ""}`}>
+        <div className={`dsh-editor-root AMISCSSWrapper ${embedded ? "is-embedded" : ""}`}>
             <div className="dsh-editor-shell">
                 <div className="Editor-Demo">
                     <div className="Editor-header">
@@ -371,7 +503,7 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                             <button className="header-action-btn primary" onClick={save}>
                                 保存
                             </button>
-                            <a className="header-action-btn exit-btn" href={`/apps/${appName}/${page}`}>
+                            <a className="header-action-btn exit-btn" href={`/apps/${appName}/${page}`} target="_top">
                                 预览
                             </a>
                         </div>
@@ -386,12 +518,20 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                             onChange={(v: unknown) => setSchema(v)}
                             onSave={save}
                             amisEnv={{
-                                fetcher: (api: unknown, data?: unknown) => {
-                                    const apiObject = typeof api === "string" ? {url: api, method: "get"} : (api as {url: string; method?: string});
+                                // amis 6.x 的 wrapFetcher 只向 fetcher 传一个参数——buildApi
+                                // 构建后的 api 对象（fn(api)），不存在第二个参数：表单值已合并
+                                // 进 api.data（POST/PUT/PATCH；GET 进 query string），读第二参
+                                // 恒得 undefined → 恒空体提交。dataType=form-data/form/json 时
+                                // data 已被序列化（FormData/字符串），Content-Type 在 api.headers。
+                                fetcher: (api: unknown) => {
+                                    const apiObject = typeof api === "string"
+                                        ? {url: api, method: "get"}
+                                        : (api as {url: string; method?: string; data?: unknown; headers?: Record<string, string>});
                                     const method = (apiObject.method ?? "get").toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
-                                    // amis-editor 预览环境调用 fetcher 时不传表单数据（data=undefined），
-                                    // 空体 POST 会被后端 422 拒绝——兜底为空对象
-                                    return apiRequest(apiObject.url, method, data ?? {}).then(async (resp) => {
+                                    const apiHeaders = apiObject.headers ?? {};
+                                    const contentType = apiHeaders["Content-Type"] ?? apiHeaders["content-type"];
+                                    const body = method === "GET" ? undefined : apiObject.data;
+                                    return apiRequest(apiObject.url, method, body, contentType).then(async (resp) => {
                                         // app api 提交：202 + executionUrl + 非终态 → 自动轮询到终态再返回
                                         if (method === "POST" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(apiObject.url)) {
                                             const payload = resp.data as {executionUrl?: string; executionState?: string} | null;
@@ -410,6 +550,8 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                                 notify: (type: string, msg: string) => {
                                     if (msg) {
                                         console.log(`[amis:${type}] ${msg}`);
+                                        // 失败必须可见：api body status!=0 时 amis 走 notify('error')
+                                        toast(msg, type === "error" ? "#d4380d" : "#1677ff");
                                     }
                                 },
                                 alert: (msg: string) => toast(msg),
@@ -523,7 +665,7 @@ function Designer({embedded}: {embedded?: boolean}) {
     }
 
     return (
-        <div className={`dsh-editor-root ${embedded ? "is-embedded" : ""}`}>
+        <div className={`dsh-editor-root AMISCSSWrapper ${embedded ? "is-embedded" : ""}`}>
             <div className="dsh-designer">
                 <div className="dsh-designer-tree">
                     <h3>App 设计器</h3>
@@ -548,7 +690,9 @@ function Designer({embedded}: {embedded?: boolean}) {
     );
 }
 
-// ---- SPA-inline mount contract (used by PagesEditor.vue) ----
+// ---- legacy SPA-inline mount contract ----
+// Kept for compatibility; the SPA surface (/ui/main/pages) now embeds the editor as an
+// <iframe> instead (true CSS isolation), so PagesEditor.vue no longer calls this.
 export interface MountEditorOptions {
     mode: "designer" | "page";
     appName?: string;
@@ -558,7 +702,7 @@ export interface MountEditorOptions {
 }
 
 export function mountEditor(container: HTMLElement, opts: MountEditorOptions): () => void {
-    applyEditorTheme(currentTheme());
+    applyEditorTheme(resolveTheme());
     const root = createRoot(container);
     if (opts.mode === "designer") {
         root.render(<Designer embedded={opts.embedded} />);
@@ -589,7 +733,7 @@ function boot() {
         redirectToLogin();
         return;
     }
-    applyEditorTheme(currentTheme());
+    applyEditorTheme(resolveTheme());
 
     const root = document.getElementById("app")!;
 

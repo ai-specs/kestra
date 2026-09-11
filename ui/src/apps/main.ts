@@ -28,6 +28,21 @@ function getCsrfToken(): string | null {
     return document.querySelector("meta[name=\"csrf-token\"]")?.getAttribute("content") ?? null;
 }
 
+// amis env.notify 的落地：api 失败（body status!=0，如同步执行 FAILED）时 amis 走
+// notify('error', msg)。只 console.log 会让失败在页面上毫无反馈。
+function showToast(msg: string, kind: "info" | "error"): void {
+    const el = document.createElement("div");
+    el.textContent = msg;
+    Object.assign(el.style, {
+        position: "fixed", top: "16px", left: "50%", transform: "translateX(-50%)",
+        background: kind === "error" ? "#d4380d" : "#1677ff", color: "#fff",
+        padding: "8px 16px", borderRadius: "4px", fontSize: "13px",
+        zIndex: "99999", boxShadow: "0 2px 8px rgba(0,0,0,.15)",
+    } satisfies Partial<CSSStyleDeclaration>);
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+}
+
 function ensureAmisStyle() {
     if (document.getElementById("dsh-apps-amis-style")) return;
     const style = document.createElement("style");
@@ -117,11 +132,17 @@ window.addEventListener("hashchange", () => {
 });
 
 const env: RenderOptions = {
-    fetcher: (api: Api, data?: unknown): Promise<Payload> => {
+    // amis 6.x 的 wrapFetcher 只向 fetcher 传一个参数——buildApi 构建后的 api 对象
+    // （fn(api)），不存在第二个参数：表单值已合并进 api.data（POST/PUT/PATCH；GET 进
+    // query string）。dataType=form-data/form/json 时 data 已被序列化（FormData/字符串），
+    // Content-Type 在 api.headers 里，原样透传。
+    fetcher: (api: Api): Promise<Payload> => {
         const apiObject = typeof api === "string" ? {url: api} : api;
         const url = apiObject.url;
         const method = (apiObject.method ?? "get").toLowerCase();
-        const body = data !== undefined ? data : apiObject.data;
+        const apiHeaders = (apiObject.headers ?? {}) as Record<string, string>;
+        const contentType = apiHeaders["Content-Type"] ?? apiHeaders["content-type"];
+        const isFormData = typeof FormData !== "undefined" && apiObject.data instanceof FormData;
         // 跨源数据源发"简单请求"（无自定义头、不带 cookie）——自定义头触发 CORS
         // 预检，外部 API（如 amis 官方 mock）不允许 x-csrf-token
         let sameOrigin = true;
@@ -132,14 +153,23 @@ const env: RenderOptions = {
         }
         const headers: Record<string, string> = {Accept: "application/json"};
         if (sameOrigin) {
-            headers["Content-Type"] = "application/json";
+            // multipart 的 boundary 由浏览器生成，手动设 Content-Type 会破坏表单
+            if (!isFormData) {
+                headers["Content-Type"] = contentType ?? "application/json";
+            }
             const csrf = getCsrfToken();
             if (csrf) headers["X-CSRF-TOKEN"] = csrf;
+        }
+        let body: BodyInit | undefined;
+        if (method !== "get" && apiObject.data !== undefined && apiObject.data !== null) {
+            body = typeof apiObject.data === "string" || isFormData
+                ? apiObject.data as BodyInit
+                : JSON.stringify(apiObject.data);
         }
         return fetch(url, {
             method,
             headers,
-            body: body !== undefined ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
+            body,
             credentials: sameOrigin ? "include" : "omit",
         }).then(async (resp) => {
             if (resp.status === 401) {
@@ -199,6 +229,7 @@ const env: RenderOptions = {
     notify: (type: string, msg: string) => {
         if (msg) {
             console.log(`[amis:${type}] ${msg}`);
+            showToast(msg, type === "error" ? "error" : "info");
         }
     },
     jumpTo: (to: string) => {
