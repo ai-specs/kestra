@@ -23,8 +23,8 @@ import amisIconfontCss from "amis/sdk/iconfont.css?raw";
 import editorCoreCss from "amis-editor-core/lib/style.css?raw";
 import faAllCss from "@fortawesome/fontawesome-free/css/all.css?raw";
 import faShimsCss from "@fortawesome/fontawesome-free/css/v4-shims.css?raw";
-import {Editor, ShortcutKey} from "amis-editor";
-import {setThemeConfig} from "amis-editor-core";
+import {Editor} from "amis-editor";
+import {ShortcutKey, setThemeConfig} from "amis-editor-core";
 import {setDefaultTheme} from "amis";
 import lightThemeConfig from "amis-theme-editor-helper/lib/systemTheme/cxd";
 import {createRoot} from "react-dom/client";
@@ -159,18 +159,23 @@ html, body { height: 100%; margin: 0; }
 .dsh-designer-main > .Editor-Demo { flex: 1; min-height: 0; }
 .dsh-tree-node { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 16px; font-size: 13px; color: #333; cursor: pointer; }
 .dsh-tree-node:hover { background: #f2f3f7; }
-/* editor header toolbar (demo-style) */
-.Editor-header { position: relative; z-index: 100; display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #fff; border-bottom: 1px solid #e8e8e8; flex-wrap: wrap; }
-.Editor-title { font-size: 13px; color: #444; font-weight: 500; margin-right: auto; }
-.Editor-view-mode-group-container { flex-shrink: 0; }
+/* editor header toolbar (demo-style): title left / view-mode centered / actions right */
+.Editor-header { position: relative; z-index: 100; display: flex; align-items: center; padding: 8px 14px; background: #fff; border-bottom: 1px solid #e8e8e8; flex-wrap: wrap; }
+.Editor-title { flex: 1 1 565px; font-size: 13px; color: #444; font-weight: 500; min-width: 0; }
+.Editor-view-mode-group-container { flex: 0 1 150px; display: flex; justify-content: center; align-items: center; }
 .Editor-view-mode-group { display: inline-flex; justify-content: center; align-items: center; width: 100px; height: 32px; border-radius: 4px; background-color: #f2f2f4; }
 .Editor-view-mode-btn { user-select: none; padding: 0; border: none; background: none; border-radius: 4px; width: 40px; height: 24px; cursor: pointer; display: inline-flex; justify-content: center; align-items: center; color: #888; transition: transform ease-out .2s; }
 .editor-header-icon svg { display: inline-block; width: 16px; height: 16px; }
 .Editor-view-mode-btn:hover { color: #0057ff; }
 .Editor-view-mode-btn.is-active { background: #0057ff; color: #fff; }
 .Editor-view-mode-btn.is-active:hover { background: #5086f5; color: #fff; }
-.Editor-header-actions { position: relative; z-index: 101; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.Editor-header-actions { position: relative; z-index: 101; flex: 1 1 565px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .Editor-header-actions > * { flex-shrink: 0; }
+.shortcut-icon-btn { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #888; }
+.shortcut-icon-btn:hover { color: #0057ff; }
+.shortcut-icon-btn svg { width: 16px; height: 16px; }
+html.dark .shortcut-icon-btn { color: #a0a2a8; }
+html.dark .shortcut-icon-btn:hover { color: #5ab0ff; }
 .header-action-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #d4d6db; border-radius: 4px; background: #fff; padding: 4px 14px; font-size: 13px; color: #333; cursor: pointer; text-decoration: none; line-height: 20px; }
 .header-action-btn:hover { border-color: #0057ff; color: #0057ff; }
 .header-action-btn.primary { background: #0057ff; border-color: #0057ff; color: #fff; }
