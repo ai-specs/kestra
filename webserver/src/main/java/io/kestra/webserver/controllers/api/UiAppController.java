@@ -24,8 +24,9 @@ import jakarta.inject.Inject;
  * {@code /{namespace}/{app}/{page}} (e.g. {@code /dsh.apps/hello/index}). Every such path
  * returns the same rewritten {@code apps.html}; the entry script reads namespace/app/page
  * ids from the URL and renders the amis page against {@code /api/v1/{namespace}}.
- * Legacy {@code /apps/{app}/{page}} URLs still render (the {@code apps} segment maps to
- * the convention root namespace in the front-end parser). The editor shell
+ * The {@code apps} segment is a namespace like any other (a flow declared in a namespace
+ * literally named {@code apps} resolves at {@code /apps/{app}/{page}}); there is no legacy
+ * mapping to the convention root. The editor shell
  * {@code apps-editor.html} is served only for {@code /apps/pages-edit} — the hash carries
  * the editing target ({@code #dsh.apps/apps/{app}/{page}.json}); every other path renders
  * {@code apps.html} (design docs/dsh-apps-amis-editor.md §6.2).
@@ -60,8 +61,8 @@ public class UiAppController {
     public HttpResponse<?> serve(HttpRequest<?> request,
                                  @PathVariable String namespace,
                                  @PathVariable @Nullable String path) {
-        // 只有 /apps/pages-edit 返回编辑器；其余全部渲染 apps.html（designer、/apps/{app}/{page}/edit
-        // 等旧入口不再特殊，统一走普通渲染 —— 前端解析 URL 的 namespace/app/page 段）。
+        // 只有 /apps/pages-edit 返回编辑器（保留入口）；其余全部渲染 apps.html —— 前端按
+        // 字面 namespace 解析 URL 段（apps 不再映射约定根，而是普通 namespace）。
         if ("apps".equals(namespace) && PAGES_EDIT_ENTRY.equals(path)) {
             return renderAppEditor(request);
         }
