@@ -13,9 +13,11 @@ import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 /**
- * Declares an Amis page route for the flow: {@code GET /apps/{appName}/{pageId}}
- * serves the Amis schema referenced by {@code amis} (a {@code nsfile:///} URI in
- * the flow's own namespace).
+ * Declares an Amis page route for the flow: {@code GET /{namespace}/{appName}/{pageId}}
+ * (the namespace is the declaring flow's own namespace, e.g. {@code dsh.apps}) serves
+ * the Amis schema referenced by {@code amis} (a {@code nsfile:///} URI in the flow's
+ * own namespace). The namespace is part of the route key, so two flows in different
+ * namespaces may declare the same appName/pageId without colliding.
  *
  * <p>Routing-only trigger (directly extends {@link AbstractTrigger}): it is never
  * picked up by the scheduler ({@code TriggerType.from} returns null) and must
@@ -30,7 +32,7 @@ import lombok.experimental.SuperBuilder;
 @Plugin(
     examples = {
         @Example(
-            title = "Serve an Amis form page at /apps/hello/form",
+            title = "Serve an Amis form page at /company.team/hello/form",
             full = true,
             code = """
                 id: hello-app
@@ -55,12 +57,12 @@ public class PageTrigger extends AbstractTrigger {
 
     @NotBlank
     @PluginProperty
-    @Schema(title = "App name — first path segment of the route (/apps/{appName}/{pageId}).")
+    @Schema(title = "App name — second path segment of the route (/{namespace}/{appName}/{pageId}).")
     private String appName;
 
     @NotBlank
     @PluginProperty
-    @Schema(title = "Page id — second path segment of the route (/apps/{appName}/{pageId}).")
+    @Schema(title = "Page id — third path segment of the route (/{namespace}/{appName}/{pageId}).")
     private String pageId;
 
     @NotBlank

@@ -1,7 +1,6 @@
 // dsh Apps visual editor. One source of truth, two embedding surfaces:
-//   - standalone entry (apps-editor.html) at /apps/designer (designer mode) and
-//     /apps/{app}/{page}/edit (single-page edit)
-//   - kestra-ui SPA /ui/main/pages → PagesEditor.vue renders an <iframe src=/apps/designer?embedded=1&theme=…>
+//   - standalone entry (apps-editor.html) at /apps/pages-edit#ns/apps/{app}/{page}.json
+//     (full-screen editor; the only editor entry — designer/.../edit legacy URLs removed)
 //     so the editor runs in its own document: amis css (and any css a user schema can
 //     bring) can never leak into the shell, and dark/light follows the host via postMessage.
 // The editor is decoupled from flow/trigger entirely: every input is a convention path
@@ -65,7 +64,8 @@ const TERMINAL_STATES = new Set(["SUCCESS", "FAILED", "KILLED", "WARNING"]);
 function isTrustedPollUrl(u: string): boolean {
     try {
         const url = new URL(u, window.location.origin);
-        return url.origin === window.location.origin && url.pathname.startsWith("/api/v1/apps/");
+        return url.origin === window.location.origin
+            && /^\/api\/v1\/[^/]+\/[^/]+\/[^/]+\/executions\//.test(url.pathname);
     } catch {
         return false;
     }

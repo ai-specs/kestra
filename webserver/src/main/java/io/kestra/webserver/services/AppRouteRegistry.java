@@ -140,7 +140,7 @@ public class AppRouteRegistry {
                     LOG.warn("PageTrigger {} in flow {}/{} misses appName/pageId/amis", trigger.getId(), flow.getNamespace(), flow.getId());
                     continue;
                 }
-                pageRoutes.computeIfAbsent(key(KIND_PAGE, flow.getTenantId(), appName, pageId), k -> new CopyOnWriteArrayList<>())
+                pageRoutes.computeIfAbsent(key(KIND_PAGE, flow.getTenantId(), flow.getNamespace(), appName, pageId), k -> new CopyOnWriteArrayList<>())
                     .add(new PageRoute(flow, trigger, appName, pageId, amis));
             } else if (API_TRIGGER_CLASS.equals(type)) {
                 Map<String, Object> fields = JacksonMapper.ofJson().convertValue(trigger, JacksonMapper.MAP_TYPE_REFERENCE);
@@ -166,7 +166,7 @@ public class AppRouteRegistry {
                 if (responseBody == null || responseBody.isBlank()) {
                     responseBody = "KESTRA";
                 }
-                apiRoutes.computeIfAbsent(key(KIND_API, flow.getTenantId(), appName, apiId), k -> new CopyOnWriteArrayList<>())
+                apiRoutes.computeIfAbsent(key(KIND_API, flow.getTenantId(), flow.getNamespace(), appName, apiId), k -> new CopyOnWriteArrayList<>())
                     .add(new ApiRoute(flow, trigger, appName, apiId, responseMode, timeout, responseBody));
             }
         }
@@ -189,19 +189,20 @@ public class AppRouteRegistry {
             && Objects.equals(flow.getId(), other.getId());
     }
 
-    private static String key(String kind, String tenant, String appName, String id) {
+    private static String key(String kind, String tenant, String namespace, String appName, String id) {
         // OSS stores flows without a tenant (null) while TenantService.resolveTenant() always
         // returns "main" — normalize both sides to the same key or null-tenant flows become
-        // invisible to route lookups.
-        return (tenant == null ? "main" : tenant) + "|" + kind + "|" + appName + "|" + id;
+        // invisible to route lookups. The namespace is part of the key: two namespaces may
+        // declare the same appName/pageId without colliding.
+        return (tenant == null ? "main" : tenant) + "|" + kind + "|" + namespace + "|" + appName + "|" + id;
     }
 
-    public List<PageRoute> pageRoutes(String tenant, String appName, String pageId) {
-        return pageRoutes.getOrDefault(key(KIND_PAGE, tenant, appName, pageId), List.of());
+    public List<PageRoute> pageRoutes(String tenant, String namespace, String appName, String pageId) {
+        return pageRoutes.getOrDefault(key(KIND_PAGE, tenant, namespace, appName, pageId), List.of());
     }
 
-    public List<ApiRoute> apiRoutes(String tenant, String appName, String apiId) {
-        return apiRoutes.getOrDefault(key(KIND_API, tenant, appName, apiId), List.of());
+    public List<ApiRoute> apiRoutes(String tenant, String namespace, String appName, String apiId) {
+        return apiRoutes.getOrDefault(key(KIND_API, tenant, namespace, appName, apiId), List.of());
     }
 
     public record AppSummary(String appName, String namespace, String flowId, List<String> pages,
@@ -215,13 +216,15 @@ public class AppRouteRegistry {
      * yaml; the list page links back to that flow's editor).
      */
     public List<AppSummary> apps(String tenant) {
+        // Key by namespace|appName: the same appName declared in different namespaces is
+        // two distinct apps (the URL carries the namespace), so they must not merge.
         Map<String, AppSummary> byApp = new java.util.TreeMap<>();
         pageRoutes.forEach((key, list) -> {
             if (list.isEmpty()) return;
             PageRoute r = list.get(0);
             if (Objects.equals(tenant, r.flow().getTenantId() == null ? "main" : r.flow().getTenantId())) {
-                byApp.computeIfAbsent(r.appName(),
-                        k -> new AppSummary(k, r.flow().getNamespace(), r.flow().getId(), new ArrayList<>(), new ArrayList<>()))
+                byApp.computeIfAbsent(r.flow().getNamespace() + "|" + r.appName(),
+                        k -> new AppSummary(r.appName(), r.flow().getNamespace(), r.flow().getId(), new ArrayList<>(), new ArrayList<>()))
                     .pages().add(r.pageId());
             }
         });
@@ -229,8 +232,8 @@ public class AppRouteRegistry {
             if (list.isEmpty()) return;
             ApiRoute r = list.get(0);
             if (Objects.equals(tenant, r.flow().getTenantId() == null ? "main" : r.flow().getTenantId())) {
-                byApp.computeIfAbsent(r.appName(),
-                        k -> new AppSummary(k, r.flow().getNamespace(), r.flow().getId(), new ArrayList<>(), new ArrayList<>()))
+                byApp.computeIfAbsent(r.flow().getNamespace() + "|" + r.appName(),
+                        k -> new AppSummary(r.appName(), r.flow().getNamespace(), r.flow().getId(), new ArrayList<>(), new ArrayList<>()))
                     .apis().add(r.apiId());
             }
         });

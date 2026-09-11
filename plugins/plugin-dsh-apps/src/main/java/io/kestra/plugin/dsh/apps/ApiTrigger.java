@@ -17,9 +17,11 @@ import lombok.experimental.SuperBuilder;
 import java.time.Duration;
 
 /**
- * Declares an API route for the flow: {@code POST /apps/{appName}/{apiId}} creates
+ * Declares an API route for the flow: {@code POST /{namespace}/{appName}/{apiId}}
+ * (the namespace is the declaring flow's own namespace, e.g. {@code dsh.apps}) creates
  * an execution of the declaring flow itself, with the request body mapped to the
- * flow's inputs.
+ * flow's inputs. The namespace is part of the route key, so two flows in different
+ * namespaces may declare the same appName/apiId without colliding.
  *
  * <p>Routing-only trigger (directly extends {@link AbstractTrigger}): it is never
  * picked up by the scheduler and must <b>not</b> extend
@@ -35,7 +37,7 @@ import java.time.Duration;
 @Plugin(
     examples = {
         @Example(
-            title = "One flow, several APIs: POST /apps/hello/{apiId} runs the flow with the form inputs; the flow branches on the injected {{ inputs.apiId }}",
+            title = "One flow, several APIs: POST /company.team/hello/{apiId} runs the flow with the form inputs; the flow branches on the injected {{ inputs.apiId }}",
             full = true,
             code = """
                 id: hello-app
@@ -118,12 +120,12 @@ public class ApiTrigger extends AbstractTrigger {
 
     @NotBlank
     @PluginProperty
-    @Schema(title = "App name — first path segment of the route (/apps/{appName}/{apiId}).")
+    @Schema(title = "App name — second path segment of the route (/{namespace}/{appName}/{apiId}).")
     private String appName;
 
     @NotBlank
     @PluginProperty
-    @Schema(title = "Api id — second path segment of the route (/apps/{appName}/{apiId}).")
+    @Schema(title = "Api id — third path segment of the route (/{namespace}/{appName}/{apiId}).")
     private String apiId;
 
     @NotNull

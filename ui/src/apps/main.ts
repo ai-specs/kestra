@@ -1,4 +1,6 @@
-// Standalone dsh Apps entry (served at /apps/{app}/{page}, outside the Kestra /ui/ SPA).
+// Standalone dsh Apps entry (served at /{namespace}/{app}/{page}, e.g. /dsh.apps/hello/index,
+// outside the Kestra /ui/ SPA). Legacy /apps/{app}/{page} URLs still parse — the "apps"
+// segment maps to the convention root namespace (apps.files.root-namespace, default dsh.apps).
 // The page is an independent HTML shell (apps.html) gated only by the OIDC session:
 // the auth-flag cookie check and API 401 both redirect to the IdP login, exactly like the
 // SPA guard (utils/basicAuth.ts). Everything else — schema fetch, amis render, execution
@@ -69,12 +71,14 @@ const TERMINAL_STATES = new Set(["SUCCESS", "FAILED", "KILLED", "WARNING"]);
 
 // The poll URL is taken from the first response (executionUrl), never constructed
 // from an out-of-band rule. Validate it before polling: it must resolve to this
-// origin under /api/v1/apps/ — a malformed or hostile value must not be able to
-// point polling anywhere else.
+// origin under /api/v1/{namespace}/{app}/{apiId}/executions/ (legacy
+// /api/v1/apps/... included — "apps" is a namespace segment) — a malformed or
+// hostile value must not be able to point polling anywhere else.
 function isTrustedPollUrl(u: string): boolean {
     try {
         const url = new URL(u, window.location.origin);
-        return url.origin === window.location.origin && url.pathname.startsWith("/api/v1/apps/");
+        return url.origin === window.location.origin
+            && /^\/api\/v1\/[^/]+\/[^/]+\/[^/]+\/executions\//.test(url.pathname);
     } catch {
         return false;
     }
@@ -265,12 +269,16 @@ const env: RenderOptions = {
 };
 
 async function boot() {
-    const match = window.location.pathname.match(/^\/apps\/([^/]+)\/([^/]+)/);
+    // 新格式 /{namespace}/{app}/{page}（如 /dsh.apps/hello/index）；旧格式 /apps/{app}/{page}
+    // 兼容 —— "apps" 段映射到约定根 namespace（apps.files.root-namespace，默认 dsh.apps）。
+    const match = window.location.pathname.match(/^\/([^/]+)\/([^/]+)(?:\/([^/]+))?/);
     if (!match) {
-        document.getElementById("app")!.innerText = "Invalid app path. Expected /apps/{app}/{page}";
+        document.getElementById("app")!.innerText = "Invalid app path. Expected /{namespace}/{app}/{page}";
         return;
     }
-    const [, appName, pageId] = match;
+    const namespace = match[1] === "apps" ? "dsh.apps" : match[1];
+    const appName = match[2];
+    const pageId = match[3] ?? "index";
     if (!isLoggedIn()) {
         redirectToLogin();
         return;
@@ -278,7 +286,7 @@ async function boot() {
     ensureAmisStyle();
     let schema: unknown;
     try {
-        const resp = await fetch(`/api/v1/apps/${encodeURIComponent(appName)}/${encodeURIComponent(pageId)}`, {
+        const resp = await fetch(`/api/v1/${encodeURIComponent(namespace)}/${encodeURIComponent(appName)}/${encodeURIComponent(pageId)}`, {
             headers: {"Accept": "application/json"},
             credentials: "include",
         });

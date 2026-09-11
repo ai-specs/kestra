@@ -179,7 +179,7 @@
             const editHash = `${ns}/apps/${appName}/${n.name}.json`
             // 首页：约定名 index.json
             if (n.index || n.name === "index") {
-                const base = `/apps/${appName}/index`
+                const base = `/${ns}/${appName}/index`
                 rows.push({
                     key: `${appName}/index`,
                     kind: "page",
@@ -195,7 +195,7 @@
             // 其他页面文件：若命中首页子页面 url → "嵌入首页"，真实地址 = 首页 + hash
             const hit = embeddedFor(appName, n.name)
             if (hit) {
-                const base = `/apps/${appName}/index`
+                const base = `/${ns}/${appName}/index`
                 const hash = hit === "/" ? "#/" : `#${hit.startsWith("/") ? hit : `/${hit}`}`
                 rows.push({
                     key: `${appName}/p:${n.name}`,
@@ -209,7 +209,7 @@
                 })
                 continue
             }
-            const base = `/apps/${appName}/${n.name}`
+            const base = `/${ns}/${appName}/${n.name}`
             rows.push({
                 key: `${appName}/p:${n.name}`,
                 kind: "page",

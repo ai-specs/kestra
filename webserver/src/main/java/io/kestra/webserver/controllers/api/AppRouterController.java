@@ -9,6 +9,7 @@ import io.kestra.core.storages.NamespaceFactory;
 import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.tenant.TenantService;
 import io.kestra.core.models.triggers.AbstractTrigger;
+import io.kestra.webserver.configuration.AppsFilesConfiguration;
 import io.kestra.webserver.services.AppRouteRegistry;
 import io.kestra.webserver.services.AppsService;
 import io.micronaut.core.annotation.Nullable;
@@ -48,17 +49,23 @@ import java.util.Optional;
  * dsh Apps HTTP routes (design docs/dsh-apps-amis.md §3/§5.7):
  *
  * <ul>
- *   <li>{@code GET  /api/v1/apps/{appName}/{pageId}} — serve the Amis schema declared by a PageTrigger.</li>
- *   <li>{@code POST /api/v1/apps/{appName}/{apiId}} — create an execution of the declaring flow from the request body.</li>
- *   <li>{@code GET  /api/v1/apps/{appName}/{apiId}/executions/{executionId}} — poll the execution state/outputs.</li>
+ *   <li>{@code GET  /api/v1/{namespace}/{appName}/{pageId}} — serve the Amis schema declared by a PageTrigger.</li>
+ *   <li>{@code POST /api/v1/{namespace}/{appName}/{apiId}} — create an execution of the declaring flow from the request body.</li>
+ *   <li>{@code GET  /api/v1/{namespace}/{appName}/{apiId}/executions/{executionId}} — poll the execution state/outputs.</li>
  * </ul>
+ *
+ * <p>The first segment is the flow's namespace (e.g. {@code dsh.apps}): the route index is
+ * keyed by namespace, so two flows in different namespaces may declare the same
+ * appName/pageId without colliding. Legacy {@code /api/v1/apps/{appName}/{...}} URLs are
+ * still accepted — the {@code apps} segment maps to the convention root namespace
+ * ({@code apps.files.root-namespace}, default {@code dsh.apps}).
  *
  * <p>Authentication is the default /api/v1 one (OIDC session or Bearer, enforced by the
  * platform filters — no {@code @AnonymousAccess} anywhere), and POSTs additionally require
  * the platform CSRF token, exactly like the rest of the UI API. Route resolution is served
  * by {@link AppRouteRegistry}; an ambiguous key (declared by several flows) is a 409.
  */
-@Controller("/api/v1/apps")
+@Controller("/api/v1")
 @Singleton
 @ExecuteOn(TaskExecutors.IO)
 @Slf4j
@@ -82,11 +89,14 @@ public class AppRouterController {
     @Inject
     private TaskOutputService taskOutputService;
 
+    @Inject
+    private AppsFilesConfiguration appsFiles;
+
     /**
      * GET /api/v1/apps — aggregate list of every app (name, namespace, pages, apis)
      * visible to the current tenant, for the "应用程序" list page.
      */
-    @Get(uri = "/")
+    @Get(uri = "/apps")
     @Operation(summary = "List all dsh apps")
     public HttpResponse<List<AppRouteRegistry.AppSummary>> apps() {
         String tenant = tenantService.resolveTenant();
@@ -94,17 +104,27 @@ public class AppRouterController {
     }
 
     /**
-     * GET /api/v1/apps/{appName}/{pageId} — resolve the PageTrigger and return its Amis schema.
+     * Legacy {@code /api/v1/apps/{appName}/{...}} URLs map to the convention root
+     * namespace so old links and bookmarks keep working.
      */
-    @Get(uri = "/{appName}/{pageId}")
+    private String resolveNamespace(String namespace) {
+        return "apps".equals(namespace) ? appsFiles.getRootNamespace() : namespace;
+    }
+
+    /**
+     * GET /api/v1/{namespace}/{appName}/{pageId} — resolve the PageTrigger and return its Amis schema.
+     */
+    @Get(uri = "/{namespace}/{appName}/{pageId}")
     @Operation(summary = "Resolve an app page route and return its Amis schema")
     public HttpResponse<?> page(
+        @PathVariable String namespace,
         @PathVariable String appName,
         @PathVariable String pageId
     ) {
         String tenant = tenantService.resolveTenant();
-        List<AppRouteRegistry.PageRoute> routes = routeRegistry.pageRoutes(tenant, appName, pageId);
-        AppRouteRegistry.PageRoute route = resolveUnique(routes, "page", appName + "/" + pageId);
+        String resolvedNs = resolveNamespace(namespace);
+        List<AppRouteRegistry.PageRoute> routes = routeRegistry.pageRoutes(tenant, resolvedNs, appName, pageId);
+        AppRouteRegistry.PageRoute route = resolveUnique(routes, "page", resolvedNs + "/" + appName + "/" + pageId);
         Flow flow = executableFlow(route.flow());
         executableTrigger(route.trigger());
 
@@ -134,20 +154,22 @@ public class AppRouterController {
     }
 
     /**
-     * POST /api/v1/apps/{appName}/{apiId} — create an execution of the declaring flow.
+     * POST /api/v1/{namespace}/{appName}/{apiId} — create an execution of the declaring flow.
      */
-    @Post(uri = "/{appName}/{apiId}", consumes = MediaType.APPLICATION_JSON)
+    @Post(uri = "/{namespace}/{appName}/{apiId}", consumes = MediaType.APPLICATION_JSON)
     @Operation(summary = "Create an execution for an app api route")
     @ApiResponse(responseCode = "202", description = "Execution created (ASYNC, or SYNC degraded to polling)")
     @ApiResponse(responseCode = "200", description = "Execution finished (SYNC)", content = @Content(schema = @Schema(implementation = Map.class)))
     public HttpResponse<?> api(
+        @PathVariable String namespace,
         @PathVariable String appName,
         @PathVariable String apiId,
         @Body @Nullable Map<String, Object> body
     ) {
         String tenant = tenantService.resolveTenant();
-        List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, appName, apiId);
-        AppRouteRegistry.ApiRoute route = resolveUnique(routes, "api", appName + "/" + apiId);
+        String resolvedNs = resolveNamespace(namespace);
+        List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, resolvedNs, appName, apiId);
+        AppRouteRegistry.ApiRoute route = resolveUnique(routes, "api", resolvedNs + "/" + appName + "/" + apiId);
         Flow flow = executableFlow(route.flow());
         // Disabled is checked at route-activation time only: the polling endpoint below
         // keeps serving in-flight executions when a trigger is disabled mid-run, matching
@@ -183,18 +205,18 @@ public class AppRouterController {
             // header (same value) so the client knows WHERE to poll from the response
             // itself (self-describing; no out-of-band URL construction rule).
             return HttpResponse.status(HttpStatus.ACCEPTED)
-                .header("Location", executionUrl(appName, apiId, execution.getId()))
+                .header("Location", executionUrl(resolvedNs, appName, apiId, execution.getId()))
                 .body(stateBody(execution, null, null, route.responseBody(), null, appName, apiId,
-                    executionUrl(appName, apiId, execution.getId())));
+                    executionUrl(resolvedNs, appName, apiId, execution.getId())));
         }
 
         // SYNC: wait for a terminal state (or PAUSED), bounded by the trigger's timeout; degrade to 202 on timeout.
         State.Type terminal = awaitTerminal(execution, flow, timeout);
         if (terminal == null || terminal == State.Type.PAUSED) {
             return HttpResponse.status(HttpStatus.ACCEPTED)
-                .header("Location", executionUrl(appName, apiId, execution.getId()))
+                .header("Location", executionUrl(resolvedNs, appName, apiId, execution.getId()))
                 .body(stateBody(execution, null, null, route.responseBody(), terminal, appName, apiId,
-                    executionUrl(appName, apiId, execution.getId())));
+                    executionUrl(resolvedNs, appName, apiId, execution.getId())));
         }
 
         Map<String, Object> outputs = null;
@@ -213,7 +235,7 @@ public class AppRouterController {
             error = "Execution ended with state " + terminal;
         }
         return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), terminal, appName, apiId,
-            executionUrl(appName, apiId, execution.getId())));
+            executionUrl(resolvedNs, appName, apiId, execution.getId())));
     }
 
     /**
@@ -297,18 +319,20 @@ public class AppRouterController {
     }
 
     /**
-     * GET /api/v1/apps/{appName}/{apiId}/executions/{executionId} — poll state/outputs, scoped to the matched flow.
+     * GET /api/v1/{namespace}/{appName}/{apiId}/executions/{executionId} — poll state/outputs, scoped to the matched flow.
      */
-    @Get(uri = "/{appName}/{apiId}/executions/{executionId}")
+    @Get(uri = "/{namespace}/{appName}/{apiId}/executions/{executionId}")
     @Operation(summary = "Poll an app api execution state and outputs")
     public HttpResponse<?> status(
+        @PathVariable String namespace,
         @PathVariable String appName,
         @PathVariable String apiId,
         @PathVariable String executionId
     ) {
         String tenant = tenantService.resolveTenant();
-        List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, appName, apiId);
-        AppRouteRegistry.ApiRoute route = resolveUnique(routes, "api", appName + "/" + apiId);
+        String resolvedNs = resolveNamespace(namespace);
+        List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, resolvedNs, appName, apiId);
+        AppRouteRegistry.ApiRoute route = resolveUnique(routes, "api", resolvedNs + "/" + appName + "/" + apiId);
         Flow flow = executableFlow(route.flow());
 
         Optional<Execution> maybe = appsService.findScopedExecution(tenant, flow.getNamespace(), flow.getId(), executionId);
@@ -439,7 +463,7 @@ public class AppRouterController {
         return body;
     }
 
-    private static String executionUrl(String appName, String apiId, String executionId) {
-        return "/api/v1/apps/" + appName + "/" + apiId + "/executions/" + executionId;
+    private static String executionUrl(String namespace, String appName, String apiId, String executionId) {
+        return "/api/v1/" + namespace + "/" + appName + "/" + apiId + "/executions/" + executionId;
     }
 }

@@ -54,10 +54,10 @@
                         >
                             <a
                                 class="dsh-app-list__url"
-                                :href="`/apps/${encodeURIComponent(scope.row.appName)}/${encodeURIComponent(p)}`"
+                                :href="`/${encodeURIComponent(scope.row.namespace)}/${encodeURIComponent(scope.row.appName)}/${encodeURIComponent(p)}`"
                                 target="_blank"
                                 rel="noopener"
-                            >/apps/{{ scope.row.appName }}/{{ p }}</a>
+                            >{{ scope.row.namespace }}/{{ scope.row.appName }}/{{ p }}</a>
                             <!-- dsh fork: 单元格内「设计」直达全屏编辑器（hash 携带 namespace + 文件路径，
                                  任意存在的 json 文件都可编辑；约定外页面 404 报错不建空页） -->
                             <a
