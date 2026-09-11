@@ -3,43 +3,52 @@
         dsh fork: /ui/main/pages —— 页面管理（kestra-ui 外壳内）。
         布局：
           左侧 = kestra-ui 外壳直接渲染的"应用 → 一级菜单 → 子菜单"树（不在 iframe 内），
-          右侧 = 选中页面的真实预览（iframe 加载 /apps/{app}/{page} 渲染页）。
+          右侧 = 选中页面的真实预览（iframe 加载渲染页）。
+        树规则：
+          · app 型首页（index.json, type:"app"）会展开其内嵌子页面（pages 递归）作为
+            子菜单，子页面的真实地址是首页 + hash（/apps/{app}/index#/{url}），
+            不是独立渲染页；
+          · 磁盘上与该子页面 url 同名的独立文件（如 schema.json ↔ url="/schema"）
+            视为被首页子页面吸收，不重复显示；
+          · 其余独立页面保持独立渲染地址 /apps/{app}/{page}。
         每个页面行右侧的编辑图标 → 当前窗体整页跳转全屏 amis-editor
-        （/apps/{app}/{page}/edit，无 kestra-ui 外壳），编辑器最右侧的"退出"返回本页。
+        （子页面/首页编辑的是 index.json：/apps/{app}/index/edit），编辑器最右侧"退出"返回本页。
     -->
     <div class="dsh-pages">
         <aside class="dsh-pages-tree">
             <h3>应用</h3>
             <div v-if="error" class="dsh-tree-warning">加载失败：{{ error }}</div>
-            <div v-else-if="apps.length === 0" class="dsh-tree-empty">
+            <div v-else-if="rows.length === 0" class="dsh-tree-empty">
                 约定目录 apps/ 下暂无页面。<br/>
                 在 AppList 页进入某页面的「设计」入口后首次保存会自动创建文件。
             </div>
-            <template v-for="app in apps" :key="app.appName">
-                <div class="dsh-tree-node is-app">📁 {{ app.appName }}</div>
-                <div v-if="app.warning" class="dsh-tree-warning">{{ app.warning }}</div>
+            <template v-for="row in rows" :key="row.key">
                 <div
-                    v-for="p in flatten(app.pages, app.appName)"
-                    :key="`${app.appName}/${p.name}`"
+                    v-if="row.kind === 'app'"
+                    class="dsh-tree-node is-app"
+                >📁 {{ row.appName }}</div>
+                <div v-else-if="row.kind === 'warning'" class="dsh-tree-warning">{{ row.text }}</div>
+                <div
+                    v-else
                     class="dsh-tree-row"
-                    :class="{ 'is-group': p.kind === 'group', 'is-page': p.kind === 'page' }"
-                    :style="{ paddingLeft: (8 + p.depth * 20) + 'px' }"
+                    :class="{ 'is-group': row.kind === 'group', 'is-page': row.kind !== 'group' }"
+                    :style="{ paddingLeft: (8 + row.depth * 20) + 'px' }"
                 >
                     <button
-                        v-if="p.kind === 'page'"
+                        v-if="row.kind !== 'group'"
                         class="dsh-tree-node is-page"
-                        :class="{ 'is-active': selected && selected.appName === app.appName && selected.name === p.name }"
-                        @click="select(app.appName, p.name)"
+                        :class="{ 'is-active': selected && selected.key === row.key }"
+                        @click="select(row)"
                     >
-                        {{ p.name }}
-                        <span v-if="p.index" class="dsh-tree-index">首页</span>
+                        {{ row.label }}
+                        <span v-if="row.isIndex" class="dsh-tree-index">首页</span>
                     </button>
-                    <div v-else class="dsh-tree-node is-group">{{ p.name }}/</div>
+                    <div v-else class="dsh-tree-node is-group">{{ row.label }}/</div>
                     <a
-                        v-if="p.kind === 'page'"
+                        v-if="row.kind !== 'group'"
                         class="dsh-page-edit"
-                        :href="`/apps/${app.appName}/${p.name}/edit`"
-                        :title="`编辑 ${p.name}`"
+                        :href="row.editUrl"
+                        :title="`编辑 ${row.label}`"
                     >
                         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
                             <path fill="currentColor" d="M20.71,4.04C21.1,3.65 21.1,3 20.71,2.63L18.37,0.29C18,-0.1 17.35,-0.1 16.96,0.29L15,2.25L18.75,6L20.71,4.04M14.25,4.5L3,15.75V19.5H6.75L18,8.25L14.25,4.5Z"/>
@@ -78,48 +87,172 @@
         pages: TreeNode[]
     }
 
-    interface FlatNode {
+    interface SubPage {
+        label: string
+        url: string
+    }
+
+    interface Row {
+        key: string
+        kind: "app" | "warning" | "group" | "index" | "sub" | "page"
         appName: string
-        name: string
-        kind: "page" | "group"
+        label: string
         depth: number
-        index?: boolean
+        isIndex?: boolean
+        text?: string
+        /** 预览 iframe 地址 */
+        previewUrl?: string
+        /** 全屏编辑器地址 */
+        editUrl?: string
     }
 
     const apps = ref<AppNode[]>([])
     const error = ref<string | null>(null)
-    const selected = ref<{appName: string; name: string} | null>(null)
+    // appName -> 首页（app 型）解析出的子页面（url 为 hash 路径，如 "/submit"）
+    const subPages = ref<Record<string, SubPage[]>>({})
+    // 已被首页子页面吸收的文件名集合：如 schema.json ↔ url="/schema" → "hello/schema"
+    const absorbed = ref<Set<string>>(new Set())
+    const selected = ref<Row | null>(null)
 
     const preview = computed(() => {
-        if (!selected.value) {
+        if (!selected.value?.previewUrl) {
             return null
         }
-        const {appName, name} = selected.value
+        const row = selected.value
         return {
-            path: `apps/${appName}/${name}`,
-            url: `/apps/${appName}/${name}`,
-            label: `${appName}/${name}`,
+            path: `${row.appName}/${row.key}`,
+            url: row.previewUrl,
+            label: row.label,
         }
     })
 
-    function flatten(nodes: TreeNode[] | undefined, appName: string, depth = 1): FlatNode[] {
-        const out: FlatNode[] = []
+    function walkSubPages(nodes: unknown[] | undefined, out: SubPage[]): void {
         if (!nodes) {
-            return out
+            return
         }
         for (const n of nodes) {
-            if (n.kind === "page") {
-                out.push({appName, name: n.name, kind: "page", depth, index: n.index})
-            } else {
-                out.push({appName, name: n.name, kind: "group", depth})
-                out.push(...flatten(n.children, appName, depth + 1))
+            const node = n as {label?: string; url?: string; children?: unknown[]}
+            if (node.url) {
+                out.push({label: node.label ?? node.url, url: node.url})
+            }
+            if (node.children) {
+                walkSubPages(node.children, out)
             }
         }
-        return out
     }
 
-    function select(appName: string, name: string) {
-        selected.value = {appName, name}
+    function loadIndexSubPages(appName: string): Promise<void> {
+        return fetch(`/api/v1/apps/files?path=${encodeURIComponent(`apps/${appName}/index.json`)}`, {
+            headers: {"Accept": "application/json"},
+            credentials: "include",
+        })
+            .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+            .then((schema: unknown) => {
+                const s = schema as {type?: string; pages?: unknown[]} | null
+                if (s?.type !== "app" || !Array.isArray(s.pages)) {
+                    return
+                }
+                const out: SubPage[] = []
+                walkSubPages(s.pages, out)
+                subPages.value[appName] = out
+                for (const p of out) {
+                    // "/schema" ↔ 文件 schema.json
+                    const fileName = p.url.replace(/^\/+/, "")
+                    if (fileName) {
+                        absorbed.value.add(`${appName}/${fileName}`)
+                    }
+                }
+            })
+            .catch(() => {
+                // 首页非 app 型或读取失败：按普通文件树展示
+            })
+    }
+
+    function buildRows(): Row[] {
+        const rows: Row[] = []
+        for (const app of apps.value) {
+            rows.push({key: `app:${app.appName}`, kind: "app", appName: app.appName, label: app.appName, depth: 0})
+            if (app.warning) {
+                rows.push({key: `warn:${app.appName}`, kind: "warning", appName: app.appName, label: "", depth: 1, text: app.warning})
+            }
+            const subs = subPages.value[app.appName] ?? []
+            let renderedIndex = false
+            for (const node of app.pages ?? []) {
+                if (node.kind === "group") {
+                    rows.push({key: `${app.appName}/g:${node.name}`, kind: "group", appName: app.appName, label: node.name, depth: 1})
+                    pushFilePages(rows, app.appName, node.children ?? [], 2)
+                    continue
+                }
+                // 首页：展开其子页面（如有）
+                if (node.index || node.name === "index") {
+                    renderedIndex = true
+                    const base = `/apps/${app.appName}/index`
+                    rows.push({
+                        key: `${app.appName}/index`,
+                        kind: "index",
+                        appName: app.appName,
+                        label: "index",
+                        depth: 1,
+                        isIndex: true,
+                        previewUrl: base,
+                        editUrl: `${base}/edit`,
+                    })
+                    for (const sub of subs) {
+                        const hash = sub.url === "/" ? "#/" : `#${sub.url.startsWith("/") ? sub.url : `/${sub.url}`}`
+                        rows.push({
+                            key: `${app.appName}/sub:${sub.url}`,
+                            kind: "sub",
+                            appName: app.appName,
+                            label: sub.label,
+                            depth: 2,
+                            previewUrl: base + hash,
+                            editUrl: `${base}/edit`,
+                        })
+                    }
+                    continue
+                }
+                // 独立页面：已被首页子页面吸收的不再显示
+                if (absorbed.value.has(`${app.appName}/${node.name}`)) {
+                    continue
+                }
+                pushFilePages(rows, app.appName, [node], 1)
+            }
+            // 首页不存在但树里有子页面？（防御：不渲染）
+            void renderedIndex
+        }
+        return rows
+    }
+
+    function pushFilePages(rows: Row[], appName: string, nodes: TreeNode[], depth: number): void {
+        for (const n of nodes) {
+            if (absorbed.value.has(`${appName}/${n.name}`)) {
+                continue
+            }
+            if (n.kind === "group") {
+                rows.push({key: `${appName}/g:${n.name}`, kind: "group", appName, label: n.name, depth})
+                pushFilePages(rows, appName, n.children ?? [], depth + 1)
+            } else {
+                const base = `/apps/${appName}/${n.name}`
+                rows.push({
+                    key: `${appName}/p:${n.name}`,
+                    kind: "page",
+                    appName,
+                    label: n.name,
+                    depth,
+                    previewUrl: base,
+                    editUrl: `${base}/edit`,
+                })
+            }
+        }
+    }
+
+    const rows = computed<Row[]>(buildRows)
+
+    function select(row: Row) {
+        if (row.kind === "group" || row.kind === "app" || row.kind === "warning") {
+            return
+        }
+        selected.value = row
     }
 
     onMounted(async () => {
@@ -136,13 +269,12 @@
                 throw new Error(`HTTP ${resp.status}`)
             }
             apps.value = (await resp.json()) as AppNode[]
-            // 默认选中第一个 app 的第一个页面
-            const firstApp = apps.value[0]
-            if (firstApp) {
-                const first = flatten(firstApp.pages, firstApp.appName).find(p => p.kind === "page")
-                if (first) {
-                    selected.value = {appName: first.appName, name: first.name}
-                }
+            // 解析每个 app 的首页子页面（并行）
+            await Promise.all(apps.value.map(a => loadIndexSubPages(a.appName)))
+            // 默认选中第一个可预览行
+            const first = rows.value.find(r => r.kind === "index" || r.kind === "sub" || r.kind === "page")
+            if (first) {
+                select(first)
             }
         } catch (e) {
             error.value = (e as Error).message ?? "加载失败"
