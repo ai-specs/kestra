@@ -5,28 +5,29 @@
 // The editor is decoupled from flow/trigger entirely: every input is a convention path
 // (apps/{app}/{page}.json) read/written through the file endpoints.
 //
-// Styling follows the upstream amis-editor-demo exactly:
-//   amis/lib/themes/cxd.css + amis/lib/helper.css + amis/sdk/iconfont.css +
-//   amis-editor-core/lib/style.css + fontawesome + themeConfig(cxd) via
-//   setDefaultTheme/setThemeConfig. Plain CSS imports (not ?raw) let Vite bundle the font
-//   files (iconfont woff2, fontawesome webfonts) referenced by these stylesheets and emit
-//   <link> tags — ?raw injection breaks those url() references at runtime (missing icons
-//   were exactly the "CSS not loaded" symptom).
-import "amis/lib/themes/cxd.css";
-import "amis/lib/helper.css";
-import "amis/sdk/iconfont.css";
-import "amis-editor-core/lib/style.css";
-import "@fortawesome/fontawesome-free/css/all.css";
-import "@fortawesome/fontawesome-free/css/v4-shims.css";
+// Styling follows the upstream amis-editor-demo exactly (cxd theme + editor-core style +
+// helper + iconfont + fontawesome + themeConfig). Unlike the demo (a standalone page), the
+// editor can also be mounted inline inside the kestra-ui SPA, where globally-injected
+// stylesheets would leak into every other page (especially in dark theme). So the CSS is
+// loaded as ?raw text and injected into one <style> tag that is (a) removed on unmount and
+// (b) swapped between the amis light/dark themes when the host switches theme.
+// Fonts/images referenced by these stylesheets: iconfont + amis theme images are inline
+// data: URIs (no fetch); fontawesome webfonts and the editor-core nav pngs are copied into
+// ui/public/ (build root) and referenced by absolute /ui/ paths at injection time.
+import amisCxdCss from "amis/lib/themes/cxd.css?raw";
+import amisDarkCss from "amis/lib/themes/dark.css?raw";
+import amisHelperCss from "amis/lib/helper.css?raw";
+import amisIconfontCss from "amis/sdk/iconfont.css?raw";
+import editorCoreCss from "amis-editor-core/lib/style.css?raw";
+import faAllCss from "@fortawesome/fontawesome-free/css/all.css?raw";
+import faShimsCss from "@fortawesome/fontawesome-free/css/v4-shims.css?raw";
 import {Editor, ShortcutKey} from "amis-editor";
 import {setThemeConfig} from "amis-editor-core";
 import {setDefaultTheme} from "amis";
-import themeConfig from "amis-theme-editor-helper/lib/systemTheme/cxd";
+import lightThemeConfig from "amis-theme-editor-helper/lib/systemTheme/cxd";
+import darkThemeConfig from "amis-theme-editor-helper/lib/systemTheme/dark";
 import {createRoot} from "react-dom/client";
 import {useEffect, useState} from "react";
-
-setDefaultTheme("cxd");
-setThemeConfig(themeConfig);
 
 const AUTH_FLAG_COOKIE_NAME = "oidcAuthenticated";
 
@@ -78,18 +79,27 @@ async function pollExecution(pollUrl: string): Promise<unknown> {
     }
 }
 
+// ---- editor styles: injectable, removable, theme-swappable ----
+type EditorTheme = "light" | "dark";
+
+function currentTheme(): EditorTheme {
+    // kestra-ui drives theme by toggling `dark` (and `dark-2`) classes on <html>.
+    return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
+
+// amis css is injected as raw text; rewrite the few external url() references to the
+// build-root copies in ui/public/ (served under /ui/). iconfont fonts and amis theme
+// images are inline data: URIs, so they need no rewriting.
+function resolveEditorCss(raw: string): string {
+    return raw
+        .replaceAll("url(\"../webfonts/", "url(\"/ui/fa-webfonts/")
+        .replaceAll("url(\"../static/", "url(\"/ui/amis-editor-static/");
+}
+
 const EDITOR_STYLE_ID = "dsh-apps-editor-style";
 
-// Amis/fontawesome stylesheets are regular Vite CSS imports above (auto-emitted as <link>
-// in both the standalone and the SPA-inline bundle). This function only injects the small
-// dsh-specific editor shell layout, and is guarded against double injection.
-function ensureAmisStyle() {
-    if (document.getElementById(EDITOR_STYLE_ID)) {
-        return;
-    }
-    const style = document.createElement("style");
-    style.id = EDITOR_STYLE_ID;
-    style.textContent = `/* editor shell layout */
+// dsh-specific editor shell layout (not part of the amis theme; injected last so it wins).
+const DSH_SHELL_CSS = `/* editor shell layout */
 .dsh-editor-root { display: flex; min-height: 0; }
 .dsh-editor-root.is-embedded { height: 100%; }
 .dsh-editor-root:not(.is-embedded) .dsh-editor-shell { height: 100vh; }
@@ -152,7 +162,57 @@ function ensureAmisStyle() {
 .dsh-designer-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; color: #999; font-size: 14px; min-height: 0; }
 .dsh-editor-root.is-embedded .dsh-designer-placeholder { flex: 1; }
 `;
-    document.head.appendChild(style);
+
+function buildEditorStyleText(theme: EditorTheme): string {
+    return [
+        resolveEditorCss(theme === "dark" ? amisDarkCss : amisCxdCss),
+        resolveEditorCss(amisHelperCss),
+        resolveEditorCss(amisIconfontCss),
+        resolveEditorCss(editorCoreCss),
+        resolveEditorCss(faAllCss),
+        resolveEditorCss(faShimsCss),
+        DSH_SHELL_CSS,
+    ].join("\n");
+}
+
+function ensureEditorStyle(theme: EditorTheme): void {
+    let style = document.getElementById(EDITOR_STYLE_ID) as HTMLStyleElement | null;
+    if (!style) {
+        style = document.createElement("style");
+        style.id = EDITOR_STYLE_ID;
+        document.head.appendChild(style);
+    }
+    style.textContent = buildEditorStyleText(theme);
+}
+
+function removeEditorStyle(): void {
+    document.getElementById(EDITOR_STYLE_ID)?.remove();
+}
+
+function applyEditorTheme(theme: EditorTheme): void {
+    ensureEditorStyle(theme);
+    if (theme === "dark") {
+        setDefaultTheme("dark");
+        setThemeConfig(darkThemeConfig);
+    } else {
+        setDefaultTheme("cxd");
+        setThemeConfig(lightThemeConfig);
+    }
+}
+
+// Follows the host theme only when embedded in the kestra-ui SPA (html class changes);
+// standalone entries keep the theme they booted with.
+function useHostTheme(embedded: boolean | undefined): EditorTheme {
+    const [theme, setTheme] = useState<EditorTheme>(currentTheme);
+    useEffect(() => {
+        if (!embedded) {
+            return;
+        }
+        const mo = new MutationObserver(() => setTheme(currentTheme()));
+        mo.observe(document.documentElement, {attributes: true, attributeFilter: ["class"]});
+        return () => mo.disconnect();
+    }, [embedded]);
+    return theme;
 }
 
 interface ApiResult {
@@ -233,7 +293,13 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
     // 编辑入口默认编辑模式（组件库 + 属性面板）；预览经头部按钮切换
     const [preview, setPreview] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+    const theme = useHostTheme(embedded);
     const path = filePath(appName, page);
+
+    // keep the injected amis stylesheet + amis runtime theme in sync with the host theme
+    useEffect(() => {
+        applyEditorTheme(theme);
+    }, [theme]);
 
     useEffect(() => {
         let cancelled = false;
@@ -312,7 +378,8 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                     </div>
                     <div className="Editor-inner">
                         <Editor
-                            theme="cxd"
+                            key={theme}
+                            theme={theme === "dark" ? "dark" : "cxd"}
                             preview={preview}
                             isMobile={isMobile}
                             value={schema}
@@ -322,7 +389,9 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                                 fetcher: (api: unknown, data?: unknown) => {
                                     const apiObject = typeof api === "string" ? {url: api, method: "get"} : (api as {url: string; method?: string});
                                     const method = (apiObject.method ?? "get").toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
-                                    return apiRequest(apiObject.url, method, data).then(async (resp) => {
+                                    // amis-editor 预览环境调用 fetcher 时不传表单数据（data=undefined），
+                                    // 空体 POST 会被后端 422 拒绝——兜底为空对象
+                                    return apiRequest(apiObject.url, method, data ?? {}).then(async (resp) => {
                                         // app api 提交：202 + executionUrl + 非终态 → 自动轮询到终态再返回
                                         if (method === "POST" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(apiObject.url)) {
                                             const payload = resp.data as {executionUrl?: string; executionState?: string} | null;
@@ -489,14 +558,18 @@ export interface MountEditorOptions {
 }
 
 export function mountEditor(container: HTMLElement, opts: MountEditorOptions): () => void {
-    ensureAmisStyle();
+    applyEditorTheme(currentTheme());
     const root = createRoot(container);
     if (opts.mode === "designer") {
         root.render(<Designer embedded={opts.embedded} />);
     } else {
         root.render(<PageEditor appName={opts.appName ?? "hello"} page={opts.page ?? "index"} embedded={opts.embedded} />);
     }
-    return () => root.unmount();
+    return () => {
+        root.unmount();
+        // the injected stylesheet must not leak into other SPA pages
+        removeEditorStyle();
+    };
 }
 
 // ---- boot (standalone entry: /apps/designer and /apps/{app}/{page}/edit) ----
@@ -516,7 +589,7 @@ function boot() {
         redirectToLogin();
         return;
     }
-    ensureAmisStyle();
+    applyEditorTheme(currentTheme());
 
     const root = document.getElementById("app")!;
 

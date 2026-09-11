@@ -11,6 +11,7 @@ import io.kestra.core.tenant.TenantService;
 import io.kestra.core.models.triggers.AbstractTrigger;
 import io.kestra.webserver.services.AppRouteRegistry;
 import io.kestra.webserver.services.AppsService;
+import io.micronaut.core.annotation.Nullable;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
 import io.micronaut.http.MediaType;
@@ -142,7 +143,7 @@ public class AppRouterController {
     public HttpResponse<?> api(
         @PathVariable String appName,
         @PathVariable String apiId,
-        @Body Map<String, Object> body
+        @Body @Nullable Map<String, Object> body
     ) {
         String tenant = tenantService.resolveTenant();
         List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, appName, apiId);
