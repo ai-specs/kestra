@@ -163,17 +163,29 @@ interface ApiResult {
 }
 
 async function apiRequest(url: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown): Promise<ApiResult> {
-    const headers: Record<string, string> = {"Accept": "application/json", "Content-Type": "application/json"};
-    const csrf = getCsrfToken();
-    if (csrf) {
-        headers["X-CSRF-TOKEN"] = csrf;
+    // 同源请求带 CSRF + credentials（平台会话契约）；跨源请求发"简单请求"
+    // （不加自定义头、不带 cookie）——自定义头会触发 CORS 预检，外部数据源
+    // （如 amis 官方 mock）不允许 x-csrf-token，预检失败页面数据就加载不出。
+    let sameOrigin = true;
+    try {
+        sameOrigin = new URL(url, window.location.origin).origin === window.location.origin;
+    } catch {
+        sameOrigin = false;
+    }
+    const headers: Record<string, string> = {Accept: "application/json"};
+    if (sameOrigin) {
+        headers["Content-Type"] = "application/json";
+        const csrf = getCsrfToken();
+        if (csrf) {
+            headers["X-CSRF-TOKEN"] = csrf;
+        }
     }
     try {
         const resp = await fetch(url, {
             method,
             headers,
             body: body !== undefined ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
-            credentials: "include",
+            credentials: sameOrigin ? "include" : "omit",
         });
         if (resp.status === 401) {
             redirectToLogin();

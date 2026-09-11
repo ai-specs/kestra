@@ -122,14 +122,25 @@ const env: RenderOptions = {
         const url = apiObject.url;
         const method = (apiObject.method ?? "get").toLowerCase();
         const body = data !== undefined ? data : apiObject.data;
-        const headers: Record<string, string> = {"Content-Type": "application/json"};
-        const csrf = getCsrfToken();
-        if (csrf) headers["X-CSRF-TOKEN"] = csrf;
+        // 跨源数据源发"简单请求"（无自定义头、不带 cookie）——自定义头触发 CORS
+        // 预检，外部 API（如 amis 官方 mock）不允许 x-csrf-token
+        let sameOrigin = true;
+        try {
+            sameOrigin = new URL(url, window.location.origin).origin === window.location.origin;
+        } catch {
+            sameOrigin = false;
+        }
+        const headers: Record<string, string> = {Accept: "application/json"};
+        if (sameOrigin) {
+            headers["Content-Type"] = "application/json";
+            const csrf = getCsrfToken();
+            if (csrf) headers["X-CSRF-TOKEN"] = csrf;
+        }
         return fetch(url, {
             method,
             headers,
             body: body !== undefined ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
-            credentials: "include",
+            credentials: sameOrigin ? "include" : "omit",
         }).then(async (resp) => {
             if (resp.status === 401) {
                 redirectToLogin();
