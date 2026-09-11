@@ -75,6 +75,9 @@ public class AppsFileController {
     /** 保留 appName：/apps/designer 是设计器 HTML 入口。 */
     public static final String RESERVED_DESIGNER = "designer";
 
+    /** 防探测：所有"找不到/校验失败"统一 404 + 统一 detail（不暴露路径、原因与内部信息）。 */
+    public static final String NOT_FOUND_DETAIL = "The requested app page does not exist";
+
     private static final Pattern SEGMENT = Pattern.compile("[A-Za-z0-9_-]+");
     private static final Pattern JSON_FILE_NAME = Pattern.compile("[A-Za-z0-9_-]+\\.json");
 
@@ -100,7 +103,7 @@ public class AppsFileController {
      * GET /api/v1/apps/files?path=dsh.apps/apps/{appName}/{...}.json — 读约定路径的页面 schema。
      * path 第一个段是 namespace（必须等于 apps.files.root-namespace，默认 dsh.apps），其余为约定
      * 路径；兼容旧格式 path=apps/{appName}/{...}.json（namespace 缺省用约定根）。
-     * 返回前校验最外层 type 为 amis schema 合法枚举——非页面 JSON（配置/数据/敏感文件）拒绝返回。
+     * 返回前校验最外层 type 为 amis schema 合法枚举——非页面 JSON（配置/数据/敏感文件）拒绝返回（404，与不存在同响应，防探测）。
      */
     @Get(uri = "/files")
     @Operation(summary = "Read an apps convention page schema file")
@@ -118,8 +121,7 @@ public class AppsFileController {
             if (e instanceof HttpStatusException) {
                 throw (HttpStatusException) e;
             }
-            throw new HttpStatusException(HttpStatus.NOT_FOUND,
-                "Apps page file not found: " + path + " (" + e.getMessage() + ")");
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
     }
 
@@ -139,7 +141,7 @@ public class AppsFileController {
                 Namespace.Conflicts.OVERWRITE);
         } catch (Exception e) {
             throw new HttpStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                "Unable to write apps page file " + path + ": " + e.getMessage());
+                "Unable to write apps page file");
         }
         return HttpResponse.ok(body).contentType(MediaType.APPLICATION_JSON_TYPE);
     }
@@ -153,7 +155,7 @@ public class AppsFileController {
             + "alert|audio|video|carousel|dropdown-button|group|remark|repeat|uuid|verification-code|"
             + "web-component|input-[a-z0-9-]+)$");
 
-    /** JSON 最外层必须有 "type" 且为 amis 合法枚举；无 type 或值不符 → 400（防止意外暴露敏感文件）。 */
+    /** JSON 最外层必须有 "type" 且为 amis 合法枚举；无 type 或值不符 → 404（与文件不存在同响应，防探测）。 */
     private void validateAmisRootType(String content, String path) {
         String type;
         try {
@@ -162,14 +164,10 @@ public class AppsFileController {
                 ? root.get("type").asText("")
                 : "";
         } catch (IOException e) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "Apps page file is not valid JSON: " + path);
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         if (type.isBlank() || !AMIS_ROOT_TYPE.matcher(type).matches()) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "Apps page file " + path + " is not an amis page schema: top-level \"type\" must be one of "
-                    + "the amis component types (app/page/form/crud/service/input-*...), got '"
-                    + (type.isBlank() ? "<missing>" : type) + "'");
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
     }
 
@@ -180,13 +178,12 @@ public class AppsFileController {
      */
     private Path validatePathWithNamespace(String path) {
         if (path == null || path.isBlank()) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST, "path query parameter is required");
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         String p = path.startsWith("/") ? path.substring(1) : path;
         int slash = p.indexOf('/');
         if (slash <= 0) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "path must be {namespace}/" + CONVENTION_ROOT + "/{appName}/{page}.json (got " + path + ")");
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         String ns = p.substring(0, slash);
         String rest = p.substring(slash + 1);
@@ -197,9 +194,7 @@ public class AppsFileController {
             // legacy: path=apps/{appName}/{...}.json (namespace omitted → root)
             conventionPath = p;
         } else {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "path namespace must equal apps.files.root-namespace '" + appsFiles.getRootNamespace()
-                    + "' (got '" + ns + "')");
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         return validateConventionPath(conventionPath);
     }
@@ -267,58 +262,51 @@ public class AppsFileController {
      */
     static Path validateConventionPath(String path) {
         if (path == null || path.isBlank()) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST, "path query parameter is required");
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         String normalized = path.startsWith("/") ? path.substring(1) : path;
         if (!normalized.startsWith(CONVENTION_ROOT) || (!normalized.equals(CONVENTION_ROOT) && !normalized.startsWith(CONVENTION_ROOT + "/"))) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "path must be inside " + CONVENTION_ROOT + "/ (got " + path + ")");
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         Path p;
         try {
             p = Path.of(normalized).normalize();
         } catch (InvalidPathException e) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST, "invalid path: " + path);
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         if (!p.startsWith(CONVENTION_ROOT) || p.getNameCount() < 3) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "path must be " + CONVENTION_ROOT + "/{appName}/{page}.json (got " + path + ")");
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         // getName(0) = "apps"（约定根）；appName 是第 1 段。
         String appName = p.getName(1).toString();
         if (!SEGMENT.matcher(appName).matches() || RESERVED_DESIGNER.equals(appName)) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "invalid or reserved app name in path: " + appName);
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         for (int i = 2; i < p.getNameCount(); i++) {
             String seg = p.getName(i).toString();
             if (i == p.getNameCount() - 1) {
                 if (!JSON_FILE_NAME.matcher(seg).matches()) {
-                    throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                        "page file must be a *.json file (got " + seg + ")");
+                    throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
                 }
             } else if (!SEGMENT.matcher(seg).matches()) {
-                throw new HttpStatusException(HttpStatus.BAD_REQUEST, "invalid path segment: " + seg);
+                throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
             }
         }
         return p;
     }
 
-    /** body 必须是合法 JSON 对象，否则 400。 */
+    /** body 必须是合法 JSON 对象，否则 404（与文件不存在同响应，防探测）。 */
     private void validateJsonObject(String body, String path) {
         if (body == null || body.isBlank()) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "PUT body must be a JSON object (empty body for " + path + ")");
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
         try {
             JsonNode node = objectMapper.readTree(body);
             if (node == null || !node.isObject()) {
-                throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                    "PUT body must be a JSON object (got non-object for " + path + ")");
+                throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
             }
         } catch (JsonProcessingException e) {
-            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "PUT body must be valid JSON (" + path + "): " + e.getOriginalMessage());
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
         }
     }
 
