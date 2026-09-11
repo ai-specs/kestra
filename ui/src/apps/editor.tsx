@@ -25,12 +25,20 @@ import faAllCss from "@fortawesome/fontawesome-free/css/all.css?raw";
 import faShimsCss from "@fortawesome/fontawesome-free/css/v4-shims.css?raw";
 import {Editor} from "amis-editor";
 import {ShortcutKey, setThemeConfig} from "amis-editor-core";
-import {setDefaultTheme} from "amis";
+import {setDefaultTheme, Select} from "amis";
+import {currentLocale, setLocale} from "i18n-runtime";
 import lightThemeConfig from "amis-theme-editor-helper/lib/systemTheme/cxd";
 import {createRoot} from "react-dom/client";
 import {useEffect, useState} from "react";
 
 const AUTH_FLAG_COOKIE_NAME = "oidcAuthenticated";
+
+// demo-style editor languages (i18n-runtime stores to 'suda-i18n-locale')
+const editorLanguages = [
+    {label: "简体中文", value: "zh-CN"},
+    {label: "English", value: "en-US"},
+];
+const curLang = currentLocale();
 
 function isLoggedIn(): boolean {
     return document.cookie.split("; ").includes(`${AUTH_FLAG_COOKIE_NAME}=true`);
@@ -171,6 +179,7 @@ html, body { height: 100%; margin: 0; }
 .Editor-view-mode-btn.is-active:hover { background: #5086f5; color: #fff; }
 .Editor-header-actions { position: relative; z-index: 101; flex: 1 1 565px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .Editor-header-actions > * { flex-shrink: 0; }
+.editor-language-select .cxd-Select { min-width: 110px; font-size: 13px; }
 .shortcut-icon-btn { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #888; }
 .shortcut-icon-btn:hover { color: #0057ff; }
 .shortcut-icon-btn svg { width: 16px; height: 16px; }
@@ -507,6 +516,13 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                         </div>
                         <div className="Editor-header-actions">
                             <ShortcutKey />
+                            <Select
+                                className="editor-language-select"
+                                options={editorLanguages}
+                                value={curLang}
+                                clearable={false}
+                                onChange={(e: {value: string}) => setLocale(e.value)}
+                            />
                             <button className="header-action-btn" onClick={() => setPreview(!preview)}>
                                 {preview ? "编辑" : "预览"}
                             </button>
