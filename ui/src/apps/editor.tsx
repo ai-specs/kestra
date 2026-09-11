@@ -367,10 +367,6 @@ async function apiRequest(
     }
 }
 
-function filePath(appName: string, page: string): string {
-    return `apps/${appName}/${page}.json`;
-}
-
 function encodePath(p: string): string {
     return p.split("/").map(encodeURIComponent).join("/");
 }
@@ -390,7 +386,7 @@ function toast(msg: string, background = "#1677ff") {
 }
 
 // ---- single-page editor (also used inside designer mode) ----
-function PageEditor({appName, page, embedded}: {appName: string; page: string; embedded?: boolean}) {
+function PageEditor({ns, path, embedded, createIfMissing}: {ns?: string | null; path: string; embedded?: boolean; createIfMissing?: boolean}) {
     const [schema, setSchema] = useState<unknown>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -398,7 +394,8 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
     const [preview, setPreview] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const theme = useHostTheme(embedded);
-    const path = filePath(appName, page);
+    // ns 缺省不传 → 后端用约定根 namespace（dsh.apps）；显式传则校验相等
+    const nsQuery = ns ? `&namespace=${encodeURIComponent(ns)}` : "";
 
     // keep the injected amis stylesheet + amis runtime theme in sync with the host theme
     useEffect(() => {
@@ -410,15 +407,20 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
         setLoading(true);
         setError(null);
         (async () => {
-            const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}`, "GET");
+            const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}${nsQuery}`, "GET");
             if (cancelled) {
                 return;
             }
             if (r.ok) {
                 setSchema(r.data);
             } else if (r.status === 404) {
-                // 约定外/未创建页面：初始化空页，首次保存创建文件（§6.4）
-                setSchema({type: "page", body: []});
+                // 约定外/未创建页面：Designer 内初始化空页、首次保存创建文件（§6.4）；
+                // pages-edit 入口要求"存在才加载"——不存在则报错（用户指定契约）。
+                if (createIfMissing) {
+                    setSchema({type: "page", body: []});
+                } else {
+                    setError(`页面文件不存在：${path}（HTTP 404）`);
+                }
             } else {
                 setError(r.msg);
             }
@@ -471,7 +473,7 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
     }, [schema]);
 
     async function save() {
-        const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}`, "PUT", schema as object);
+        const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}${nsQuery}`, "PUT", schema as object);
         if (r.ok) {
             toast(`已保存 ${path}`);
         } else {
@@ -491,7 +493,7 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
             <div className="dsh-editor-shell">
                 <div className="Editor-Demo">
                     <div className="Editor-header">
-                        <div className="Editor-title">页面编辑器：{path}</div>
+                        <div className="Editor-title">页面编辑器：{ns ? `${ns}/` : ""}{path}</div>
                         <div className="Editor-view-mode-group-container">
                             <div className="Editor-view-mode-group">
                                 <div
@@ -627,7 +629,7 @@ interface AppNode {
 
 function Designer({embedded}: {embedded?: boolean}) {
     const [apps, setApps] = useState<AppNode[] | null>(null);
-    const [selected, setSelected] = useState<{appName: string; page: string} | null>(null);
+    const [selected, setSelected] = useState<{appName: string; ns?: string | null; page: string} | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -648,23 +650,23 @@ function Designer({embedded}: {embedded?: boolean}) {
         };
     }, []);
 
-    function selectPage(appName: string, page: string) {
-        setSelected({appName, page});
+    function selectPage(app: AppNode, page: string) {
+        setSelected({appName: app.appName, ns: app.namespace ?? null, page});
     }
 
-    function renderChildren(appName: string, nodes: TreeNode[] | undefined, depth: number) {
+    function renderChildren(app: AppNode, nodes: TreeNode[] | undefined, depth: number) {
         if (!nodes || nodes.length === 0) {
             return null;
         }
         return nodes.map(node => {
             const cls = depth === 0 ? "dsh-tree-node is-page" : "dsh-tree-node is-page3";
             if (node.kind === "page") {
-                const active = selected?.appName === appName && selected.page === node.name;
+                const active = selected?.appName === app.appName && selected.page === node.name;
                 return (
                     <button
                         key={node.name}
                         className={`${cls} ${active ? "is-active" : ""}`}
-                        onClick={() => selectPage(appName, node.name)}
+                        onClick={() => selectPage(app, node.name)}
                     >
                         {node.name}
                         {node.index ? <span className="dsh-tree-index">首页</span> : null}
@@ -676,7 +678,7 @@ function Designer({embedded}: {embedded?: boolean}) {
             return (
                 <div key={node.name}>
                     <div className="dsh-tree-node">{node.name}/</div>
-                    {renderChildren(appName, node.children, depth + 1)}
+                    {renderChildren(app, node.children, depth + 1)}
                 </div>
             );
         });
@@ -699,13 +701,13 @@ function Designer({embedded}: {embedded?: boolean}) {
                         <div key={app.appName}>
                             <div className="dsh-tree-node is-app">📁 {app.appName}</div>
                             {app.warning ? <div className="dsh-tree-warning">{app.warning}</div> : null}
-                            {renderChildren(app.appName, app.pages, 0)}
+                            {renderChildren(app, app.pages, 0)}
                         </div>
                     ))}
                 </div>
                 <div className="dsh-designer-main">
                     {selected ? (
-                        <PageEditor appName={selected.appName} page={selected.page} embedded={embedded} />
+                        <PageEditor ns={selected.ns} path={`apps/${selected.appName}/${selected.page}.json`} embedded={embedded} createIfMissing />
                     ) : (
                         <div className="dsh-designer-placeholder">选择左侧一个页面开始编辑</div>
                     )}
@@ -741,7 +743,7 @@ export function mountEditor(container: HTMLElement, opts: MountEditorOptions): (
     };
 }
 
-// ---- boot (standalone entry: /apps/designer and /apps/{app}/{page}/edit) ----
+// ---- boot (standalone entry: /apps/designer, /apps/pages-edit#ns/path, legacy /apps/{app}/{page}/edit) ----
 // The SPA-inline bundle imports this module too (PagesEditor.vue → mountEditor); boot must
 // only run on the standalone entry URLs, otherwise it would grab the SPA's own #app root.
 function boot() {
@@ -749,6 +751,7 @@ function boot() {
     const isStandalone =
         path === "/apps/designer" ||
         path.startsWith("/apps/designer/") ||
+        path === "/apps/pages-edit" ||
         /^\/apps\/[^/]+\/(.+?)\/edit$/.test(path);
     if (!isStandalone) {
         return;
@@ -768,17 +771,33 @@ function boot() {
         return;
     }
 
-    // Single-page edit: /apps/{app}/edit (page defaults to index) or
-    // /apps/{app}/{page}/edit where {page} may be a group path "x/y" (third level).
+    // pages-edit entry: /apps/pages-edit#dsh.apps/apps/{app}/{page}.json
+    // The hash carries "{namespace}/{conventionPath}": first segment is the namespace
+    // (validated against the root namespace by the files endpoint), the rest is the
+    // file path under the convention root. Any existing json file is editable.
+    if (path === "/apps/pages-edit") {
+        const raw = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+        const [ns, ...pathSegs] = raw.split("/");
+        const filePath = pathSegs.join("/");
+        if (!ns || !filePath || !filePath.startsWith("apps/") || !filePath.endsWith(".json")) {
+            root.innerText = "无效编辑地址。期望 /apps/pages-edit#dsh.apps/apps/{app}/{page}.json";
+            return;
+        }
+        createRoot(root).render(<PageEditor ns={ns} path={filePath} />);
+        return;
+    }
+
+    // Legacy single-page edit: /apps/{app}/{page}/edit (kept for compatibility;
+    // namespace is omitted → the files endpoint falls back to the root namespace).
     const editMatch = path.match(/^\/apps\/([^/]+)\/(.+?)\/edit$/);
     if (editMatch) {
         const appName = decodeURIComponent(editMatch[1]);
         const page = decodeURIComponent(editMatch[2]);
-        createRoot(root).render(<PageEditor appName={appName} page={page} />);
+        createRoot(root).render(<PageEditor path={`apps/${appName}/${page}.json`} />);
         return;
     }
 
-    root.innerText = "Invalid editor path. Expected /apps/designer or /apps/{app}/{page}/edit";
+    root.innerText = "Invalid editor path. Expected /apps/designer, /apps/pages-edit#ns/apps/{app}/{page}.json or /apps/{app}/{page}/edit";
 }
 
 void boot();

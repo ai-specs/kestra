@@ -58,11 +58,11 @@
                                 target="_blank"
                                 rel="noopener"
                             >/apps/{{ scope.row.appName }}/{{ p }}</a>
-                            <!-- dsh fork: 单元格内「设计」直达单页编辑器（page 段 = 文件名 = 注册表 pageId，
-                                 不变式 pageId==文件名 下成立，§4.2/§6.4；约定外页面 404→空页→保存建新文件） -->
+                            <!-- dsh fork: 单元格内「设计」直达全屏编辑器（hash 携带 namespace + 文件路径，
+                                 任意存在的 json 文件都可编辑；约定外页面 404 报错不建空页） -->
                             <a
                                 class="dsh-app-list__design"
-                                :href="`/apps/${encodeURIComponent(scope.row.appName)}/${encodeURIComponent(p)}/edit`"
+                                :href="`/apps/pages-edit#${encodeURIComponent(scope.row.namespace)}/apps/${encodeURIComponent(scope.row.appName)}/${encodeURIComponent(p)}.json`"
                                 target="_blank"
                                 rel="noopener"
                             >设计</a>

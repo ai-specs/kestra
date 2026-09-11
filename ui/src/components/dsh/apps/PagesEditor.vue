@@ -10,7 +10,7 @@
         若某页面文件的名字命中首页（app 型 index.json）pages 中某个子页面的
         url（如 schema.json ↔ url "/schema"），则它是"嵌入首页"的子页面文件——
         真实地址是首页 + hash（/apps/{app}/index#/{url}），不是独立渲染页，
-        但编辑仍打开它自己的文件（/apps/{app}/{page}/edit）。
+        但编辑仍打开它自己的文件（/apps/pages-edit#dsh.apps/apps/{app}/{page}.json）。
         其余独立页面保持 /apps/{app}/{page} 渲染。
     -->
     <div class="dsh-pages">
@@ -165,13 +165,17 @@
         return matched
     }
 
-    function pushFilePages(rows: Row[], appName: string, nodes: TreeNode[], depth: number): void {
-        for (const n of nodes) {
+    function pushFilePages(rows: Row[], app: AppNode, depth: number): void {
+        const appName = app.appName
+        const ns = app.namespace || "dsh.apps"
+        for (const n of app.pages ?? []) {
             if (n.kind === "group") {
                 rows.push({key: `${appName}/g:${n.name}`, kind: "group", appName, label: n.name, depth})
-                pushFilePages(rows, appName, n.children ?? [], depth + 1)
+                pushFilePages(rows, app, depth + 1)
                 continue
             }
+            // 编辑入口统一为 /apps/pages-edit#dsh.apps/apps/{app}/{page}.json（hash 携带 namespace + 文件路径）
+            const editHash = `${ns}/apps/${appName}/${n.name}.json`
             // 首页：约定名 index.json
             if (n.index || n.name === "index") {
                 const base = `/apps/${appName}/index`
@@ -183,7 +187,7 @@
                     depth,
                     isIndex: true,
                     previewUrl: base,
-                    editUrl: `${base}/edit`,
+                    editUrl: `/apps/pages-edit#${editHash}`,
                 })
                 continue
             }
@@ -200,7 +204,7 @@
                     depth,
                     embedded: true,
                     previewUrl: base + hash,
-                    editUrl: `/apps/${appName}/${n.name}/edit`,
+                    editUrl: `/apps/pages-edit#${editHash}`,
                 })
                 continue
             }
@@ -212,7 +216,7 @@
                 label: n.name,
                 depth,
                 previewUrl: base,
-                editUrl: `${base}/edit`,
+                editUrl: `/apps/pages-edit#${editHash}`,
             })
         }
     }
@@ -224,7 +228,7 @@
             if (app.warning) {
                 out.push({key: `warn:${app.appName}`, kind: "warning", appName: app.appName, label: "", depth: 1, text: app.warning})
             }
-            pushFilePages(out, app.appName, app.pages ?? [], 1)
+            pushFilePages(out, app, 1)
         }
         return out
     })

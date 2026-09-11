@@ -25,6 +25,7 @@ import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.tenant.TenantService;
 import io.kestra.webserver.configuration.AppsFilesConfiguration;
 import io.kestra.webserver.services.AppRouteRegistry;
+import io.micronaut.core.annotation.Nullable;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
 import io.micronaut.http.MediaType;
@@ -98,11 +99,14 @@ public class AppsFileController {
 
     /**
      * GET /api/v1/apps/files?path=apps/{appName}/{...}.json — 读约定路径的页面 schema。
+     * 可选 namespace 参数：必须等于约定根 namespace（apps.files.root-namespace，默认 dsh.apps），
+     * 用于全屏编辑器 URL（/apps/pages-edit#dsh.apps/apps/{app}/{page}.json）显式携带的 ns 校验。
      */
     @Get(uri = "/files")
     @Operation(summary = "Read an apps convention page schema file")
-    public HttpResponse<String> file(@QueryValue String path) {
+    public HttpResponse<String> file(@QueryValue String path, @Nullable @QueryValue String namespace) {
         String tenant = tenantService.resolveTenant();
+        validateNamespace(namespace);
         Path filePath = validateConventionPath(path);
         try {
             Namespace ns = namespace(tenant);
@@ -122,8 +126,9 @@ public class AppsFileController {
      */
     @Put(uri = "/files", consumes = MediaType.APPLICATION_JSON)
     @Operation(summary = "Write an apps convention page schema file")
-    public HttpResponse<String> putFile(@QueryValue String path, @Body String body) {
+    public HttpResponse<String> putFile(@QueryValue String path, @Nullable @QueryValue String namespace, @Body String body) {
         String tenant = tenantService.resolveTenant();
+        validateNamespace(namespace);
         Path filePath = validateConventionPath(path);
         validateJsonObject(body, path);
         try {
@@ -135,6 +140,16 @@ public class AppsFileController {
                 "Unable to write apps page file " + path + ": " + e.getMessage());
         }
         return HttpResponse.ok(body).contentType(MediaType.APPLICATION_JSON_TYPE);
+    }
+
+    /** namespace 参数（若有）必须等于约定根 namespace；缺省用配置值。 */
+    private void validateNamespace(String namespace) {
+        if (namespace != null && !namespace.isBlank()
+                && !namespace.equals(appsFiles.getRootNamespace())) {
+            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
+                "namespace must equal apps.files.root-namespace '" + appsFiles.getRootNamespace()
+                    + "' (got '" + namespace + "')");
+        }
     }
 
     /**
