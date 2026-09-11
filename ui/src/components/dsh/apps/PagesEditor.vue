@@ -132,8 +132,9 @@
     }
 
     /** 读首页 index.json；若为 app 型，收集其子页面 url（用于判定"嵌入首页"的文件） */
-    function loadHomeChildUrls(appName: string): Promise<void> {
-        return fetch(`/api/v1/apps/files?path=${encodeURIComponent(`apps/${appName}/index.json`)}`, {
+    function loadHomeChildUrls(appName: string, ns: string | null | undefined): Promise<void> {
+        const path = `${ns || "dsh.apps"}/apps/${appName}/index.json`
+        return fetch(`/api/v1/apps/files?path=${encodeURIComponent(path)}`, {
             headers: {"Accept": "application/json"},
             credentials: "include",
         })
@@ -254,7 +255,7 @@
                 throw new Error(`HTTP ${resp.status}`)
             }
             apps.value = (await resp.json()) as AppNode[]
-            await Promise.all(apps.value.map(a => loadHomeChildUrls(a.appName)))
+            await Promise.all(apps.value.map(a => loadHomeChildUrls(a.appName, a.namespace)))
             const first = rows.value.find(r => r.kind === "page")
             if (first) {
                 select(first)

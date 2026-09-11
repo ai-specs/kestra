@@ -20,7 +20,8 @@ function isLoggedIn(): boolean {
 }
 
 function redirectToLogin() {
-    const from = encodeURIComponent(window.location.pathname + window.location.search);
+    // 带 hash（如 /apps/{app}/index#/schema），登录后原样回到目标页
+    const from = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
     window.location.assign(`/oidc/login?from=${from}`);
 }
 

@@ -45,7 +45,8 @@ function isLoggedIn(): boolean {
 }
 
 function redirectToLogin() {
-    const from = encodeURIComponent(window.location.pathname + window.location.search);
+    // 带 hash（如 /apps/pages-edit#dsh.apps/apps/{app}/{page}.json），登录后原样回到目标页
+    const from = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
     window.location.assign(`/oidc/login?from=${from}`);
 }
 
@@ -386,7 +387,7 @@ function toast(msg: string, background = "#1677ff") {
 }
 
 // ---- single-page editor (also used inside designer mode) ----
-function PageEditor({ns, path, embedded, createIfMissing}: {ns?: string | null; path: string; embedded?: boolean; createIfMissing?: boolean}) {
+function PageEditor({path, embedded, createIfMissing}: {path: string; embedded?: boolean; createIfMissing?: boolean}) {
     const [schema, setSchema] = useState<unknown>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -394,8 +395,8 @@ function PageEditor({ns, path, embedded, createIfMissing}: {ns?: string | null; 
     const [preview, setPreview] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const theme = useHostTheme(embedded);
-    // ns 缺省不传 → 后端用约定根 namespace（dsh.apps）；显式传则校验相等
-    const nsQuery = ns ? `&namespace=${encodeURIComponent(ns)}` : "";
+    // path = {namespace}/apps/{app}/{page}.json（如 dsh.apps/apps/hello/index.json），
+    // 与 pages-edit 的 hash 格式一致，原样传给文件端点。
 
     // keep the injected amis stylesheet + amis runtime theme in sync with the host theme
     useEffect(() => {
@@ -407,7 +408,7 @@ function PageEditor({ns, path, embedded, createIfMissing}: {ns?: string | null; 
         setLoading(true);
         setError(null);
         (async () => {
-            const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}${nsQuery}`, "GET");
+            const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}`, "GET");
             if (cancelled) {
                 return;
             }
@@ -473,7 +474,7 @@ function PageEditor({ns, path, embedded, createIfMissing}: {ns?: string | null; 
     }, [schema]);
 
     async function save() {
-        const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}${nsQuery}`, "PUT", schema as object);
+        const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}`, "PUT", schema as object);
         if (r.ok) {
             toast(`已保存 ${path}`);
         } else {
@@ -493,7 +494,7 @@ function PageEditor({ns, path, embedded, createIfMissing}: {ns?: string | null; 
             <div className="dsh-editor-shell">
                 <div className="Editor-Demo">
                     <div className="Editor-header">
-                        <div className="Editor-title">页面编辑器：{ns ? `${ns}/` : ""}{path}</div>
+                        <div className="Editor-title">页面编辑器：{path}</div>
                         <div className="Editor-view-mode-group-container">
                             <div className="Editor-view-mode-group">
                                 <div
@@ -707,7 +708,7 @@ function Designer({embedded}: {embedded?: boolean}) {
                 </div>
                 <div className="dsh-designer-main">
                     {selected ? (
-                        <PageEditor ns={selected.ns} path={`apps/${selected.appName}/${selected.page}.json`} embedded={embedded} createIfMissing />
+                        <PageEditor path={`${selected.ns ?? "dsh.apps"}/apps/${selected.appName}/${selected.page}.json`} embedded={embedded} createIfMissing />
                     ) : (
                         <div className="dsh-designer-placeholder">选择左侧一个页面开始编辑</div>
                     )}
@@ -772,18 +773,16 @@ function boot() {
     }
 
     // pages-edit entry: /apps/pages-edit#dsh.apps/apps/{app}/{page}.json
-    // The hash carries "{namespace}/{conventionPath}": first segment is the namespace
-    // (validated against the root namespace by the files endpoint), the rest is the
-    // file path under the convention root. Any existing json file is editable.
+    // The hash carries "{namespace}/apps/{...}.json": the first segment is the namespace
+    // (validated against the root namespace by the files endpoint), the rest is the file
+    // path under the convention root. Any existing amis json file is editable.
     if (path === "/apps/pages-edit") {
         const raw = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-        const [ns, ...pathSegs] = raw.split("/");
-        const filePath = pathSegs.join("/");
-        if (!ns || !filePath || !filePath.startsWith("apps/") || !filePath.endsWith(".json")) {
+        if (!/^[^/\s]+\/apps\/[A-Za-z0-9_\-./]+\.json$/.test(raw)) {
             root.innerText = "无效编辑地址。期望 /apps/pages-edit#dsh.apps/apps/{app}/{page}.json";
             return;
         }
-        createRoot(root).render(<PageEditor ns={ns} path={filePath} />);
+        createRoot(root).render(<PageEditor path={raw} />);
         return;
     }
 

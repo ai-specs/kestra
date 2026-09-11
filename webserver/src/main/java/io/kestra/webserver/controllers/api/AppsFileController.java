@@ -25,7 +25,6 @@ import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.tenant.TenantService;
 import io.kestra.webserver.configuration.AppsFilesConfiguration;
 import io.kestra.webserver.services.AppRouteRegistry;
-import io.micronaut.core.annotation.Nullable;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
 import io.micronaut.http.MediaType;
@@ -98,38 +97,41 @@ public class AppsFileController {
     private ObjectMapper objectMapper;
 
     /**
-     * GET /api/v1/apps/files?path=apps/{appName}/{...}.json — 读约定路径的页面 schema。
-     * 可选 namespace 参数：必须等于约定根 namespace（apps.files.root-namespace，默认 dsh.apps），
-     * 用于全屏编辑器 URL（/apps/pages-edit#dsh.apps/apps/{app}/{page}.json）显式携带的 ns 校验。
+     * GET /api/v1/apps/files?path=dsh.apps/apps/{appName}/{...}.json — 读约定路径的页面 schema。
+     * path 第一个段是 namespace（必须等于 apps.files.root-namespace，默认 dsh.apps），其余为约定
+     * 路径；兼容旧格式 path=apps/{appName}/{...}.json（namespace 缺省用约定根）。
+     * 返回前校验最外层 type 为 amis schema 合法枚举——非页面 JSON（配置/数据/敏感文件）拒绝返回。
      */
     @Get(uri = "/files")
     @Operation(summary = "Read an apps convention page schema file")
-    public HttpResponse<String> file(@QueryValue String path, @Nullable @QueryValue String namespace) {
+    public HttpResponse<String> file(@QueryValue String path) {
         String tenant = tenantService.resolveTenant();
-        validateNamespace(namespace);
-        Path filePath = validateConventionPath(path);
+        Path filePath = validatePathWithNamespace(path);
         try {
             Namespace ns = namespace(tenant);
             try (InputStream in = ns.getFileContent(filePath)) {
                 String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                validateAmisRootType(content, path);
                 return HttpResponse.ok(content).contentType(MediaType.APPLICATION_JSON_TYPE);
             }
         } catch (IOException | RuntimeException e) {
+            if (e instanceof HttpStatusException) {
+                throw (HttpStatusException) e;
+            }
             throw new HttpStatusException(HttpStatus.NOT_FOUND,
                 "Apps page file not found: " + path + " (" + e.getMessage() + ")");
         }
     }
 
     /**
-     * PUT /api/v1/apps/files?path=apps/{appName}/{...}.json — 写约定路径的页面 schema。
+     * PUT /api/v1/apps/files?path=dsh.apps/apps/{appName}/{...}.json — 写约定路径的页面 schema。
      * 文件不存在则创建（新页面首次保存即建文件）；body 必须是 JSON 对象（防坏写入白屏）。
      */
     @Put(uri = "/files", consumes = MediaType.APPLICATION_JSON)
     @Operation(summary = "Write an apps convention page schema file")
-    public HttpResponse<String> putFile(@QueryValue String path, @Nullable @QueryValue String namespace, @Body String body) {
+    public HttpResponse<String> putFile(@QueryValue String path, @Body String body) {
         String tenant = tenantService.resolveTenant();
-        validateNamespace(namespace);
-        Path filePath = validateConventionPath(path);
+        Path filePath = validatePathWithNamespace(path);
         validateJsonObject(body, path);
         try {
             namespace(tenant).putFile(filePath,
@@ -142,14 +144,64 @@ public class AppsFileController {
         return HttpResponse.ok(body).contentType(MediaType.APPLICATION_JSON_TYPE);
     }
 
-    /** namespace 参数（若有）必须等于约定根 namespace；缺省用配置值。 */
-    private void validateNamespace(String namespace) {
-        if (namespace != null && !namespace.isBlank()
-                && !namespace.equals(appsFiles.getRootNamespace())) {
+    /** 顶层 schema 的合法 amis 组件 type（页面文件最外层枚举；非此集合 → 拒绝返回防敏感文件暴露）。 */
+    private static final Pattern AMIS_ROOT_TYPE = Pattern.compile(
+        "^(app|page|form|wizard|crud|crud2|service|html|container|flex|grid|grid-2d|panel|tabs|steps|"
+            + "table|table2|list|cards|chart|chart2|iframe|dialog|drawer|action|button|button-group|"
+            + "button-toolbar|divider|anchor|custom|static|collapse|each|fieldset|fieldSet|icon|image|"
+            + "images|link|mapping|nav|pagination|qrcode|rating|spinner|switch|tag|textarea|tree|wrapper|"
+            + "alert|audio|video|carousel|dropdown-button|group|remark|repeat|uuid|verification-code|"
+            + "web-component|input-[a-z0-9-]+)$");
+
+    /** JSON 最外层必须有 "type" 且为 amis 合法枚举；无 type 或值不符 → 400（防止意外暴露敏感文件）。 */
+    private void validateAmisRootType(String content, String path) {
+        String type;
+        try {
+            JsonNode root = objectMapper.readTree(content);
+            type = root != null && root.isObject() && root.hasNonNull("type")
+                ? root.get("type").asText("")
+                : "";
+        } catch (IOException e) {
             throw new HttpStatusException(HttpStatus.BAD_REQUEST,
-                "namespace must equal apps.files.root-namespace '" + appsFiles.getRootNamespace()
-                    + "' (got '" + namespace + "')");
+                "Apps page file is not valid JSON: " + path);
         }
+        if (type.isBlank() || !AMIS_ROOT_TYPE.matcher(type).matches()) {
+            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
+                "Apps page file " + path + " is not an amis page schema: top-level \"type\" must be one of "
+                    + "the amis component types (app/page/form/crud/service/input-*...), got '"
+                    + (type.isBlank() ? "<missing>" : type) + "'");
+        }
+    }
+
+    /**
+     * path 语义：{namespace}/{conventionPath}，如 dsh.apps/apps/hello/index.json。
+     * 第一段必须等于约定根 namespace（拒绝跨 namespace 读任意文件）；旧格式
+     * apps/{...}（无 namespace 段）兼容为约定根。返回约定路径（相对约定根，apps/ 开头）。
+     */
+    private Path validatePathWithNamespace(String path) {
+        if (path == null || path.isBlank()) {
+            throw new HttpStatusException(HttpStatus.BAD_REQUEST, "path query parameter is required");
+        }
+        String p = path.startsWith("/") ? path.substring(1) : path;
+        int slash = p.indexOf('/');
+        if (slash <= 0) {
+            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
+                "path must be {namespace}/" + CONVENTION_ROOT + "/{appName}/{page}.json (got " + path + ")");
+        }
+        String ns = p.substring(0, slash);
+        String rest = p.substring(slash + 1);
+        String conventionPath;
+        if (ns.equals(appsFiles.getRootNamespace())) {
+            conventionPath = rest;
+        } else if (ns.equals(CONVENTION_ROOT)) {
+            // legacy: path=apps/{appName}/{...}.json (namespace omitted → root)
+            conventionPath = p;
+        } else {
+            throw new HttpStatusException(HttpStatus.BAD_REQUEST,
+                "path namespace must equal apps.files.root-namespace '" + appsFiles.getRootNamespace()
+                    + "' (got '" + ns + "')");
+        }
+        return validateConventionPath(conventionPath);
     }
 
     /**
