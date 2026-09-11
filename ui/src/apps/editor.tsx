@@ -163,11 +163,12 @@ html, body { height: 100%; margin: 0; }
 .Editor-header { position: relative; z-index: 100; display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #fff; border-bottom: 1px solid #e8e8e8; flex-wrap: wrap; }
 .Editor-title { font-size: 13px; color: #444; font-weight: 500; margin-right: auto; }
 .Editor-view-mode-group-container { flex-shrink: 0; }
-.Editor-view-mode-group { display: inline-flex; border: 1px solid #d4d6db; border-radius: 4px; overflow: hidden; }
-.Editor-view-mode-btn { border: none; background: #fff; padding: 4px 12px; font-size: 13px; color: #585858; cursor: pointer; }
-.Editor-view-mode-btn + .Editor-view-mode-btn { border-left: 1px solid #d4d6db; }
-.Editor-view-mode-btn:hover { background: #f2f3f7; }
+.Editor-view-mode-group { display: inline-flex; justify-content: center; align-items: center; width: 100px; height: 32px; border-radius: 4px; background-color: #f2f2f4; }
+.Editor-view-mode-btn { user-select: none; padding: 0; border: none; background: none; border-radius: 4px; width: 40px; height: 24px; cursor: pointer; display: inline-flex; justify-content: center; align-items: center; color: #888; transition: transform ease-out .2s; }
+.editor-header-icon svg { display: inline-block; width: 16px; height: 16px; }
+.Editor-view-mode-btn:hover { color: #0057ff; }
 .Editor-view-mode-btn.is-active { background: #0057ff; color: #fff; }
+.Editor-view-mode-btn.is-active:hover { background: #5086f5; color: #fff; }
 .Editor-header-actions { position: relative; z-index: 101; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .Editor-header-actions > * { flex-shrink: 0; }
 .header-action-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #d4d6db; border-radius: 4px; background: #fff; padding: 4px 14px; font-size: 13px; color: #333; cursor: pointer; text-decoration: none; line-height: 20px; }
@@ -195,11 +196,11 @@ html.dark .dsh-tree-empty { color: #7a7f88; }
 html.dark .dsh-tree-warning { background: #2b2410; border-color: #6b5412; color: #e8b339; }
 html.dark .Editor-header { background: #1d1e22; border-bottom-color: #303136; }
 html.dark .Editor-title { color: #c9ccd2; }
-html.dark .Editor-view-mode-group { border-color: #3c3f46; }
-html.dark .Editor-view-mode-btn { background: #24262b; color: #b6bac2; }
-html.dark .Editor-view-mode-btn + .Editor-view-mode-btn { border-left-color: #3c3f46; }
-html.dark .Editor-view-mode-btn:hover { background: #2f3238; }
+html.dark .Editor-view-mode-group { background-color: #303136; }
+html.dark .Editor-view-mode-btn { color: #a0a2a8; }
+html.dark .Editor-view-mode-btn:hover { color: #5ab0ff; }
 html.dark .Editor-view-mode-btn.is-active { background: #0057ff; color: #fff; }
+html.dark .Editor-view-mode-btn.is-active:hover { background: #5086f5; color: #fff; }
 html.dark .header-action-btn { background: #24262b; border-color: #3c3f46; color: #d5d7dc; }
 html.dark .header-action-btn:hover { border-color: #5ab0ff; color: #5ab0ff; }
 html.dark .header-action-btn.primary { background: #0057ff; border-color: #0057ff; color: #fff; }
@@ -479,18 +480,24 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                         <div className="Editor-title">页面编辑器：{path}</div>
                         <div className="Editor-view-mode-group-container">
                             <div className="Editor-view-mode-group">
-                                <button
-                                    className={`Editor-view-mode-btn ${!isMobile ? "is-active" : ""}`}
+                                <div
+                                    className={`Editor-view-mode-btn editor-header-icon ${!isMobile ? "is-active" : ""}`}
+                                    title="PC模式"
                                     onClick={() => setIsMobile(false)}
                                 >
-                                    PC
-                                </button>
-                                <button
-                                    className={`Editor-view-mode-btn ${isMobile ? "is-active" : ""}`}
+                                    <svg viewBox="0 0 17 16" width="16" height="16" aria-hidden="true">
+                                        <path fill="currentColor" d="M6,14 C5.72385763,14 5.5,13.7761424 5.5,13.5 C5.5,13.2545401 5.67687516,13.0503916 5.91012437,13.0080557 L6,13 L7.5,12.9996584 L7.5,11.5 L2,11.5 C1.72385763,11.5 1.5,11.2761424 1.5,11 L1.5,11 L1.5,2.54165837 C1.5,2.265516 1.72385763,2.04165837 2,2.04165837 L2,2.04165837 L14,2.04165837 C14.2761424,2.04165837 14.5,2.265516 14.5,2.54165837 L14.5,2.54165837 L14.5,11 C14.5,11.2761424 14.2761424,11.5 14,11.5 L14,11.5 L8.5,11.5 L8.5,12.9996584 L10,13 C10.2761424,13 10.5,13.2238576 10.5,13.5 C10.5,13.7454599 10.3231248,13.9496084 10.0898756,13.9919443 L10,14 L6,14 Z M13.4999166,3.041 L2.4999166,3.041 L2.4999166,10.5 L13.4999166,10.5 L13.4999166,3.041 Z"/>
+                                    </svg>
+                                </div>
+                                <div
+                                    className={`Editor-view-mode-btn editor-header-icon ${isMobile ? "is-active" : ""}`}
+                                    title="移动模式"
                                     onClick={() => setIsMobile(true)}
                                 >
-                                    H5
-                                </button>
+                                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                                        <path fill="currentColor" d="M13,1.5 C13.2761424,1.5 13.5,1.72385763 13.5,2 L13.5,2 L13.5,14 C13.5,14.2761424 13.2761424,14.5 13,14.5 L13,14.5 L3,14.5 C2.72385763,14.5 2.5,14.2761424 2.5,14 L2.5,14 L2.5,2 C2.5,1.72385763 2.72385763,1.5 3,1.5 L3,1.5 Z M12.4995617,2.5 L3.49956174,2.5 L3.49956174,13.5 L12.4995617,13.5 L12.4995617,2.5 Z M9,11.6598373 C9.27614237,11.6598373 9.5,11.8836949 9.5,12.1598373 C9.5,12.4052972 9.32312484,12.6094457 9.08987563,12.6517816 L9,12.6598373 L7,12.6598373 C6.72385763,12.6598373 6.5,12.4359797 6.5,12.1598373 C6.5,11.9143774 6.67687516,11.7102289 6.91012437,11.667893 L7,11.6598373 L9,11.6598373 Z"/>
+                                    </svg>
+                                </div>
                             </div>
                         </div>
                         <div className="Editor-header-actions">
