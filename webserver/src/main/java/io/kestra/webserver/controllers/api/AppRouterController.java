@@ -144,7 +144,10 @@ public class AppRouterController {
             throw new NotFoundResponseException();
         }
         } catch (NotFoundResponseException e) {
-            return HttpResponse.status(HttpStatus.NOT_FOUND);
+            // Kestra#17633 fix pattern: let the Micronaut error processor produce the 404,
+            // instead of returning an early raw-404 response while a streaming request body
+            // is still unconsumed (which triggers the DelayedExecutionFlowImpl drain OOM).
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, null);
         }
     }
 
@@ -232,7 +235,9 @@ public class AppRouterController {
         return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), terminal, appName, apiId,
             executionUrl(namespace, appName, apiId, execution.getId())));
         } catch (NotFoundResponseException e) {
-            return HttpResponse.status(HttpStatus.NOT_FOUND);
+            // Kestra#17633 fix pattern: let the Micronaut error processor produce the 404,
+            // instead of an early raw-404 response while a streaming request body is unconsumed.
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, null);
         }
     }
 
@@ -361,7 +366,9 @@ public class AppRouterController {
         }
         return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), current, appName, apiId, null));
         } catch (NotFoundResponseException e) {
-            return HttpResponse.status(HttpStatus.NOT_FOUND);
+            // Kestra#17633 fix pattern: let the Micronaut error processor produce the 404,
+            // instead of an early raw-404 response while a streaming request body is unconsumed.
+            throw new HttpStatusException(HttpStatus.NOT_FOUND, null);
         }
     }
 
