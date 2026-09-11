@@ -3,12 +3,15 @@ package io.kestra.webserver.controllers.api;
 import java.util.Objects;
 import java.util.Optional;
 
+import io.kestra.core.tenant.TenantService;
+import io.kestra.webserver.services.AppRouteRegistry;
 import io.kestra.webserver.services.UiIndexService;
 
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
+import io.micronaut.http.HttpStatus;
 import io.micronaut.http.MutableHttpResponse;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
@@ -31,6 +34,11 @@ import jakarta.inject.Inject;
  * the editing target ({@code #dsh.apps/apps/{app}/{page}.json}); every other path renders
  * {@code apps.html} (design docs/dsh-apps-amis-editor.md §6.2).
  *
+ * <p>Page routing is backend-verified: a path that does not resolve to a registered page
+ * route ({@code PageTrigger}) returns an HTTP-standard 404 with an empty body, so probing
+ * unknown URLs never yields a 200 shell whose SPA then shows an error — the shell is served
+ * only for pages that actually exist.
+ *
  * <p>Authentication is the deployment-wide SecurityFilter (docker-compose {@code intercept-url-map}
  * {@code /** → isAuthenticated()}): every path served here matches no anonymous pattern, so an
  * unauthenticated browser request is 307-redirected to {@code /oidc/login} by
@@ -52,6 +60,11 @@ public class UiAppController {
     private final UiIndexService uiIndexService;
 
     @Inject
+    private AppRouteRegistry routeRegistry;
+
+    @Inject
+    private TenantService tenantService;
+
     public UiAppController(UiIndexService uiIndexService) {
         this.uiIndexService = Objects.requireNonNull(uiIndexService);
     }
@@ -61,12 +74,32 @@ public class UiAppController {
     public HttpResponse<?> serve(HttpRequest<?> request,
                                  @PathVariable String namespace,
                                  @PathVariable @Nullable String path) {
-        // 只有 /apps/pages-edit 返回编辑器（保留入口）；其余全部渲染 apps.html —— 前端按
-        // 字面 namespace 解析 URL 段（apps 不再映射约定根，而是普通 namespace）。
+        // 只有 /apps/pages-edit 返回编辑器（保留入口）；其余渲染页须能解析到注册的页面路由，
+        // 否则返回 http 标准 404（空 body）——未知页面不返回 200 shell（防探测、不泄露提示）。
         if ("apps".equals(namespace) && PAGES_EDIT_ENTRY.equals(path)) {
             return renderAppEditor(request);
         }
+        if (!pageRouteExists(namespace, path)) {
+            return HttpResponse.status(HttpStatus.NOT_FOUND);
+        }
         return renderApps(request);
+    }
+
+    /**
+     * 页面路由存在性：path 形如 {appName}/{pageId} 或 {appName}（pageId 缺省 index）。
+     * 存在 = AppRouteRegistry 中有该 (namespace, appName, pageId) 的 PageTrigger 路由。
+     */
+    private boolean pageRouteExists(String namespace, @Nullable String path) {
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        String[] parts = path.split("/", 2);
+        if (parts.length > 1 && parts[1].contains("/")) {
+            return false;
+        }
+        String appName = parts[0];
+        String pageId = parts.length > 1 && !parts[1].isBlank() ? parts[1] : "index";
+        return !routeRegistry.pageRoutes(tenantService.resolveTenant(), namespace, appName, pageId).isEmpty();
     }
 
     private HttpResponse<?> renderApps(HttpRequest<?> request) {
