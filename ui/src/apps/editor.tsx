@@ -43,6 +43,41 @@ function getCsrfToken(): string | null {
     return document.querySelector("meta[name=\"csrf-token\"]")?.getAttribute("content") ?? null;
 }
 
+// ---- execution submit polling (same contract as the render page) ----
+// A POST to an app api returns 202 + {executionId, executionState, executionUrl};
+// the result is only meaningful once executionState reaches a terminal value, so the
+// fetcher polls the trusted executionUrl until terminal (bounded).
+const POLL_INTERVAL_MS = 1000;
+const POLL_TIMEOUT_MS = 30000;
+const TERMINAL_STATES = new Set(["SUCCESS", "FAILED", "KILLED", "WARNING"]);
+
+function isTrustedPollUrl(u: string): boolean {
+    try {
+        const url = new URL(u, window.location.origin);
+        return url.origin === window.location.origin && url.pathname.startsWith("/api/v1/apps/");
+    } catch {
+        return false;
+    }
+}
+
+async function pollExecution(pollUrl: string): Promise<unknown> {
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    for (;;) {
+        const r = await fetch(pollUrl, {headers: {"Accept": "application/json"}, credentials: "include"});
+        if (r.ok) {
+            const d = await r.json().catch(() => null);
+            const state = (d as {executionState?: string} | null)?.executionState;
+            if (state && TERMINAL_STATES.has(state)) {
+                return d;
+            }
+        }
+        if (Date.now() >= deadline) {
+            return null;
+        }
+        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    }
+}
+
 const EDITOR_STYLE_ID = "dsh-apps-editor-style";
 
 // Amis/fontawesome stylesheets are regular Vite CSS imports above (auto-emitted as <link>
@@ -275,7 +310,21 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                                 fetcher: (api: unknown, data?: unknown) => {
                                     const apiObject = typeof api === "string" ? {url: api, method: "get"} : (api as {url: string; method?: string});
                                     const method = (apiObject.method ?? "get").toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
-                                    return apiRequest(apiObject.url, method, data);
+                                    return apiRequest(apiObject.url, method, data).then(async (resp) => {
+                                        // app api 提交：202 + executionUrl + 非终态 → 自动轮询到终态再返回
+                                        if (method === "POST" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(apiObject.url)) {
+                                            const payload = resp.data as {executionUrl?: string; executionState?: string} | null;
+                                            const pollUrl = payload?.executionUrl;
+                                            const state = payload?.executionState;
+                                            if (pollUrl && isTrustedPollUrl(pollUrl) && state && !TERMINAL_STATES.has(state)) {
+                                                const polled = await pollExecution(pollUrl);
+                                                if (polled !== null) {
+                                                    resp.data = polled;
+                                                }
+                                            }
+                                        }
+                                        return resp;
+                                    });
                                 },
                                 notify: (type: string, msg: string) => {
                                     if (msg) {
