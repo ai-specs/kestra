@@ -62,6 +62,16 @@ function ensureAmisStyle() {
 .dsh-editor-shell .Editor-inner { flex: 1; overflow: hidden; min-height: 0; }
 .dsh-editor-shell .Editor-Demo { height: 100%; display: flex; flex-direction: column; }
 .dsh-editor-shell .Editor-Demo .Editor-inner { flex: 1; }
+/* amis-editor 内部高度链：ae-Editor 自带 450px 默认高、内部各层不伸展，
+   导致预览画布（及其中渲染的 app Layout）塌缩成内容高、下方留大片死区。
+   逐层强制撑满，编辑器即可填满 Editor-inner 的全部可用高度 */
+.dsh-editor-shell .ae-Editor { height: 100% !important; }
+.dsh-editor-shell .ae-Main { height: 100% !important; }
+.dsh-editor-shell .ae-Preview-outter,
+.dsh-editor-shell .ae-Preview-body,
+.dsh-editor-shell .ae-Preview-inner { height: 100% !important; }
+.dsh-editor-shell .ae-Preview-body { display: flex; flex-direction: column; }
+.dsh-editor-shell .ae-Preview-body .cxd-Layout { flex: 1; min-height: 0; }
 /* 预览画布渲染 app 型页面（cxd-Layout 全出血侧栏）时去留白：
    ae-Preview-body 的 16px 内边距会把深色侧栏背景盒右推，而固定定位的
    侧栏菜单仍锚在视口 x=0 —— 菜单左端落在白底上（白字白底不可见） */
