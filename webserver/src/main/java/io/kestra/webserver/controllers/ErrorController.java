@@ -121,8 +121,9 @@ public class ErrorController {
 
     /** A request that matched no route at all, and so carries no exception. */
     @Error(global = true, status = HttpStatus.NOT_FOUND)
-    public HttpResponse<ProblemDetail> notFound(HttpRequest<?> request) {
-        return this.problems.response(request, null, ProblemTypes.NOT_FOUND, List.of());
+    public HttpResponse<?> notFound(HttpRequest<?> request) {
+        // dsh: http 标准 404——无自定义响应体（防探测）。有异常（如 flow 404）仍由各自 @Error(exception) 处理。
+        return HttpResponse.status(HttpStatus.NOT_FOUND);
     }
 
     /**

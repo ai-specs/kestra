@@ -71,6 +71,10 @@ import java.util.Optional;
 @Slf4j
 public class AppRouterController {
 
+    /** 标准 404：不带任何自定义响应体。 */
+    static final class NotFoundResponseException extends RuntimeException {
+    }
+
     @Inject
     private AppRouteRegistry routeRegistry;
 
@@ -110,6 +114,7 @@ public class AppRouterController {
         @PathVariable String appName,
         @PathVariable String pageId
     ) {
+        try {
         String tenant = tenantService.resolveTenant();
         List<AppRouteRegistry.PageRoute> routes = routeRegistry.pageRoutes(tenant, namespace, appName, pageId);
         AppRouteRegistry.PageRoute route = resolveUnique(routes, "page", namespace + "/" + appName + "/" + pageId);
@@ -136,8 +141,10 @@ public class AppRouterController {
                 return HttpResponse.ok(schema).contentType(MediaType.APPLICATION_JSON_TYPE);
             }
         } catch (Exception e) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND,
-                "App page schema not found for " + appName + "/" + pageId + " (" + amisUri + "): " + e.getMessage());
+            throw new NotFoundResponseException();
+        }
+        } catch (NotFoundResponseException e) {
+            return HttpResponse.status(HttpStatus.NOT_FOUND);
         }
     }
 
@@ -154,6 +161,7 @@ public class AppRouterController {
         @PathVariable String apiId,
         @Body @Nullable Map<String, Object> body
     ) {
+        try {
         String tenant = tenantService.resolveTenant();
         List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, namespace, appName, apiId);
         AppRouteRegistry.ApiRoute route = resolveUnique(routes, "api", namespace + "/" + appName + "/" + apiId);
@@ -223,6 +231,9 @@ public class AppRouterController {
         }
         return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), terminal, appName, apiId,
             executionUrl(namespace, appName, apiId, execution.getId())));
+        } catch (NotFoundResponseException e) {
+            return HttpResponse.status(HttpStatus.NOT_FOUND);
+        }
     }
 
     /**
@@ -316,6 +327,7 @@ public class AppRouterController {
         @PathVariable String apiId,
         @PathVariable String executionId
     ) {
+        try {
         String tenant = tenantService.resolveTenant();
         List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, namespace, appName, apiId);
         AppRouteRegistry.ApiRoute route = resolveUnique(routes, "api", namespace + "/" + appName + "/" + apiId);
@@ -323,7 +335,7 @@ public class AppRouterController {
 
         Optional<Execution> maybe = appsService.findScopedExecution(tenant, flow.getNamespace(), flow.getId(), executionId);
         if (maybe.isEmpty()) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, "Execution not found");
+            throw new NotFoundResponseException();
         }
         Execution execution = maybe.get();
 
@@ -348,6 +360,9 @@ public class AppRouterController {
             error = "Execution ended with state " + current;
         }
         return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), current, appName, apiId, null));
+        } catch (NotFoundResponseException e) {
+            return HttpResponse.status(HttpStatus.NOT_FOUND);
+        }
     }
 
     /**
@@ -374,7 +389,7 @@ public class AppRouterController {
 
     private static <T> T resolveUnique(List<T> routes, String kind, String route) {
         if (routes.isEmpty()) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, "No " + kind + " route registered for " + route);
+            throw new NotFoundResponseException();
         }
         if (routes.size() > 1) {
             throw new HttpStatusException(HttpStatus.CONFLICT,

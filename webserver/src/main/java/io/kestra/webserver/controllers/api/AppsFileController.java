@@ -70,13 +70,15 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class AppsFileController {
 
+    /** 标准 404：不带任何自定义响应体（防探测 + 用户要求 http 标准 404）。 */
+    static final class NotFoundResponseException extends RuntimeException {
+    }
+
     /** 约定根目录（namespace files 下）。 */
     public static final String CONVENTION_ROOT = "apps";
     /** 保留 appName：/apps/designer 是设计器 HTML 入口。 */
     public static final String RESERVED_DESIGNER = "designer";
 
-    /** 防探测：所有"找不到/校验失败"统一 404 + 统一 detail（不暴露路径、原因与内部信息）。 */
-    public static final String NOT_FOUND_DETAIL = "The requested app page does not exist";
 
     private static final Pattern SEGMENT = Pattern.compile("[A-Za-z0-9_-]+");
     private static final Pattern JSON_FILE_NAME = Pattern.compile("[A-Za-z0-9_-]+\\.json");
@@ -108,20 +110,25 @@ public class AppsFileController {
     @Get(uri = "/files")
     @Operation(summary = "Read an apps convention page schema file")
     public HttpResponse<String> file(@QueryValue String path) {
-        String tenant = tenantService.resolveTenant();
-        Path filePath = validatePathWithNamespace(path);
         try {
-            Namespace ns = namespace(tenant);
-            try (InputStream in = ns.getFileContent(filePath)) {
-                String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-                validateAmisRootType(content, path);
-                return HttpResponse.ok(content).contentType(MediaType.APPLICATION_JSON_TYPE);
+            String tenant = tenantService.resolveTenant();
+            Path filePath = validatePathWithNamespace(path);
+            try {
+                Namespace ns = namespace(tenant);
+                try (InputStream in = ns.getFileContent(filePath)) {
+                    String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                    validateAmisRootType(content, path);
+                    return HttpResponse.ok(content).contentType(MediaType.APPLICATION_JSON_TYPE);
+                }
+            } catch (IOException | RuntimeException e) {
+                if (e instanceof HttpStatusException) {
+                    throw (HttpStatusException) e;
+                }
+                throw new NotFoundResponseException();
             }
-        } catch (IOException | RuntimeException e) {
-            if (e instanceof HttpStatusException) {
-                throw (HttpStatusException) e;
-            }
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+        } catch (NotFoundResponseException e) {
+            // http 标准 404：无自定义响应体（防探测）
+            return (HttpResponse<String>) (HttpResponse<?>) HttpResponse.status(HttpStatus.NOT_FOUND);
         }
     }
 
@@ -132,18 +139,23 @@ public class AppsFileController {
     @Put(uri = "/files", consumes = MediaType.APPLICATION_JSON)
     @Operation(summary = "Write an apps convention page schema file")
     public HttpResponse<String> putFile(@QueryValue String path, @Body String body) {
-        String tenant = tenantService.resolveTenant();
-        Path filePath = validatePathWithNamespace(path);
-        validateJsonObject(body, path);
         try {
-            namespace(tenant).putFile(filePath,
-                new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)),
-                Namespace.Conflicts.OVERWRITE);
-        } catch (Exception e) {
-            throw new HttpStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                "Unable to write apps page file");
+            String tenant = tenantService.resolveTenant();
+            Path filePath = validatePathWithNamespace(path);
+            validateJsonObject(body, path);
+            try {
+                namespace(tenant).putFile(filePath,
+                    new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)),
+                    Namespace.Conflicts.OVERWRITE);
+            } catch (Exception e) {
+                throw new HttpStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Unable to write apps page file");
+            }
+            return HttpResponse.ok(body).contentType(MediaType.APPLICATION_JSON_TYPE);
+        } catch (NotFoundResponseException e) {
+            // http 标准 404：无自定义响应体（防探测）
+            return (HttpResponse<String>) (HttpResponse<?>) HttpResponse.status(HttpStatus.NOT_FOUND);
         }
-        return HttpResponse.ok(body).contentType(MediaType.APPLICATION_JSON_TYPE);
     }
 
     /** 顶层 schema 的合法 amis 组件 type（页面文件最外层枚举；非此集合 → 拒绝返回防敏感文件暴露）。 */
@@ -164,10 +176,10 @@ public class AppsFileController {
                 ? root.get("type").asText("")
                 : "";
         } catch (IOException e) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         if (type.isBlank() || !AMIS_ROOT_TYPE.matcher(type).matches()) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
     }
 
@@ -178,12 +190,12 @@ public class AppsFileController {
      */
     private Path validatePathWithNamespace(String path) {
         if (path == null || path.isBlank()) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         String p = path.startsWith("/") ? path.substring(1) : path;
         int slash = p.indexOf('/');
         if (slash <= 0) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         String ns = p.substring(0, slash);
         String rest = p.substring(slash + 1);
@@ -194,7 +206,7 @@ public class AppsFileController {
             // legacy: path=apps/{appName}/{...}.json (namespace omitted → root)
             conventionPath = p;
         } else {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         return validateConventionPath(conventionPath);
     }
@@ -262,34 +274,34 @@ public class AppsFileController {
      */
     static Path validateConventionPath(String path) {
         if (path == null || path.isBlank()) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         String normalized = path.startsWith("/") ? path.substring(1) : path;
         if (!normalized.startsWith(CONVENTION_ROOT) || (!normalized.equals(CONVENTION_ROOT) && !normalized.startsWith(CONVENTION_ROOT + "/"))) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         Path p;
         try {
             p = Path.of(normalized).normalize();
         } catch (InvalidPathException e) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         if (!p.startsWith(CONVENTION_ROOT) || p.getNameCount() < 3) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         // getName(0) = "apps"（约定根）；appName 是第 1 段。
         String appName = p.getName(1).toString();
         if (!SEGMENT.matcher(appName).matches() || RESERVED_DESIGNER.equals(appName)) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         for (int i = 2; i < p.getNameCount(); i++) {
             String seg = p.getName(i).toString();
             if (i == p.getNameCount() - 1) {
                 if (!JSON_FILE_NAME.matcher(seg).matches()) {
-                    throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+                    throw new NotFoundResponseException();
                 }
             } else if (!SEGMENT.matcher(seg).matches()) {
-                throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+                throw new NotFoundResponseException();
             }
         }
         return p;
@@ -298,15 +310,15 @@ public class AppsFileController {
     /** body 必须是合法 JSON 对象，否则 404（与文件不存在同响应，防探测）。 */
     private void validateJsonObject(String body, String path) {
         if (body == null || body.isBlank()) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
         try {
             JsonNode node = objectMapper.readTree(body);
             if (node == null || !node.isObject()) {
-                throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+                throw new NotFoundResponseException();
             }
         } catch (JsonProcessingException e) {
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, NOT_FOUND_DETAIL);
+            throw new NotFoundResponseException();
         }
     }
 

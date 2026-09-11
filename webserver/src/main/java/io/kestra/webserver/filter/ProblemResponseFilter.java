@@ -13,6 +13,7 @@ import io.micronaut.core.order.Ordered;
 import io.micronaut.http.HttpMethod;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.MediaType;
+import io.micronaut.http.HttpStatus;
 import io.micronaut.http.MutableHttpResponse;
 import io.micronaut.http.annotation.ResponseFilter;
 import io.micronaut.http.annotation.ServerFilter;
@@ -49,6 +50,11 @@ public class ProblemResponseFilter implements Ordered {
     @ResponseFilter
     public void fillProblemBody(@NonNull HttpRequest<?> request, @NonNull MutableHttpResponse<?> response) {
         if (400 > response.status().getCode()) {
+            return;
+        }
+        // dsh: 404 保持原响应（http 标准 404）——空 body 404 不再附加 problem 文档；
+        // 由异常处理器生成的、已带 problem body 的 404 原本就不被替换，行为不变。
+        if (response.status().getCode() == HttpStatus.NOT_FOUND.getCode()) {
             return;
         }
         if (HttpMethod.HEAD == request.getMethod() || this.isExcluded(request.getPath())) {
