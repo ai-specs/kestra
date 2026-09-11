@@ -131,9 +131,6 @@ html, body { height: 100%; margin: 0; }
 .dsh-editor-shell .Editor-inner { flex: 1; overflow: hidden; min-height: 0; }
 .dsh-editor-shell .Editor-Demo { height: 100%; display: flex; flex-direction: column; }
 .dsh-editor-shell .Editor-Demo .Editor-inner { flex: 1; }
-/* amis-editor 内部高度链：ae-Editor 自带 450px 默认高、内部各层不伸展，
-   导致预览画布（及其中渲染的 app Layout）塌缩成内容高、下方留大片死区。
-   逐层强制撑满，编辑器即可填满 Editor-inner 的全部可用高度 */
 .dsh-editor-shell .ae-Editor { height: 100% !important; }
 .dsh-editor-shell .ae-Main { height: 100% !important; }
 .dsh-editor-shell .ae-Preview-outter,
@@ -163,7 +160,7 @@ html, body { height: 100%; margin: 0; }
 .dsh-tree-node { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 16px; font-size: 13px; color: #333; cursor: pointer; }
 .dsh-tree-node:hover { background: #f2f3f7; }
 /* editor header toolbar (demo-style) */
-.Editor-header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #fff; border-bottom: 1px solid #e8e8e8; flex-wrap: wrap; }
+.Editor-header { position: relative; z-index: 100; display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #fff; border-bottom: 1px solid #e8e8e8; flex-wrap: wrap; }
 .Editor-title { font-size: 13px; color: #444; font-weight: 500; margin-right: auto; }
 .Editor-view-mode-group-container { flex-shrink: 0; }
 .Editor-view-mode-group { display: inline-flex; border: 1px solid #d4d6db; border-radius: 4px; overflow: hidden; }
@@ -171,7 +168,8 @@ html, body { height: 100%; margin: 0; }
 .Editor-view-mode-btn + .Editor-view-mode-btn { border-left: 1px solid #d4d6db; }
 .Editor-view-mode-btn:hover { background: #f2f3f7; }
 .Editor-view-mode-btn.is-active { background: #0057ff; color: #fff; }
-.Editor-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.Editor-header-actions { position: relative; z-index: 101; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.Editor-header-actions > * { flex-shrink: 0; }
 .header-action-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #d4d6db; border-radius: 4px; background: #fff; padding: 4px 14px; font-size: 13px; color: #333; cursor: pointer; text-decoration: none; line-height: 20px; }
 .header-action-btn:hover { border-color: #0057ff; color: #0057ff; }
 .header-action-btn.primary { background: #0057ff; border-color: #0057ff; color: #fff; }
