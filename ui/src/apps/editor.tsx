@@ -498,12 +498,16 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                             <button className="header-action-btn" onClick={() => setPreview(!preview)}>
                                 {preview ? "编辑" : "预览"}
                             </button>
-                            <button className="header-action-btn primary" onClick={save}>
-                                保存
-                            </button>
-                            <a className="header-action-btn exit-to-pages" href="/ui/main/pages" target="_top">
-                                退出
-                            </a>
+                            {!preview && (
+                                <>
+                                    <button className="header-action-btn primary" onClick={save}>
+                                        保存
+                                    </button>
+                                    <a className="header-action-btn exit-to-pages" href="/ui/main/pages" target="_top">
+                                        退出
+                                    </a>
+                                </>
+                            )}
                         </div>
                     </div>
                     <div className="Editor-inner">
