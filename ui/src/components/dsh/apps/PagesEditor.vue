@@ -1,18 +1,17 @@
 <template>
     <!--
         dsh fork: /ui/main/pages —— 页面管理（kestra-ui 外壳内）。
-        布局：
-          左侧 = kestra-ui 外壳直接渲染的"应用 → 一级菜单 → 子菜单"树（不在 iframe 内），
-          右侧 = 选中页面的真实预览（iframe 加载渲染页）。
-        树规则：
-          · app 型首页（index.json, type:"app"）会展开其内嵌子页面（pages 递归）作为
-            子菜单，子页面的真实地址是首页 + hash（/apps/{app}/index#/{url}），
-            不是独立渲染页；
-          · 磁盘上与该子页面 url 同名的独立文件（如 schema.json ↔ url="/schema"）
-            视为被首页子页面吸收，不重复显示；
-          · 其余独立页面保持独立渲染地址 /apps/{app}/{page}。
-        每个页面行右侧的编辑图标 → 当前窗体整页跳转全屏 amis-editor
-        （子页面/首页编辑的是 index.json：/apps/{app}/index/edit），编辑器最右侧"退出"返回本页。
+        左侧 = kestra-ui 外壳直接渲染的"应用 → 页面文件"树（不在 iframe 内），
+        右侧 = 选中页面的真实预览（iframe 加载渲染页）。
+
+        管理/交付的载体 = nsfile 下的 apps/**/*.json 文件：
+          · index.json = 首页（约定名，app 型页面）；
+          · 其余 *.json = 独立页面文件。
+        若某页面文件的名字命中首页（app 型 index.json）pages 中某个子页面的
+        url（如 schema.json ↔ url "/schema"），则它是"嵌入首页"的子页面文件——
+        真实地址是首页 + hash（/apps/{app}/index#/{url}），不是独立渲染页，
+        但编辑仍打开它自己的文件（/apps/{app}/{page}/edit）。
+        其余独立页面保持 /apps/{app}/{page} 渲染。
     -->
     <div class="dsh-pages">
         <aside class="dsh-pages-tree">
@@ -23,27 +22,25 @@
                 在 AppList 页进入某页面的「设计」入口后首次保存会自动创建文件。
             </div>
             <template v-for="row in rows" :key="row.key">
-                <div
-                    v-if="row.kind === 'app'"
-                    class="dsh-tree-node is-app"
-                >📁 {{ row.appName }}</div>
+                <div v-if="row.kind === 'app'" class="dsh-tree-node is-app">📁 {{ row.appName }}</div>
                 <div v-else-if="row.kind === 'warning'" class="dsh-tree-warning">{{ row.text }}</div>
                 <div
                     v-else
                     class="dsh-tree-row"
-                    :class="{ 'is-group': row.kind === 'group', 'is-page': row.kind !== 'group' }"
+                    :class="{ 'is-group': row.kind === 'group' }"
                     :style="{ paddingLeft: (8 + row.depth * 20) + 'px' }"
                 >
+                    <div v-if="row.kind === 'group'" class="dsh-tree-node is-group">{{ row.label }}/</div>
                     <button
-                        v-if="row.kind !== 'group'"
+                        v-else
                         class="dsh-tree-node is-page"
                         :class="{ 'is-active': selected && selected.key === row.key }"
                         @click="select(row)"
                     >
                         {{ row.label }}
                         <span v-if="row.isIndex" class="dsh-tree-index">首页</span>
+                        <span v-if="row.embedded" class="dsh-tree-embedded">嵌入</span>
                     </button>
-                    <div v-else class="dsh-tree-node is-group">{{ row.label }}/</div>
                     <a
                         v-if="row.kind !== 'group'"
                         class="dsh-page-edit"
@@ -87,31 +84,24 @@
         pages: TreeNode[]
     }
 
-    interface SubPage {
-        label: string
-        url: string
-    }
-
     interface Row {
         key: string
-        kind: "app" | "warning" | "group" | "index" | "sub" | "page"
+        kind: "app" | "warning" | "group" | "page"
         appName: string
         label: string
         depth: number
         isIndex?: boolean
+        /** 该文件是"嵌入首页"的子页面文件（命中首页 pages 的 url） */
+        embedded?: boolean
         text?: string
-        /** 预览 iframe 地址 */
         previewUrl?: string
-        /** 全屏编辑器地址 */
         editUrl?: string
     }
 
     const apps = ref<AppNode[]>([])
     const error = ref<string | null>(null)
-    // appName -> 首页（app 型）解析出的子页面（url 为 hash 路径，如 "/submit"）
-    const subPages = ref<Record<string, SubPage[]>>({})
-    // 已被首页子页面吸收的文件名集合：如 schema.json ↔ url="/schema" → "hello/schema"
-    const absorbed = ref<Set<string>>(new Set())
+    // appName -> 首页（app 型 index.json）pages 中出现的子页面 url 集合（含 "/"）
+    const homeChildUrls = ref<Record<string, Set<string>>>({})
     const selected = ref<Row | null>(null)
 
     const preview = computed(() => {
@@ -126,22 +116,23 @@
         }
     })
 
-    function walkSubPages(nodes: unknown[] | undefined, out: SubPage[]): void {
+    function collectUrls(nodes: unknown[] | undefined, out: Set<string>): void {
         if (!nodes) {
             return
         }
         for (const n of nodes) {
-            const node = n as {label?: string; url?: string; children?: unknown[]}
+            const node = n as {url?: string; children?: unknown[]}
             if (node.url) {
-                out.push({label: node.label ?? node.url, url: node.url})
+                out.add(node.url)
             }
             if (node.children) {
-                walkSubPages(node.children, out)
+                collectUrls(node.children, out)
             }
         }
     }
 
-    function loadIndexSubPages(appName: string): Promise<void> {
+    /** 读首页 index.json；若为 app 型，收集其子页面 url（用于判定"嵌入首页"的文件） */
+    function loadHomeChildUrls(appName: string): Promise<void> {
         return fetch(`/api/v1/apps/files?path=${encodeURIComponent(`apps/${appName}/index.json`)}`, {
             headers: {"Accept": "application/json"},
             credentials: "include",
@@ -152,101 +143,91 @@
                 if (s?.type !== "app" || !Array.isArray(s.pages)) {
                     return
                 }
-                const out: SubPage[] = []
-                walkSubPages(s.pages, out)
-                subPages.value[appName] = out
-                for (const p of out) {
-                    // "/schema" ↔ 文件 schema.json
-                    const fileName = p.url.replace(/^\/+/, "")
-                    if (fileName) {
-                        absorbed.value.add(`${appName}/${fileName}`)
-                    }
-                }
+                const urls = new Set<string>()
+                collectUrls(s.pages, urls)
+                homeChildUrls.value[appName] = urls
             })
             .catch(() => {
-                // 首页非 app 型或读取失败：按普通文件树展示
+                // 首页缺失/非 app 型：全部按独立页面处理
             })
     }
 
-    function buildRows(): Row[] {
-        const rows: Row[] = []
-        for (const app of apps.value) {
-            rows.push({key: `app:${app.appName}`, kind: "app", appName: app.appName, label: app.appName, depth: 0})
-            if (app.warning) {
-                rows.push({key: `warn:${app.appName}`, kind: "warning", appName: app.appName, label: "", depth: 1, text: app.warning})
-            }
-            const subs = subPages.value[app.appName] ?? []
-            let renderedIndex = false
-            for (const node of app.pages ?? []) {
-                if (node.kind === "group") {
-                    rows.push({key: `${app.appName}/g:${node.name}`, kind: "group", appName: app.appName, label: node.name, depth: 1})
-                    pushFilePages(rows, app.appName, node.children ?? [], 2)
-                    continue
-                }
-                // 首页：展开其子页面（如有）
-                if (node.index || node.name === "index") {
-                    renderedIndex = true
-                    const base = `/apps/${app.appName}/index`
-                    rows.push({
-                        key: `${app.appName}/index`,
-                        kind: "index",
-                        appName: app.appName,
-                        label: "index",
-                        depth: 1,
-                        isIndex: true,
-                        previewUrl: base,
-                        editUrl: `${base}/edit`,
-                    })
-                    for (const sub of subs) {
-                        const hash = sub.url === "/" ? "#/" : `#${sub.url.startsWith("/") ? sub.url : `/${sub.url}`}`
-                        rows.push({
-                            key: `${app.appName}/sub:${sub.url}`,
-                            kind: "sub",
-                            appName: app.appName,
-                            label: sub.label,
-                            depth: 2,
-                            previewUrl: base + hash,
-                            editUrl: `${base}/edit`,
-                        })
-                    }
-                    continue
-                }
-                // 独立页面：已被首页子页面吸收的不再显示
-                if (absorbed.value.has(`${app.appName}/${node.name}`)) {
-                    continue
-                }
-                pushFilePages(rows, app.appName, [node], 1)
-            }
-            // 首页不存在但树里有子页面？（防御：不渲染）
-            void renderedIndex
+    /** 文件名是否命中首页某个子页面 url（schema.json ↔ url "/schema"） */
+    function embeddedFor(appName: string, fileName: string): string | null {
+        const urls = homeChildUrls.value[appName]
+        if (!urls) {
+            return null
         }
-        return rows
+        const matched = [...urls].find(u => u.replace(/^\/+/, "") === fileName)
+        if (!matched) {
+            return null
+        }
+        return matched
     }
 
     function pushFilePages(rows: Row[], appName: string, nodes: TreeNode[], depth: number): void {
         for (const n of nodes) {
-            if (absorbed.value.has(`${appName}/${n.name}`)) {
-                continue
-            }
             if (n.kind === "group") {
                 rows.push({key: `${appName}/g:${n.name}`, kind: "group", appName, label: n.name, depth})
                 pushFilePages(rows, appName, n.children ?? [], depth + 1)
-            } else {
-                const base = `/apps/${appName}/${n.name}`
+                continue
+            }
+            // 首页：约定名 index.json
+            if (n.index || n.name === "index") {
+                const base = `/apps/${appName}/index`
+                rows.push({
+                    key: `${appName}/index`,
+                    kind: "page",
+                    appName,
+                    label: n.name,
+                    depth,
+                    isIndex: true,
+                    previewUrl: base,
+                    editUrl: `${base}/edit`,
+                })
+                continue
+            }
+            // 其他页面文件：若命中首页子页面 url → "嵌入首页"，真实地址 = 首页 + hash
+            const hit = embeddedFor(appName, n.name)
+            if (hit) {
+                const base = `/apps/${appName}/index`
+                const hash = hit === "/" ? "#/" : `#${hit.startsWith("/") ? hit : `/${hit}`}`
                 rows.push({
                     key: `${appName}/p:${n.name}`,
                     kind: "page",
                     appName,
                     label: n.name,
                     depth,
-                    previewUrl: base,
-                    editUrl: `${base}/edit`,
+                    embedded: true,
+                    previewUrl: base + hash,
+                    editUrl: `/apps/${appName}/${n.name}/edit`,
                 })
+                continue
             }
+            const base = `/apps/${appName}/${n.name}`
+            rows.push({
+                key: `${appName}/p:${n.name}`,
+                kind: "page",
+                appName,
+                label: n.name,
+                depth,
+                previewUrl: base,
+                editUrl: `${base}/edit`,
+            })
         }
     }
 
-    const rows = computed<Row[]>(buildRows)
+    const rows = computed<Row[]>(() => {
+        const out: Row[] = []
+        for (const app of apps.value) {
+            out.push({key: `app:${app.appName}`, kind: "app", appName: app.appName, label: app.appName, depth: 0})
+            if (app.warning) {
+                out.push({key: `warn:${app.appName}`, kind: "warning", appName: app.appName, label: "", depth: 1, text: app.warning})
+            }
+            pushFilePages(out, app.appName, app.pages ?? [], 1)
+        }
+        return out
+    })
 
     function select(row: Row) {
         if (row.kind === "group" || row.kind === "app" || row.kind === "warning") {
@@ -269,10 +250,8 @@
                 throw new Error(`HTTP ${resp.status}`)
             }
             apps.value = (await resp.json()) as AppNode[]
-            // 解析每个 app 的首页子页面（并行）
-            await Promise.all(apps.value.map(a => loadIndexSubPages(a.appName)))
-            // 默认选中第一个可预览行
-            const first = rows.value.find(r => r.kind === "index" || r.kind === "sub" || r.kind === "page")
+            await Promise.all(apps.value.map(a => loadHomeChildUrls(a.appName)))
+            const first = rows.value.find(r => r.kind === "page")
             if (first) {
                 select(first)
             }
@@ -344,6 +323,14 @@
         color: var(--ks-primary, #1677ff);
         font-size: 11px;
         border: 1px solid var(--ks-primary, #1677ff);
+        border-radius: 2px;
+        padding: 0 3px;
+        margin-left: 6px;
+    }
+    .dsh-tree-node .dsh-tree-embedded {
+        color: #8c8c8c;
+        font-size: 11px;
+        border: 1px dashed #bfbfbf;
         border-radius: 2px;
         padding: 0 3px;
         margin-left: 6px;
