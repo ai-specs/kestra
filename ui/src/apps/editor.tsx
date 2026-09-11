@@ -506,6 +506,9 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
                             <a className="header-action-btn exit-btn" href={`/apps/${appName}/${page}`} target="_top">
                                 预览
                             </a>
+                            <a className="header-action-btn exit-to-pages" href="/ui/main/pages" target="_top">
+                                退出
+                            </a>
                         </div>
                     </div>
                     <div className="Editor-inner">
