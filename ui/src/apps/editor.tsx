@@ -62,6 +62,10 @@ function ensureAmisStyle() {
 .dsh-editor-shell .Editor-inner { flex: 1; overflow: hidden; min-height: 0; }
 .dsh-editor-shell .Editor-Demo { height: 100%; display: flex; flex-direction: column; }
 .dsh-editor-shell .Editor-Demo .Editor-inner { flex: 1; }
+/* 预览画布渲染 app 型页面（cxd-Layout 全出血侧栏）时去留白：
+   ae-Preview-body 的 16px 内边距会把深色侧栏背景盒右推，而固定定位的
+   侧栏菜单仍锚在视口 x=0 —— 菜单左端落在白底上（白字白底不可见） */
+.dsh-editor-shell .ae-Preview-body:has(.cxd-Layout) { padding: 0 !important; }
 .dsh-designer { display: flex; min-height: 0; flex: 1; overflow: hidden; }
 .dsh-designer-tree { width: 260px; min-width: 260px; background: #fff; border-right: 1px solid #e8e8e8; overflow-y: auto; padding: 12px 0; }
 .dsh-designer-tree h3 { font-size: 13px; color: #666; padding: 0 16px; margin: 8px 0 4px; }
