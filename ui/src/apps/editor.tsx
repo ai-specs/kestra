@@ -60,7 +60,8 @@ function ensureAmisStyle() {
 .dsh-editor-root:not(.is-embedded) .dsh-editor-shell { height: 100vh; }
 .dsh-editor-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
 .dsh-editor-shell .Editor-inner { flex: 1; overflow: hidden; min-height: 0; }
-.dsh-editor-shell .Editor-Demo { height: 100%; }
+.dsh-editor-shell .Editor-Demo { height: 100%; display: flex; flex-direction: column; }
+.dsh-editor-shell .Editor-Demo .Editor-inner { flex: 1; }
 .dsh-designer { display: flex; min-height: 0; flex: 1; overflow: hidden; }
 .dsh-designer-tree { width: 260px; min-width: 260px; background: #fff; border-right: 1px solid #e8e8e8; overflow-y: auto; padding: 12px 0; }
 .dsh-designer-tree h3 { font-size: 13px; color: #666; padding: 0 16px; margin: 8px 0 4px; }
@@ -158,7 +159,8 @@ function PageEditor({appName, page, embedded}: {appName: string; page: string; e
     const [schema, setSchema] = useState<unknown>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [preview, setPreview] = useState(true);
+    // 编辑入口默认编辑模式（组件库 + 属性面板）；预览经头部按钮切换
+    const [preview, setPreview] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const path = filePath(appName, page);
 
