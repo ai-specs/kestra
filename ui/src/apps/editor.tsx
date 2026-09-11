@@ -161,13 +161,6 @@ html, body { height: 100%; margin: 0; }
     overflow: hidden;
 }
 .dsh-editor-shell .ae-Preview-body .cxd-AsideNav-itemIcon { flex-shrink: 0; margin: 0; }
-.dsh-designer { display: flex; min-height: 0; flex: 1; overflow: hidden; }
-.dsh-designer-tree { width: 260px; min-width: 260px; background: #fff; border-right: 1px solid #e8e8e8; overflow-y: auto; padding: 12px 0; }
-.dsh-designer-tree h3 { font-size: 13px; color: #666; padding: 0 16px; margin: 8px 0 4px; }
-.dsh-designer-main { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
-.dsh-designer-main > .Editor-Demo { flex: 1; min-height: 0; }
-.dsh-tree-node { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 16px; font-size: 13px; color: #333; cursor: pointer; }
-.dsh-tree-node:hover { background: #f2f3f7; }
 /* editor header toolbar (demo-style): title left / view-mode centered / actions right */
 .Editor-header { position: relative; z-index: 100; display: flex; align-items: center; padding: 8px 14px; background: #fff; border-bottom: 1px solid #e8e8e8; flex-wrap: wrap; }
 .Editor-title { flex: 1 1 565px; font-size: 13px; color: #444; font-weight: 500; min-width: 0; }
@@ -190,25 +183,10 @@ html.dark .shortcut-icon-btn:hover { color: #5ab0ff; }
 .header-action-btn:hover { border-color: #b6bac2; color: #4a4e55; background: #f7f8fa; }
 .header-action-btn.primary { background: #0057ff; border-color: #0057ff; color: #fff; }
 .header-action-btn.primary:hover { background: #0047d0; color: #fff; }
-.dsh-tree-node.is-active { background: #e8f1ff; color: #1677ff; }
-.dsh-tree-node.is-app { font-weight: 600; }
-.dsh-tree-node.is-page { padding-left: 36px; }
-.dsh-tree-node.is-page3 { padding-left: 56px; }
-.dsh-tree-node .dsh-tree-index { color: #1677ff; font-size: 11px; border: 1px solid #1677ff; border-radius: 2px; padding: 0 3px; margin-left: 6px; }
-.dsh-tree-empty { padding: 24px 16px; color: #999; font-size: 13px; line-height: 1.8; }
-.dsh-tree-warning { margin: 4px 12px; padding: 6px 8px; background: #fff7e6; border: 1px solid #ffd591; border-radius: 4px; color: #d46b08; font-size: 12px; }
 .dsh-designer-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; color: #999; font-size: 14px; min-height: 0; }
 .dsh-editor-root.is-embedded .dsh-designer-placeholder { flex: 1; }
 /* dark theme compatibility: amis/editor-core surfaces follow dark.css :root variables,
    but the dsh shell chrome (our own classes) needs explicit dark overrides */
-html.dark .dsh-designer-tree { background: #1d1e22; border-right-color: #303136; }
-html.dark .dsh-designer-tree h3 { color: #9aa0aa; }
-html.dark .dsh-tree-node { color: #d5d7dc; }
-html.dark .dsh-tree-node:hover { background: #282a30; }
-html.dark .dsh-tree-node.is-active { background: #12253f; color: #5ab0ff; }
-html.dark .dsh-tree-node .dsh-tree-index { color: #5ab0ff; border-color: #5ab0ff; }
-html.dark .dsh-tree-empty { color: #7a7f88; }
-html.dark .dsh-tree-warning { background: #2b2410; border-color: #6b5412; color: #e8b339; }
 html.dark .Editor-header { background: #1d1e22; border-bottom-color: #303136; }
 html.dark .Editor-title { color: #c9ccd2; }
 html.dark .Editor-view-mode-group { background-color: #303136; }
@@ -386,8 +364,8 @@ function toast(msg: string, background = "#1677ff") {
     setTimeout(() => el.remove(), 4000);
 }
 
-// ---- single-page editor (also used inside designer mode) ----
-function PageEditor({path, embedded, createIfMissing}: {path: string; embedded?: boolean; createIfMissing?: boolean}) {
+// ---- page editor (full-screen, /apps/pages-edit#ns/path) ----
+function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
     const [schema, setSchema] = useState<unknown>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -415,13 +393,8 @@ function PageEditor({path, embedded, createIfMissing}: {path: string; embedded?:
             if (r.ok) {
                 setSchema(r.data);
             } else if (r.status === 404) {
-                // 约定外/未创建页面：Designer 内初始化空页、首次保存创建文件（§6.4）；
-                // pages-edit 入口要求"存在才加载"——不存在则报错（用户指定契约）。
-                if (createIfMissing) {
-                    setSchema({type: "page", body: []});
-                } else {
-                    setError(`页面文件不存在：${path}（HTTP 404）`);
-                }
+                // pages-edit 契约"存在才加载"——不存在/校验失败统一 404，报错不建空页。
+                setError(`页面文件不存在：${path}（HTTP 404）`);
             } else {
                 setError(r.msg);
             }
@@ -613,148 +586,11 @@ function PageEditor({path, embedded, createIfMissing}: {path: string; embedded?:
     );
 }
 
-// ---- page tree (designer mode) ----
-interface TreeNode {
-    name: string;
-    kind: "page" | "group";
-    index?: boolean;
-    children?: TreeNode[];
-}
-
-interface AppNode {
-    appName: string;
-    namespace?: string | null;
-    warning?: string | null;
-    pages: TreeNode[];
-}
-
-function Designer({embedded}: {embedded?: boolean}) {
-    const [apps, setApps] = useState<AppNode[] | null>(null);
-    const [selected, setSelected] = useState<{appName: string; ns?: string | null; page: string} | null>(null);
-    const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            const r = await apiRequest("/api/v1/apps/pages", "GET");
-            if (cancelled) {
-                return;
-            }
-            if (r.ok) {
-                setApps(r.data as AppNode[]);
-            } else {
-                setError(r.msg);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-
-    function selectPage(app: AppNode, page: string) {
-        setSelected({appName: app.appName, ns: app.namespace ?? null, page});
-    }
-
-    function renderChildren(app: AppNode, nodes: TreeNode[] | undefined, depth: number) {
-        if (!nodes || nodes.length === 0) {
-            return null;
-        }
-        return nodes.map(node => {
-            const cls = depth === 0 ? "dsh-tree-node is-page" : "dsh-tree-node is-page3";
-            if (node.kind === "page") {
-                const active = selected?.appName === app.appName && selected.page === node.name;
-                return (
-                    <button
-                        key={node.name}
-                        className={`${cls} ${active ? "is-active" : ""}`}
-                        onClick={() => selectPage(app, node.name)}
-                    >
-                        {node.name}
-                        {node.index ? <span className="dsh-tree-index">首页</span> : null}
-                    </button>
-                );
-            }
-            // group: its own page (if same-name file exists → kind was upgraded to "page"
-            // with children; a pure dir stays "group") — render the folder label.
-            return (
-                <div key={node.name}>
-                    <div className="dsh-tree-node">{node.name}/</div>
-                    {renderChildren(app, node.children, depth + 1)}
-                </div>
-            );
-        });
-    }
-
-    if (error) {
-        return <div className="dsh-designer-placeholder">{error}</div>;
-    }
-    if (apps === null) {
-        return <div className="dsh-designer-placeholder">加载中…</div>;
-    }
-
-    return (
-        <div className={`dsh-editor-root AMISCSSWrapper ${embedded ? "is-embedded" : ""}`}>
-            <div className="dsh-designer">
-                <div className="dsh-designer-tree">
-                    <h3>App 设计器</h3>
-                    {apps.length === 0 && <div className="dsh-tree-empty">约定目录 apps/ 下暂无页面。<br/>在目录页进入某页面的「设计」入口后首次保存会自动创建文件。</div>}
-                    {apps.map(app => (
-                        <div key={app.appName}>
-                            <div className="dsh-tree-node is-app">📁 {app.appName}</div>
-                            {app.warning ? <div className="dsh-tree-warning">{app.warning}</div> : null}
-                            {renderChildren(app, app.pages, 0)}
-                        </div>
-                    ))}
-                </div>
-                <div className="dsh-designer-main">
-                    {selected ? (
-                        <PageEditor path={`${selected.ns ?? "dsh.apps"}/apps/${selected.appName}/${selected.page}.json`} embedded={embedded} createIfMissing />
-                    ) : (
-                        <div className="dsh-designer-placeholder">选择左侧一个页面开始编辑</div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-}
-
-// ---- legacy SPA-inline mount contract ----
-// Kept for compatibility; the SPA surface (/ui/main/pages) now embeds the editor as an
-// <iframe> instead (true CSS isolation), so PagesEditor.vue no longer calls this.
-export interface MountEditorOptions {
-    mode: "designer" | "page";
-    appName?: string;
-    page?: string;
-    /** true when mounted inside the kestra-ui SPA (height 100% of the content area). */
-    embedded?: boolean;
-}
-
-export function mountEditor(container: HTMLElement, opts: MountEditorOptions): () => void {
-    applyEditorTheme(resolveTheme());
-    const root = createRoot(container);
-    if (opts.mode === "designer") {
-        root.render(<Designer embedded={opts.embedded} />);
-    } else {
-        root.render(<PageEditor appName={opts.appName ?? "hello"} page={opts.page ?? "index"} embedded={opts.embedded} />);
-    }
-    return () => {
-        root.unmount();
-        // the injected stylesheet must not leak into other SPA pages
-        removeEditorStyle();
-    };
-}
-
-// ---- boot (standalone entry: /apps/designer, /apps/pages-edit#ns/path, legacy /apps/{app}/{page}/edit) ----
-// The SPA-inline bundle imports this module too (PagesEditor.vue → mountEditor); boot must
-// only run on the standalone entry URLs, otherwise it would grab the SPA's own #app root.
+// ---- boot (standalone entry: /apps/pages-edit#ns/path only) ----
+// This module may be imported by other bundles; boot must only run on the standalone
+// entry URL, otherwise it would grab that page's own #app root.
 function boot() {
-    const path = window.location.pathname;
-    const isStandalone =
-        path === "/apps/designer" ||
-        path.startsWith("/apps/designer/") ||
-        path === "/apps/pages-edit" ||
-        /^\/apps\/[^/]+\/(.+?)\/edit$/.test(path);
-    if (!isStandalone) {
+    if (window.location.pathname !== "/apps/pages-edit") {
         return;
     }
 
@@ -766,37 +602,16 @@ function boot() {
 
     const root = document.getElementById("app")!;
 
-    // Designer entry: /apps/designer (reserved appName, UiAppController routes it here)
-    if (path === "/apps/designer" || path.startsWith("/apps/designer/")) {
-        createRoot(root).render(<Designer />);
-        return;
-    }
-
     // pages-edit entry: /apps/pages-edit#dsh.apps/apps/{app}/{page}.json
     // The hash carries "{namespace}/apps/{...}.json": the first segment is the namespace
     // (validated against the root namespace by the files endpoint), the rest is the file
     // path under the convention root. Any existing amis json file is editable.
-    if (path === "/apps/pages-edit") {
-        const raw = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-        if (!/^[^/\s]+\/apps\/[A-Za-z0-9_\-./]+\.json$/.test(raw)) {
-            root.innerText = "无效编辑地址。期望 /apps/pages-edit#dsh.apps/apps/{app}/{page}.json";
-            return;
-        }
-        createRoot(root).render(<PageEditor path={raw} />);
+    const raw = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+    if (!/^[^/\s]+\/apps\/[A-Za-z0-9_\-./]+\.json$/.test(raw)) {
+        root.innerText = "无效编辑地址。期望 /apps/pages-edit#dsh.apps/apps/{app}/{page}.json";
         return;
     }
-
-    // Legacy single-page edit: /apps/{app}/{page}/edit (kept for compatibility;
-    // namespace is omitted → the files endpoint falls back to the root namespace).
-    const editMatch = path.match(/^\/apps\/([^/]+)\/(.+?)\/edit$/);
-    if (editMatch) {
-        const appName = decodeURIComponent(editMatch[1]);
-        const page = decodeURIComponent(editMatch[2]);
-        createRoot(root).render(<PageEditor path={`apps/${appName}/${page}.json`} />);
-        return;
-    }
-
-    root.innerText = "Invalid editor path. Expected /apps/designer, /apps/pages-edit#ns/apps/{app}/{page}.json or /apps/{app}/{page}/edit";
+    createRoot(root).render(<PageEditor path={raw} />);
 }
 
 void boot();
