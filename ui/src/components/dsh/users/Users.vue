@@ -144,14 +144,14 @@
                     <KsInput v-model="form.description" data-test="user-form-description" />
                 </KsFormItem>
                 <KsFormItem v-if="!editing && form.type === 'human'" :label="t('dsh.users.password')">
-                    <KsInput v-model="form.password" type="password"\1showPassword\2data-test="user-form-password" />
+                    <KsInput v-model="form.password" type="password" showPassword data-test="user-form-password" />
                 </KsFormItem>
                 <KsFormItem v-if="!editing && form.type === 'machine'" :label="t('dsh.users.secret')">
-                    <KsInput v-model="form.secret"\1showPassword\2data-test="user-form-secret"
+                    <KsInput v-model="form.secret" showPassword data-test="user-form-secret"
                         :placeholder="t('dsh.users.secretPlaceholder')" />
                 </KsFormItem>
                 <KsFormItem :label="t('dsh.users.roles')">
-                    <KsSelect v-model="form.roles" multiple\1allowCreate\2filterable class="user-roles-select">
+                    <KsSelect v-model="form.roles" multiple allowCreate filterable class="user-roles-select">
                         <KsOption v-for="role in availableRoles" :key="role" :label="role" :value="role" />
                     </KsSelect>
                 </KsFormItem>
@@ -179,7 +179,7 @@
                     :label="passwordTarget && passwordTarget.type === 'machine' ? t('dsh.users.newSecret') : t('dsh.users.newPassword')"
                     required
                 >
-                    <KsInput v-model="newPassword" type="password"\1showPassword\2data-test="password-input" />
+                    <KsInput v-model="newPassword" type="password" showPassword data-test="password-input" />
                 </KsFormItem>
             </KsForm>
             <template #footer>

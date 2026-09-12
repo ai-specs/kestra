@@ -60,13 +60,6 @@ export default defineConfig(({mode}) => {
             jsx: "automatic",
             jsxImportSource: "react",
         },
-        css: {
-            lightningcss: {
-                // amis-editor-core/style.css carries legacy IE media-query hacks
-                // (@media (min-width: 0\0)) that LightningCSS minify rejects — strip them.
-                errorRecovery: true,
-            },
-        },
         build: {
             outDir: "../webserver/src/main/resources/ui",
             // amis-editor-core/style.css carries legacy IE media-query hacks
@@ -175,6 +168,10 @@ export default defineConfig(({mode}) => {
         customLogger: logger,
         css: {
             devSourcemap: true,
+            // amis-editor-core/style.css carries legacy IE media-query hacks
+            // (@media (min-width: 0\0)) that LightningCSS rejects — strip them. (Previously a
+            // duplicate `css` key silently shadowed by this one; merged 2026-09-12.)
+            lightningcss: {errorRecovery: true},
             preprocessorOptions: {
                 scss: {
                     silenceDeprecations: ["color-functions", "global-builtin", "if-function", "import"],
