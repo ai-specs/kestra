@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -92,9 +93,6 @@ public class AppsFileController {
     private AppsFilesConfiguration appsFiles;
 
     @Inject
-    private AppRouteRegistry routeRegistry;
-
-    @Inject
     private ObjectMapper objectMapper;
 
     /**
@@ -104,9 +102,14 @@ public class AppsFileController {
      * 返回前校验最外层 type 为 amis schema 合法枚举——非页面 JSON（配置/数据/敏感文件）拒绝返回（404，与不存在同响应，防探测）。
      */
     @Get(uri = "/files")
-    @Operation(summary = "Read an apps convention page schema file")
-    public HttpResponse<String> file(@QueryValue String path) {
+    @Operation(summary = "Read an apps convention page schema file, or list it when path ends with '/'")
+    public HttpResponse<?> file(@QueryValue String path) {
             String tenant = tenantService.resolveTenant();
+            // 目录列举（path 以 / 结尾）：只返回该目录下的页面 json 文件相对路径（文件名清单，
+            // 无内容、无全局树——范围由查询参数显式限定，替代已废弃的 /apps/pages 全局树端点）。
+            if (path != null && path.endsWith("/")) {
+                return listDir(tenant, path);
+            }
             Path filePath = validatePathWithNamespace(path);
             try {
                 Namespace ns = namespace(tenant);
@@ -197,57 +200,37 @@ public class AppsFileController {
         return validateConventionPath(conventionPath);
     }
 
-    /**
-     * GET /api/v1/apps/pages — 目录扫描约定根，返回页面树。不查 flow、不查 trigger。
-     */
-    @Get(uri = "/pages")
-    @Operation(summary = "List the apps page tree (convention directory scan)")
-    public List<Map<String, Object>> pages() {
-        String tenant = tenantService.resolveTenant();
+    /** 目录列举：path={ns}/apps/{app}/ → 该 app 下全部页面 json 的相对路径（排序）。 */
+    private HttpResponse<List<String>> listDir(String tenant, String path) {
+        Path dir = validateDirPath(path);
         Namespace ns = namespace(tenant);
-        List<NamespaceFileMetadata> all;
+        List<String> files = new ArrayList<>();
         try {
-            all = ns.children("/" + CONVENTION_ROOT, true);
+            for (NamespaceFileMetadata m : ns.children("/" + dir.toString(), true)) {
+                String rel = m.getPath();
+                if (rel.startsWith("/")) {
+                    rel = rel.substring(1);
+                }
+                if (rel.endsWith(".json")) {
+                    files.add(rel);
+                }
+            }
         } catch (IOException e) {
             throw new HttpStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                "Unable to list apps pages: " + e.getMessage());
+                "Unable to list app pages: " + e.getMessage());
         }
+        Collections.sort(files);
+        return HttpResponse.ok(files).contentType(MediaType.APPLICATION_JSON_TYPE);
+    }
 
-        // 注册表 flow namespace（P0 告警：flow 与约定根不同 namespace → 保存/渲染两个文件）。
-        Map<String, String> flowNamespaces = new TreeMap<>();
-        for (AppRouteRegistry.AppSummary s : routeRegistry.apps(tenant)) {
-            flowNamespaces.putIfAbsent(s.appName(), s.namespace());
+    /** 目录校验：{ns}/apps/{app}/（与 validatePathWithNamespace 同规则，但允许目录形态）。 */
+    private Path validateDirPath(String path) {
+        String trimmed = path == null ? "" : path.trim();
+        if (!trimmed.endsWith("/") || trimmed.length() < 2) {
+            throw new NotFoundResponseException();
         }
-
-        // 按一级 App 目录分组（跳过保留名 designer；一级目录本身不作为节点）。
-        Map<String, List<String>> byApp = new TreeMap<>();
-        for (NamespaceFileMetadata m : all) {
-            String rel = stripRoot(m.getPath());
-            if (rel == null || rel.isEmpty()) {
-                continue;
-            }
-            String app = firstSegment(rel);
-            if (app == null || RESERVED_DESIGNER.equals(app)) {
-                continue;
-            }
-            byApp.computeIfAbsent(app, k -> new ArrayList<>()).add(rel);
-        }
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Map.Entry<String, List<String>> e : byApp.entrySet()) {
-            String appName = e.getKey();
-            Map<String, Object> appNode = new LinkedHashMap<>();
-            appNode.put("appName", appName);
-            String flowNs = flowNamespaces.get(appName);
-            appNode.put("namespace", flowNs);
-            if (flowNs != null && !flowNs.equals(appsFiles.getRootNamespace())) {
-                appNode.put("warning", "flow namespace '" + flowNs + "' != apps.files.root-namespace '"
-                    + appsFiles.getRootNamespace() + "' — 渲染读的与编辑器写的不是同一个文件，请核对配置");
-            }
-            appNode.put("pages", buildPagesFromRelative(e.getValue()));
-            result.add(appNode);
-        }
-        return result;
+        return validatePathWithNamespace(trimmed.substring(0, trimmed.length() - 1) + "/__dir__.json")
+            .getParent();
     }
 
     // ───────────────────────── helpers（静态可测） ─────────────────────────
@@ -308,111 +291,13 @@ public class AppsFileController {
         }
     }
 
-    /**
-     * 从约定根相对路径列表构建页面树（纯函数，便于单测）。
-     * 输入形如 {@code ["hello/index.json", "hello/x/", "hello/x/y.json"]}。
-     * 节点：{name, kind: "page"|"group", index?: true, children: [...]}；
-     * 同名文件 + 目录合并为同一节点（文件 = 自身页，目录 = children）；index.json 置顶。
-     */
-    static List<Map<String, Object>> buildPagesFromRelative(List<String> relativePaths) {
-        Map<String, Map<String, Object>> nodes = new TreeMap<>();
-        for (String rel : relativePaths) {
-            if (rel == null || rel.isBlank()) {
-                continue;
-            }
-            String[] parts = rel.split("/");
-            if (parts.length < 2) {
-                continue; // 一级目录（app 本身）
-            }
-            if (parts.length == 2) {
-                String name = parts[1];
-                boolean dir = name.endsWith("/");
-                String clean = dir ? name.substring(0, name.length() - 1) : name;
-                if (clean.isEmpty()) {
-                    continue;
-                }
-                if (dir) {
-                    Map<String, Object> node = nodes.computeIfAbsent(clean, AppsFileController::groupNode);
-                    node.putIfAbsent("children", new ArrayList<>());
-                } else if (clean.endsWith(".json")) {
-                    String base = clean.substring(0, clean.length() - ".json".length());
-                    if (base.isEmpty()) {
-                        continue;
-                    }
-                    Map<String, Object> node = nodes.computeIfAbsent(base, AppsFileController::pageNode);
-                    node.put("kind", "page");
-                    if ("index".equals(base)) {
-                        node.put("index", true);
-                    }
-                }
-            } else if (parts.length == 3) {
-                String group = parts[1].endsWith("/") ? parts[1].substring(0, parts[1].length() - 1) : parts[1];
-                String file = parts[2];
-                if (!file.endsWith(".json")) {
-                    continue;
-                }
-                String base = file.substring(0, file.length() - ".json".length());
-                if (base.isEmpty() || group.isEmpty()) {
-                    continue;
-                }
-                Map<String, Object> node = nodes.computeIfAbsent(group, AppsFileController::groupNode);
-                node.putIfAbsent("children", new ArrayList<>());
-                @SuppressWarnings("unchecked")
-                List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("children");
-                Map<String, Object> child = pageNode(base);
-                children.add(child);
-            }
-        }
-        List<Map<String, Object>> out = new ArrayList<>(nodes.values());
-        for (Map<String, Object> node : out) {
-            Object children = node.get("children");
-            if (children instanceof List<?> list && !list.isEmpty()) {
-                list.sort(Comparator.comparing((Object o) -> (String) ((Map<?, ?>) o).get("name")));
-            }
-        }
-        out.sort(Comparator
-            .comparing((Map<String, Object> n) -> Boolean.TRUE.equals(n.get("index")) ? 0 : 1)
-            .thenComparing(n -> (String) n.get("name")));
-        return out;
-    }
+    
 
-    private static Map<String, Object> pageNode(String name) {
-        Map<String, Object> node = new LinkedHashMap<>();
-        node.put("name", name);
-        node.put("kind", "page");
-        node.put("children", new ArrayList<>());
-        return node;
-    }
-
-    private static Map<String, Object> groupNode(String name) {
-        Map<String, Object> node = new LinkedHashMap<>();
-        node.put("name", name);
-        node.put("kind", "group");
-        node.put("children", new ArrayList<>());
-        return node;
-    }
 
     private Namespace namespace(String tenant) {
         return namespaceFactory.of(tenant, appsFiles.getRootNamespace(), storageInterface);
     }
 
-    /** "/apps/hello/index.json" → "hello/index.json"；"/apps/hello/" → "hello/"。 */
-    private static String stripRoot(String path) {
-        if (path == null || path.isBlank()) {
-            return null;
-        }
-        String p = path.startsWith("/") ? path.substring(1) : path;
-        if (p.equals(CONVENTION_ROOT) || p.equals(CONVENTION_ROOT + "/")) {
-            return "";
-        }
-        if (!p.startsWith(CONVENTION_ROOT + "/")) {
-            return null;
-        }
-        return p.substring(CONVENTION_ROOT.length() + 1);
-    }
+    
 
-    private static String firstSegment(String relativePath) {
-        int slash = relativePath.indexOf('/');
-        return slash < 0 ? relativePath : relativePath.substring(0, slash);
-    }
 }

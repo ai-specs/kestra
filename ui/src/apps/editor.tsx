@@ -396,15 +396,6 @@ function splitPath(path: string): {ns: string; appName: string} | null {
     return {ns, appName: rel.slice(0, appSlash)};
 }
 
-// 树端点节点 {name, kind, children} → 递归收集页面文件（相对 app，带 .json）
-function collectPages(nodes: Array<{name?: string; kind?: string; children?: unknown[]}> | undefined, prefix: string, out: string[]): void {
-    for (const n of nodes ?? []) {
-        if (n.kind === "page" && n.name) {
-            out.push((prefix ? prefix + "/" : "") + n.name + ".json");
-        }
-        collectPages(n.children as Array<{name?: string; kind?: string; children?: unknown[]}> | undefined, prefix ? prefix + "/" + n.name : String(n.name), out);
-    }
-}
 
 function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
     // 下拉切换页面：path 仅作初值，currentPath 驱动加载；hash 同步便于分享/刷新
@@ -437,7 +428,8 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
         return () => window.removeEventListener("hashchange", onHash);
     }, [path]);
 
-    // 当前应用的全部页面（下拉数据）：/api/v1/apps/pages 树按 (ns, appName) 过滤
+    // 当前应用的页面（下拉数据）：files 端点目录列举（查询参数显式限定 ns/apps/{app}/，
+    // 只返回该 app 的 json 文件相对路径——hash 不达服务器，故由页面解析后以 query 传递）
     useEffect(() => {
         let cancelled = false;
         const scope = splitPath(currentPath);
@@ -446,20 +438,15 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
             return;
         }
         (async () => {
-            const r = await apiRequest("/api/v1/apps/pages", "GET");
+            const r = await apiRequest(`/api/v1/apps/files?path=${encodeURIComponent(`${scope.ns}/apps/${scope.appName}/`)}`, "GET");
             if (cancelled) {
                 return;
             }
-            const out: string[] = [];
-            if (r.ok && Array.isArray(r.data)) {
-                for (const app of r.data as Array<{appName?: string; pages?: unknown[]}>) {
-                    if (app.appName === scope.appName) {
-                        collectPages(app.pages as Array<{name?: string; kind?: string; children?: unknown[]}>, "", out);
-                        break;
-                    }
-                }
-            }
-            setPageOptions(out.map(rel => ({value: `${scope.ns}/apps/${scope.appName}/${rel}`, label: rel})));
+            const files = r.ok && Array.isArray(r.data) ? (r.data as string[]) : [];
+            setPageOptions(files.map(rel => {
+                const stripped = rel.replace(/^apps\/[^/]+\//, "");
+                return {value: `${scope.ns}/apps/${scope.appName}/${stripped}`, label: stripped};
+            }));
         })();
         return () => {
             cancelled = true;
