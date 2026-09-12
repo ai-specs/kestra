@@ -16,7 +16,6 @@ import FileTreeOutline from "vue-material-design-icons/FileTreeOutline.vue"
 import LayersTripleOutline from "vue-material-design-icons/LayersTripleOutline.vue"
 import PlayOutline from "vue-material-design-icons/PlayOutline.vue"
 import FileDocumentOutline from "vue-material-design-icons/FileDocumentOutline.vue"
-import FileDocumentMultipleOutline from "vue-material-design-icons/FileDocumentMultipleOutline.vue"
 import FlaskOutline from "vue-material-design-icons/FlaskOutline.vue"
 import PackageVariantClosed from "vue-material-design-icons/PackageVariantClosed.vue"
 import AlertCircleOutline from "vue-material-design-icons/AlertCircleOutline.vue"
@@ -195,19 +194,6 @@ export function useLeftMenu() {
                         },
                         icon: {
                             element: FolderOpenOutline,
-                        },
-                    },
-                    {
-                        // dsh fork: 可视化页面设计器（/ui/main/pages，SPA 内嵌 amis-editor，
-                        // 与"资产"同级别）。编辑器页面树在 SPA 内成为中部菜单。
-                        id: "pages",
-                        title: "页面",
-                        routes: routeStartWith("pages"),
-                        href: {
-                            name: "pages/list",
-                        },
-                        icon: {
-                            element: FileDocumentMultipleOutline,
                         },
                     },
                     {

@@ -20,8 +20,6 @@ const routes: KestraRouteRecord[] = [
     //The 应用程序 list is a SPA view; app pages themselves live at the standalone
     ///apps/{app}/{page} URLs (UiAppController + apps.html entry), never under /ui/.
     {name: "apps/list", path: "/:tenant?/apps", component: () => import("../components/dsh/apps/AppList.vue")},
-    //dsh 可视化页面设计器：SPA 内嵌 amis-editor（套 kestra-ui 外壳，编辑器页面树成为中部菜单）。
-    {name: "pages/list", path: "/:tenant?/pages", component: () => import("../components/dsh/apps/PagesEditor.vue")},
 
     //Dashboards
     {
