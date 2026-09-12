@@ -16,5 +16,11 @@
     "src/**/*.tsx",
     "src/**/*.vue",
     "src/**/*.json",
+  ],
+  // src/apps 是 vite.apps.config 独立构建的 React 入口（amis 编辑器/画布），不参与
+  // Vue 工程类型检查——React JSX 在 vue-tsc 的 Vue JSX 命名空间下必然误报
+  // （ReservedProps/$props 签名），其构建正确性由 vite apps build 保证。
+  "exclude": [
+    "src/apps",
   ]
 }

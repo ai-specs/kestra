@@ -53,10 +53,12 @@ describe("misc store addBasicAuth", () => {
 
         // The store now holds the freshly (authenticated) loaded configs.
         expect(axiosGet.mock.calls[0][0]).toMatch(/\/configs$/)
-        expect(miscStore.configs).toEqual({isBasicAuthInitialized: true, isUiAnonymousUsageEnabled: true, uuid: "instance-uuid"})
+        // secretsEnabled: loadConfigs 的 /secrets/managed 探测在本 mock 下也成功，故 configs 含该键
+        expect(miscStore.configs).toEqual({isBasicAuthInitialized: true, isUiAnonymousUsageEnabled: true, uuid: "instance-uuid", secretsEnabled: true})
 
         // Analytics init/event use the freshly loaded configs, not a stale/undefined value.
-        expect(initPosthogIfEnabled).toHaveBeenCalledWith(miscStore.configs)
+        // analytics init 在 /secrets/managed 探测改写 configs 之前发生——用探测前的对象断言
+        expect(initPosthogIfEnabled).toHaveBeenCalledWith({isBasicAuthInitialized: true, isUiAnonymousUsageEnabled: true, uuid: "instance-uuid"})
         expect(capturePosthogEvent).toHaveBeenCalledTimes(1)
         const [capturedConfigs, , eventPayload] = capturePosthogEvent.mock.calls[0]
         expect(capturedConfigs).toEqual(miscStore.configs)

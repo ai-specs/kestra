@@ -208,7 +208,6 @@
     import _merge from "lodash/merge"
 
     import Lock from "vue-material-design-icons/Lock.vue"
-    import Plus from "vue-material-design-icons/Plus.vue"
     import Delete from "vue-material-design-icons/Delete.vue"
     import ContentCopy from "vue-material-design-icons/ContentCopy.vue"
     import ContentSave from "vue-material-design-icons/ContentSave.vue"

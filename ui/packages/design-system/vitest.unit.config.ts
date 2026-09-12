@@ -11,5 +11,14 @@ export default defineConfig({
         globals: true,
         include: ["tests/**/*.test.ts"],
         setupFiles: ["./tests/units/setup.ts"],
+        server: {
+            deps: {
+                // Same as the root vitest.config.unit.js: element-plus imports
+                // `placements` from "@popperjs/core"; externalised in jsdom that resolves
+                // popper's CJS build without the named export. Inlining routes both through
+                // Vite's transform, which provides it.
+                inline: [/element-plus/, "@popperjs/core"],
+            },
+        },
     },
 })

@@ -51,6 +51,7 @@ describe("misc store loadLoginConfig", () => {
         await miscStore.loadConfigs()
 
         expect(axiosGet.mock.calls[0][0]).toMatch(/\/configs$/)
-        expect(miscStore.configs).toEqual({isBasicAuthInitialized: true, version: "1.2.3"})
+        // secretsEnabled: loadConfigs 的 /secrets/managed 探测在本 mock 下也成功，故 configs 含该键
+        expect(miscStore.configs).toEqual({isBasicAuthInitialized: true, version: "1.2.3", secretsEnabled: true})
     })
 })

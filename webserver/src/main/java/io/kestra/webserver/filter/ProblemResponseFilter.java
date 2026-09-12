@@ -3,6 +3,7 @@ package io.kestra.webserver.filter;
 import java.util.List;
 import java.util.Objects;
 
+import io.kestra.webserver.controllers.api.UiAppController;
 import io.kestra.webserver.errors.ProblemDetail;
 import io.kestra.webserver.errors.ProblemFormatExclusion;
 import io.kestra.webserver.errors.ProblemFactory;
@@ -18,6 +19,7 @@ import io.micronaut.http.MutableHttpResponse;
 import io.micronaut.http.annotation.ResponseFilter;
 import io.micronaut.http.annotation.ServerFilter;
 import io.micronaut.http.filter.ServerFilterPhase;
+import io.micronaut.web.router.Router;
 
 /**
  * Gives a problem document to any failed response that reached the client without one.
@@ -44,14 +46,38 @@ public class ProblemResponseFilter implements Ordered {
 
     private final ProblemFactory problems;
     private final List<ProblemFormatExclusion> exclusions;
+    private final Router router;
 
-    public ProblemResponseFilter(final ProblemFactory problems, final List<ProblemFormatExclusion> exclusions) {
+    public ProblemResponseFilter(final ProblemFactory problems, final List<ProblemFormatExclusion> exclusions,
+                                 final Router router) {
         this.problems = Objects.requireNonNull(problems, "problems must not be null");
         this.exclusions = Objects.requireNonNull(exclusions, "exclusions must not be null");
+        this.router = Objects.requireNonNull(router, "router must not be null");
     }
 
     @ResponseFilter
     public void fillProblemBody(@NonNull HttpRequest<?> request, @NonNull MutableHttpResponse<?> response) {
+        // dsh: a non-GET request whose URI shape matches only the apps GET wildcard
+        // (UiAppController /{namespace}/{path:.*}) gets a Micronaut 405 — upstream semantics
+        // for those paths is a route-miss 404 problem+json (upstream tests
+        // TriggerControllerTest/WebhookRoutingTest assert it). Translate ONLY when the
+        // wildcard is the sole route claiming the URI; a genuine wrong-method hit on a real
+        // endpoint keeps its 405 problem (Allow header intact, ErrorControllerTest).
+        if (response.status().getCode() == HttpStatus.METHOD_NOT_ALLOWED.getCode()
+            && router.find(request.getMethod(), request.getPath(), request).findAny().isEmpty()
+            && router.findAny(request.getPath(), request)
+                .allMatch(match -> match.getRouteInfo().getDeclaringType() == UiAppController.class)) {
+            response.status(HttpStatus.NOT_FOUND);
+            ProblemDetail problem = this.problems.detailForStatus(
+                request,
+                null,
+                HttpStatus.NOT_FOUND.getCode(),
+                null,
+                List.of()
+            );
+            writeProblem(response, problem);
+            return;
+        }
         if (400 > response.status().getCode()) {
             return;
         }

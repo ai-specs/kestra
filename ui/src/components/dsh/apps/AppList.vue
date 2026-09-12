@@ -14,7 +14,7 @@
             :selectable="false"
             :no-data-text="'还没有应用程序。在 flow 的 triggers 中声明 io.kestra.plugin.dsh.apps.PageTrigger 即可创建一个 App。'"
             :fitHeight="false"
-            :rowKey="(row: any) => `${row.namespace}-${row.flowId}`"
+            :rowKey="(row: AppSummary) => `${row.namespace}-${row.flowId}`"
         >
             <KsTableColumn prop="flowId" :label="$t('flow')" sortable="custom" :sortOrders="['ascending', 'descending']">
                 <template #default="scope">
@@ -129,7 +129,7 @@
         return tenant ? `/ui/${tenant}` : "/ui/main";
     });
 
-    async function loadData() {
+    async function loadData(_params: {page: number; size: number; sort?: string}) {
         error.value = "";
         try {
             const resp = await fetch(`${apiUrlWithoutTenants()}/apps`, {
@@ -140,7 +140,6 @@
                 throw new Error(`List apps returned HTTP ${resp.status}`);
             }
             apps.value = (await resp.json()) as AppSummary[];
-            return apps.value;
         } catch (e) {
             error.value = `Failed to load apps: ${(e as Error).message ?? e}`;
             throw e;

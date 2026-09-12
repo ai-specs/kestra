@@ -53,7 +53,7 @@ export const useMiscStore = defineStore("misc", () => {
         // （beforeResolve 守卫会重跑 loadConfigs）都会让 Secrets 页在 v-if/v-else 间
         // 抖动、SecretsTable 重挂载，重挂载的筛选器从 URL 重新读回搜索条件，
         // 导致「清除所有」/搜索清空被立即写回、整页交互失效（KV 页无此双模式故不受影响）。
-        let config: Record<string, any> = response.data
+        let config: Record<string, unknown> = response.data
         try {
             await axios.get(`${apiUrl()}/secrets/managed`)
             config = {...config, secretsEnabled: true}

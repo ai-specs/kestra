@@ -217,12 +217,12 @@ export function setupKestraHttp(
             if (method && !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
                 const csrf = getCsrfToken()
                 if (csrf) {
-                    const headers = (request as {headers?: any}).headers ?? {}
+                    const headers = (request as {headers?: Headers | Record<string, string>}).headers ?? {}
                     if (headers instanceof Headers) {
                         if (!headers.has("X-CSRF-TOKEN")) headers.set("X-CSRF-TOKEN", csrf)
                     } else if (!headers["X-CSRF-TOKEN"]) {
                         headers["X-CSRF-TOKEN"] = csrf
-                        ;(request as {headers?: any}).headers = headers
+                        ;(request as {headers?: Headers | Record<string, string>}).headers = headers
                     }
                 }
             }

@@ -243,7 +243,7 @@ const env: RenderOptions = {
     },
     notify: (type: string, msg: string) => {
         if (msg) {
-            console.log(`[amis:${type}] ${msg}`);
+            console.warn(`[amis:${type}] ${msg}`);
             showToast(msg, type === "error" ? "error" : "info");
         }
     },

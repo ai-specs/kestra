@@ -148,14 +148,14 @@
             <KsTabPane :label="t('dsh.project.roles')" name="roles">
                 <div class="tab-content">
                     <KsTable :data="roles" v-loading="loading" class="roles-table" :fit="true">
-                        <KsTableColumn prop="roleName" :label="t('dsh.project.roleName')" min-width="150">
+                        <KsTableColumn prop="roleName" :label="t('dsh.project.roleName')" :minWidth="150">
                             <template #default="{row}">
                                 <KsTag :type="roleTagType(row.roleName)" size="small" effect="light">
                                     {{ row.roleName }}
                                 </KsTag>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn :label="t('dsh.project.description')" min-width="300">
+                        <KsTableColumn :label="t('dsh.project.description')" :minWidth="300">
                             <template #default="{row}">
                                 {{ roleDescription(row.roleName, row.description) }}
                             </template>
@@ -200,13 +200,13 @@
                             </KsSelect>
                         </div>
                         <KsTable :data="members" class="member-table" :fit="true">
-                            <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="180">
+                            <KsTableColumn prop="username" :label="t('dsh.users.username')" :minWidth="180">
                                 <template #default="{row}">
                                     <b>{{ row.username }}</b>
                                 </template>
                             </KsTableColumn>
-                            <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="120" />
-                            <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="180" />
+                            <KsTableColumn prop="name" :label="t('dsh.users.name')" :minWidth="120" />
+                            <KsTableColumn prop="email" :label="t('dsh.users.email')" :minWidth="180" />
                             <KsTableColumn prop="type" :label="t('dsh.users.type')" width="120">
                                 <template #default="{row}">
                                     <KsTag :type="row.type === 'machine' ? 'info' : 'primary'" size="small" effect="light">
@@ -244,13 +244,13 @@
                         />
                     </div>
                     <KsTable :data="filteredUsers" v-loading="loading" class="member-table" :fit="true">
-                        <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="180">
+                        <KsTableColumn prop="username" :label="t('dsh.users.username')" :minWidth="180">
                             <template #default="{row}">
                                 <b>{{ row.username }}</b>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="120" />
-                        <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="180" />
+                        <KsTableColumn prop="name" :label="t('dsh.users.name')" :minWidth="120" />
+                        <KsTableColumn prop="email" :label="t('dsh.users.email')" :minWidth="180" />
                         <KsTableColumn prop="type" :label="t('dsh.users.type')" width="110">
                             <template #default="{row}">
                                 <KsTag :type="row.type === 'machine' ? 'info' : 'primary'" size="small" effect="light">
@@ -258,7 +258,7 @@
                                 </KsTag>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn :label="t('dsh.project.roles')" min-width="220">
+                        <KsTableColumn :label="t('dsh.project.roles')" :minWidth="220">
                             <template #default="{row}">
                                 <template v-if="row.roles && row.roles.length > 0">
                                     <KsTag

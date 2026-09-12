@@ -243,11 +243,6 @@ function ensureEditorStyle(theme: EditorTheme): void {
     shell.textContent = DSH_SHELL_CSS;
 }
 
-function removeEditorStyle(): void {
-    document.getElementById(EDITOR_STYLE_ID)?.remove();
-    document.getElementById(EDITOR_SHELL_STYLE_ID)?.remove();
-}
-
 function applyEditorTheme(theme: EditorTheme): void {
     ensureEditorStyle(theme);
     // The dsh shell css (and any amis rule) keys dark chrome off `html.dark`. The editor
@@ -376,19 +371,6 @@ function toast(msg: string, background = "#1677ff") {
 
 // ---- page editor (full-screen, /apps/pages-edit#ns/path) ----
 type PageOption = {value: string; label: string};
-
-// 编辑目标 = 查询参数（约定：任何 namespace 的页面都在 apps/ 下，故三参数即可定位
-// {namespace}/apps/{appName}/{pagefileName}；URL hash 专属画布预览路由，不再承载编辑目标）
-function editQuery(): {namespace: string; appName: string; pagefileName: string} | null {
-    const q = new URLSearchParams(window.location.search);
-    const namespace = q.get("namespace");
-    const appName = q.get("appName");
-    const pagefileName = q.get("pagefileName");
-    if (!namespace || !appName || !pagefileName) {
-        return null;
-    }
-    return {namespace, appName, pagefileName};
-}
 
 
 function PageEditor({namespace, appName, pagefileName, embedded}: {namespace: string; appName: string; pagefileName: string; embedded?: boolean}) {
@@ -630,7 +612,7 @@ function PageEditor({namespace, appName, pagefileName, embedded}: {namespace: st
                                 },
                                 notify: (type: string, msg: string) => {
                                     if (msg) {
-                                        console.log(`[amis:${type}] ${msg}`);
+                                        console.warn(`[amis:${type}] ${msg}`);
                                         // 失败必须可见：api body status!=0 时 amis 走 notify('error')
                                         toast(msg, type === "error" ? "#d4380d" : "#1677ff");
                                     }

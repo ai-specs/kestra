@@ -37,7 +37,7 @@
             data-test="user-table"
             @row-click="onRowClick"
         >
-            <KsTableColumn prop="username" :label="t('dsh.users.username')" min-width="150">
+            <KsTableColumn prop="username" :label="t('dsh.users.username')" :minWidth="150">
                 <template #default="{row}">
                     <b>{{ row.username }}</b>
                 </template>
@@ -49,9 +49,9 @@
                     </KsTag>
                 </template>
             </KsTableColumn>
-            <KsTableColumn prop="name" :label="t('dsh.users.name')" min-width="120" />
-            <KsTableColumn prop="email" :label="t('dsh.users.email')" min-width="150" />
-            <KsTableColumn :label="t('dsh.users.roles')" min-width="120">
+            <KsTableColumn prop="name" :label="t('dsh.users.name')" :minWidth="120" />
+            <KsTableColumn prop="email" :label="t('dsh.users.email')" :minWidth="150" />
+            <KsTableColumn :label="t('dsh.users.roles')" :minWidth="120">
                 <template #default="{row}">
                     <KsTag
                         v-for="role in (row.roles || [])"
@@ -124,7 +124,7 @@
             :title="editing ? t('dsh.users.edit') : t('dsh.users.add')"
             data-test="user-dialog"
         >
-            <KsForm label-position="top" class="user-form">
+            <KsForm labelPosition="top" class="user-form">
                 <KsFormItem v-if="!editing" :label="t('dsh.users.type')" required>
                     <KsSelect v-model="form.type" class="user-type-select" data-test="user-form-type" @change="onTypeChange">
                         <KsOption :label="t('dsh.users.human')" value="human" />
@@ -144,14 +144,14 @@
                     <KsInput v-model="form.description" data-test="user-form-description" />
                 </KsFormItem>
                 <KsFormItem v-if="!editing && form.type === 'human'" :label="t('dsh.users.password')">
-                    <KsInput v-model="form.password" type="password" show-password data-test="user-form-password" />
+                    <KsInput v-model="form.password" type="password"\1showPassword\2data-test="user-form-password" />
                 </KsFormItem>
                 <KsFormItem v-if="!editing && form.type === 'machine'" :label="t('dsh.users.secret')">
-                    <KsInput v-model="form.secret" show-password data-test="user-form-secret"
+                    <KsInput v-model="form.secret"\1showPassword\2data-test="user-form-secret"
                         :placeholder="t('dsh.users.secretPlaceholder')" />
                 </KsFormItem>
                 <KsFormItem :label="t('dsh.users.roles')">
-                    <KsSelect v-model="form.roles" multiple allow-create filterable class="user-roles-select">
+                    <KsSelect v-model="form.roles" multiple\1allowCreate\2filterable class="user-roles-select">
                         <KsOption v-for="role in availableRoles" :key="role" :label="role" :value="role" />
                     </KsSelect>
                 </KsFormItem>
@@ -174,12 +174,12 @@
             v-model="passwordDialogVisible"
             :title="passwordTarget && passwordTarget.type === 'machine' ? t('dsh.users.rotateSecret') : t('dsh.users.resetPassword')"
         >
-            <KsForm label-position="top">
+            <KsForm labelPosition="top">
                 <KsFormItem
                     :label="passwordTarget && passwordTarget.type === 'machine' ? t('dsh.users.newSecret') : t('dsh.users.newPassword')"
                     required
                 >
-                    <KsInput v-model="newPassword" type="password" show-password data-test="password-input" />
+                    <KsInput v-model="newPassword" type="password"\1showPassword\2data-test="password-input" />
                 </KsFormItem>
             </KsForm>
             <template #footer>

@@ -62,6 +62,14 @@ export default defineConfig({
                     globals: true,
                     browser: {enabled: false},
                     include: ["tests/**/*.test.ts"],
+                    server: {
+                        deps: {
+                            // Same as the root vitest.config.unit.js: element-plus imports
+                            // `placements` from "@popperjs/core"; externalised in jsdom that
+                            // resolves popper's CJS build without the named export.
+                            inline: [/element-plus/, "@popperjs/core"],
+                        },
+                    },
                 },
             },
         ],

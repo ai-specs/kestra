@@ -30,7 +30,7 @@
             class="project-table"
             @row-click="onRowClick"
         >
-            <KsTableColumn prop="name" :label="t('dsh.project.name')" min-width="160">
+            <KsTableColumn prop="name" :label="t('dsh.project.name')" :minWidth="160">
                 <template #default="{row}">
                     <div class="project-name-cell">
                         <div class="project-icon" :class="row.id">
@@ -45,7 +45,7 @@
                     </div>
                 </template>
             </KsTableColumn>
-            <KsTableColumn prop="description" :label="t('dsh.project.description')" min-width="280" />
+            <KsTableColumn prop="description" :label="t('dsh.project.description')" :minWidth="280" />
             <KsTableColumn :label="t('dsh.project.applications')" width="100" align="center">
                 <template #default="{row}">
                     <b>{{ row.applicationCount }}</b>
