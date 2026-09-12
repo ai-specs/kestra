@@ -62,7 +62,7 @@
                                  任意存在的 json 文件都可编辑；约定外页面 404 报错不建空页） -->
                             <a
                                 class="dsh-app-list__design"
-                                :href="`/apps/pages-edit#${encodeURIComponent(scope.row.namespace)}/apps/${encodeURIComponent(scope.row.appName)}/${encodeURIComponent(p)}.json`"
+                                :href="`/apps/pages-edit?namespace=${encodeURIComponent(scope.row.namespace)}&appName=${encodeURIComponent(scope.row.appName)}&pagefileName=${encodeURIComponent(p)}.json`"
                                 target="_blank"
                                 rel="noopener"
                             >设计</a>

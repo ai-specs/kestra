@@ -377,29 +377,24 @@ function toast(msg: string, background = "#1677ff") {
 // ---- page editor (full-screen, /apps/pages-edit#ns/path) ----
 type PageOption = {value: string; label: string};
 
-// path = {ns}/apps/{appName}/{rel...}.json → 下拉数据源用的 (ns, appName)
-function splitPath(path: string): {ns: string; appName: string} | null {
-    const slash = path.indexOf("/");
-    if (slash < 0) {
+// 编辑目标 = 查询参数（约定：任何 namespace 的页面都在 apps/ 下，故三参数即可定位
+// {namespace}/apps/{appName}/{pagefileName}；URL hash 专属画布预览路由，不再承载编辑目标）
+function editQuery(): {namespace: string; appName: string; pagefileName: string} | null {
+    const q = new URLSearchParams(window.location.search);
+    const namespace = q.get("namespace");
+    const appName = q.get("appName");
+    const pagefileName = q.get("pagefileName");
+    if (!namespace || !appName || !pagefileName) {
         return null;
     }
-    const ns = path.slice(0, slash);
-    const rest = path.slice(slash + 1);
-    if (!rest.startsWith("apps/")) {
-        return null;
-    }
-    const rel = rest.slice("apps/".length);
-    const appSlash = rel.indexOf("/");
-    if (appSlash < 0) {
-        return null;
-    }
-    return {ns, appName: rel.slice(0, appSlash)};
+    return {namespace, appName, pagefileName};
 }
 
 
-function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
-    // 下拉切换页面：path 仅作初值，currentPath 驱动加载；hash 同步便于分享/刷新
-    const [currentPath, setCurrentPath] = useState(path);
+function PageEditor({namespace, appName, pagefileName, embedded}: {namespace: string; appName: string; pagefileName: string; embedded?: boolean}) {
+    // 下拉切换页面：pagefileName state 驱动加载；query 经 replaceState 同步（免重载）
+    const [currentPage, setCurrentPage] = useState(pagefileName);
+    const currentPath = `${namespace}/apps/${appName}/${currentPage}`;
     const [pageOptions, setPageOptions] = useState<PageOption[] | null>(null);
     const [schema, setSchema] = useState<unknown>(null);
     const [loading, setLoading] = useState(true);
@@ -416,42 +411,26 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
         applyEditorTheme(theme);
     }, [theme]);
 
-    useEffect(() => {
-        setCurrentPath(decodeURIComponent(window.location.hash.replace(/^#/, "")) || path);
-        const onHash = () => {
-            const h = decodeURIComponent(window.location.hash.replace(/^#/, ""));
-            if (h) {
-                setCurrentPath(h);
-            }
-        };
-        window.addEventListener("hashchange", onHash);
-        return () => window.removeEventListener("hashchange", onHash);
-    }, [path]);
-
     // 当前应用的页面（下拉数据）：files 端点目录列举（查询参数显式限定 ns/apps/{app}/，
     // 只返回该 app 的 json 文件相对路径——hash 不达服务器，故由页面解析后以 query 传递）
     useEffect(() => {
         let cancelled = false;
-        const scope = splitPath(currentPath);
-        if (!scope) {
-            setPageOptions(null);
-            return;
-        }
+        const scope = {ns: namespace, app: appName};
         (async () => {
-            const r = await apiRequest(`/api/v1/apps/files?path=${encodeURIComponent(`${scope.ns}/apps/${scope.appName}/`)}`, "GET");
+            const r = await apiRequest(`/api/v1/apps/files?path=${encodeURIComponent(`${scope.ns}/apps/${scope.app}/`)}`, "GET");
             if (cancelled) {
                 return;
             }
             const files = r.ok && Array.isArray(r.data) ? (r.data as string[]) : [];
             setPageOptions(files.map(rel => {
                 const stripped = rel.replace(/^apps\/[^/]+\//, "");
-                return {value: `${scope.ns}/apps/${scope.appName}/${stripped}`, label: stripped};
+                return {value: stripped, label: stripped};
             }));
         })();
         return () => {
             cancelled = true;
         };
-    }, [currentPath]);
+    }, [namespace, appName]);
 
     useEffect(() => {
         let cancelled = false;
@@ -546,15 +525,17 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
                             ) : (
                                 <select
                                     className="editor-page-select"
-                                    value={currentPath}
+                                    value={currentPage}
                                     onChange={e => {
                                         const v = e.target.value;
-                                        setCurrentPath(v);
-                                        window.location.hash = v;
+                                        setCurrentPage(v);
+                                        const q = new URLSearchParams(window.location.search);
+                                        q.set("pagefileName", v);
+                                        window.history.replaceState(null, "", `${window.location.pathname}?${q.toString()}`);
                                     }}
                                 >
-                                    {!pageOptions.some(o => o.value === currentPath) && (
-                                        <option value={currentPath}>{currentPath}</option>
+                                    {!pageOptions.some(o => o.value === currentPage) && (
+                                        <option value={currentPage}>{currentPage}</option>
                                     )}
                                     {pageOptions.map(o => (
                                         <option key={o.value} value={o.value}>{o.label}</option>
@@ -699,17 +680,18 @@ function boot() {
 
     const root = document.getElementById("app")!;
 
-    // pages-edit entry: /apps/pages-edit#dsh.apps/apps/{app}/{page}.json
-    // The hash carries "{namespace}/apps/{...}.json": the first segment is the namespace
-    // (validated against the root namespace by the files endpoint), the rest is the file
-    // path under the convention root. Any existing amis json file is editable.
-    // AppList 链接对 hash 做过 encodeURIComponent（%2F），先解码再校验
-    const raw = decodeURIComponent(window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash);
-    if (!/^[^/\s]+\/apps\/[A-Za-z0-9_\-./]+\.json$/.test(raw)) {
-        root.innerText = "无效编辑地址。期望 /apps/pages-edit#dsh.apps/apps/{app}/{page}.json";
+    // pages-edit entry: /apps/pages-edit?namespace=..&appName=..&pagefileName=*.json
+    // 查询参数契约（hash 专属画布预览路由）：任何 namespace 的页面都在 apps/ 下，
+    // 三参数即定位 {namespace}/apps/{appName}/{pagefileName}；格式校验交给 files 端点。
+    const q = new URLSearchParams(window.location.search);
+    const namespace = q.get("namespace");
+    const appName = q.get("appName");
+    const pagefileName = q.get("pagefileName");
+    if (!namespace || !appName || !pagefileName) {
+        root.innerText = "无效编辑地址。期望 /apps/pages-edit?namespace=..&appName=..&pagefileName=*.json";
         return;
     }
-    createRoot(root).render(<PageEditor path={raw} />);
+    createRoot(root).render(<PageEditor namespace={namespace} appName={appName} pagefileName={pagefileName} />);
 }
 
 void boot();

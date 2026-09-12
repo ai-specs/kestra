@@ -30,8 +30,8 @@ import jakarta.inject.Inject;
  * The {@code apps} segment is a namespace like any other (a flow declared in a namespace
  * literally named {@code apps} resolves at {@code /apps/{app}/{page}}); there is no legacy
  * mapping to the convention root. The editor shell
- * {@code apps-editor.html} is served only for {@code /apps/pages-edit} — the hash carries
- * the editing target ({@code #dsh.apps/apps/{app}/{page}.json}); every other path renders
+ * {@code apps-editor.html} is served only for {@code /apps/pages-edit} — the query carries
+ * the editing target ({@code ?namespace=..&appName=..&pagefileName=*.json}); every other path renders
  * {@code apps.html} (design docs/dsh-apps-amis-editor.md §6.2).
  *
  * <p>Page routing is backend-verified: a path that does not resolve to a registered page
@@ -54,7 +54,7 @@ import jakarta.inject.Inject;
 @Hidden
 public class UiAppController {
 
-    /** 页面编辑入口：/apps/pages-edit#dsh.apps/apps/{app}/{page}.json —— hash 携带 namespace + 文件路径。 */
+    /** 页面编辑入口：/apps/pages-edit?namespace=..&appName=..&pagefileName=*.json —— 查询参数携带编辑目标。 */
     static final String PAGES_EDIT_ENTRY = "pages-edit";
 
     private final UiIndexService uiIndexService;
