@@ -91,6 +91,18 @@ public class UiAppController {
             }
             return renderAppEditor(request);
         }
+        // index.json 如 index.html：目录式（尾斜杠结尾）是规范地址，直接渲染 index 页；
+        // 其余形态——显式 /index 与无尾斜杠——一律 308 永久跳转到对应目录式。
+        // 必须用原始 URI 判定（@PathVariable 的 path 变量会被 Micronaut 剥掉尾斜杠，
+        // 依它判定会让规范形无限自跳）。
+        String rawPath = request.getUri().getPath();
+        if (!rawPath.endsWith("/") && !rawPath.equals("/apps/pages-edit")) {
+            String target = rawPath.endsWith("/index")
+                ? rawPath.substring(0, rawPath.length() - "index".length()) // /index → /（保留其前的 /）
+                : rawPath + "/"; // 无尾斜杠目录根
+            return HttpResponse.status(HttpStatus.PERMANENT_REDIRECT)
+                .header("Location", target);
+        }
         if (!pageRouteExists(namespace, path)) {
             throw new NotFoundResponseException();
         }
