@@ -127,6 +127,16 @@ public class ErrorController {
     }
 
     /**
+     * dsh empty-body 404 marker (apps routes): rendered through the standard error pipeline —
+     * framework error handling is OOM-safe for unconsumed streaming bodies (Kestra#17633),
+     * unlike an early raw 404 return inside the controller.
+     */
+    @Error(global = true, exception = io.kestra.webserver.controllers.api.NotFoundResponseException.class)
+    public HttpResponse<?> notFoundResponse(HttpRequest<?> request, io.kestra.webserver.controllers.api.NotFoundResponseException e) {
+        return HttpResponse.status(HttpStatus.NOT_FOUND);
+    }
+
+    /**
      * The document path Jackson recorded, e.g. {@code tasks[0].type}. Uses the public reference chain rather
      * than the private field the previous implementation reflected into.
      */

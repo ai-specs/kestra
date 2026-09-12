@@ -71,10 +71,6 @@ import java.util.Optional;
 @Slf4j
 public class AppRouterController {
 
-    /** 标准 404：不带任何自定义响应体。 */
-    static final class NotFoundResponseException extends RuntimeException {
-    }
-
     @Inject
     private AppRouteRegistry routeRegistry;
 
@@ -114,7 +110,6 @@ public class AppRouterController {
         @PathVariable String appName,
         @PathVariable String pageId
     ) {
-        try {
         String tenant = tenantService.resolveTenant();
         List<AppRouteRegistry.PageRoute> routes = routeRegistry.pageRoutes(tenant, namespace, appName, pageId);
         AppRouteRegistry.PageRoute route = resolveUnique(routes, "page", namespace + "/" + appName + "/" + pageId);
@@ -143,12 +138,8 @@ public class AppRouterController {
         } catch (Exception e) {
             throw new NotFoundResponseException();
         }
-        } catch (NotFoundResponseException e) {
-            // Kestra#17633 fix pattern: let the Micronaut error processor produce the 404,
-            // instead of returning an early raw-404 response while a streaming request body
-            // is still unconsumed (which triggers the DelayedExecutionFlowImpl drain OOM).
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, null);
-        }
+        // NotFoundResponseException propagates to ErrorController's @Error handler — the
+        // framework error pipeline (Kestra#17633 OOM-safe pattern) renders the empty-body 404.
     }
 
     /**
@@ -164,7 +155,6 @@ public class AppRouterController {
         @PathVariable String apiId,
         @Body @Nullable Map<String, Object> body
     ) {
-        try {
         String tenant = tenantService.resolveTenant();
         List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, namespace, appName, apiId);
         AppRouteRegistry.ApiRoute route = resolveUnique(routes, "api", namespace + "/" + appName + "/" + apiId);
@@ -234,11 +224,8 @@ public class AppRouterController {
         }
         return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), terminal, appName, apiId,
             executionUrl(namespace, appName, apiId, execution.getId())));
-        } catch (NotFoundResponseException e) {
-            // Kestra#17633 fix pattern: let the Micronaut error processor produce the 404,
-            // instead of an early raw-404 response while a streaming request body is unconsumed.
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, null);
-        }
+        // NotFoundResponseException propagates to ErrorController's @Error handler — the
+        // framework error pipeline (Kestra#17633 OOM-safe pattern) renders the empty-body 404.
     }
 
     /**
@@ -332,7 +319,6 @@ public class AppRouterController {
         @PathVariable String apiId,
         @PathVariable String executionId
     ) {
-        try {
         String tenant = tenantService.resolveTenant();
         List<AppRouteRegistry.ApiRoute> routes = routeRegistry.apiRoutes(tenant, namespace, appName, apiId);
         AppRouteRegistry.ApiRoute route = resolveUnique(routes, "api", namespace + "/" + appName + "/" + apiId);
@@ -365,11 +351,8 @@ public class AppRouterController {
             error = "Execution ended with state " + current;
         }
         return HttpResponse.ok(stateBody(execution, outputs, error, route.responseBody(), current, appName, apiId, null));
-        } catch (NotFoundResponseException e) {
-            // Kestra#17633 fix pattern: let the Micronaut error processor produce the 404,
-            // instead of an early raw-404 response while a streaming request body is unconsumed.
-            throw new HttpStatusException(HttpStatus.NOT_FOUND, null);
-        }
+        // NotFoundResponseException propagates to ErrorController's @Error handler — the
+        // framework error pipeline (Kestra#17633 OOM-safe pattern) renders the empty-body 404.
     }
 
     /**

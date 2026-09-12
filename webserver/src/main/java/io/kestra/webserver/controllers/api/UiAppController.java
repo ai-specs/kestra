@@ -75,12 +75,13 @@ public class UiAppController {
                                  @PathVariable String namespace,
                                  @PathVariable @Nullable String path) {
         // 只有 /apps/pages-edit 返回编辑器（保留入口）；其余渲染页须能解析到注册的页面路由，
-        // 否则返回 http 标准 404（空 body）——未知页面不返回 200 shell（防探测、不泄露提示）。
+        // 否则抛空 body 404（防探测）——必须走异常管线（Kestra#17633），controller 内
+        // raw-404 提前返回会在流式 body 未消费时触发 drain OOM（Kestra#17620）。
         if ("apps".equals(namespace) && PAGES_EDIT_ENTRY.equals(path)) {
             return renderAppEditor(request);
         }
         if (!pageRouteExists(namespace, path)) {
-            return HttpResponse.status(HttpStatus.NOT_FOUND);
+            throw new NotFoundResponseException();
         }
         return renderApps(request);
     }

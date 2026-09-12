@@ -70,10 +70,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class AppsFileController {
 
-    /** 标准 404：不带任何自定义响应体（防探测 + 用户要求 http 标准 404）。 */
-    static final class NotFoundResponseException extends RuntimeException {
-    }
-
     /** 约定根目录（namespace files 下）。 */
     public static final String CONVENTION_ROOT = "apps";
     /** 保留 appName：/apps/designer 是设计器 HTML 入口。 */
@@ -110,7 +106,6 @@ public class AppsFileController {
     @Get(uri = "/files")
     @Operation(summary = "Read an apps convention page schema file")
     public HttpResponse<String> file(@QueryValue String path) {
-        try {
             String tenant = tenantService.resolveTenant();
             Path filePath = validatePathWithNamespace(path);
             try {
@@ -126,10 +121,6 @@ public class AppsFileController {
                 }
                 throw new NotFoundResponseException();
             }
-        } catch (NotFoundResponseException e) {
-            // http 标准 404：无自定义响应体（防探测）
-            return (HttpResponse<String>) (HttpResponse<?>) HttpResponse.status(HttpStatus.NOT_FOUND);
-        }
     }
 
     /**
@@ -139,23 +130,18 @@ public class AppsFileController {
     @Put(uri = "/files", consumes = MediaType.APPLICATION_JSON)
     @Operation(summary = "Write an apps convention page schema file")
     public HttpResponse<String> putFile(@QueryValue String path, @Body String body) {
+        String tenant = tenantService.resolveTenant();
+        Path filePath = validatePathWithNamespace(path);
+        validateJsonObject(body, path);
         try {
-            String tenant = tenantService.resolveTenant();
-            Path filePath = validatePathWithNamespace(path);
-            validateJsonObject(body, path);
-            try {
-                namespace(tenant).putFile(filePath,
-                    new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)),
-                    Namespace.Conflicts.OVERWRITE);
-            } catch (Exception e) {
-                throw new HttpStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Unable to write apps page file");
-            }
-            return HttpResponse.ok(body).contentType(MediaType.APPLICATION_JSON_TYPE);
-        } catch (NotFoundResponseException e) {
-            // http 标准 404：无自定义响应体（防探测）
-            return (HttpResponse<String>) (HttpResponse<?>) HttpResponse.status(HttpStatus.NOT_FOUND);
+            namespace(tenant).putFile(filePath,
+                new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)),
+                Namespace.Conflicts.OVERWRITE);
+        } catch (Exception e) {
+            throw new HttpStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                "Unable to write apps page file");
         }
+        return HttpResponse.ok(body).contentType(MediaType.APPLICATION_JSON_TYPE);
     }
 
     /** 顶层 schema 的合法 amis 组件 type（页面文件最外层枚举；非此集合 → 拒绝返回防敏感文件暴露）。 */
