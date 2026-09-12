@@ -78,6 +78,17 @@ public class UiAppController {
         // 否则抛空 body 404（防探测）——必须走异常管线（Kestra#17633），controller 内
         // raw-404 提前返回会在流式 body 未消费时触发 drain OOM（Kestra#17620）。
         if ("apps".equals(namespace) && PAGES_EDIT_ENTRY.equals(path)) {
+            // 编辑目标 query 契约（?namespace&appName&pagefileName）：缺失/形态非法一律 404 空 body
+            // （防探测：不泄露正确格式，也不下发编辑器 shell——探测者拿不到任何可用信息）。
+            String ns = request.getParameters().get("namespace");
+            String app = request.getParameters().get("appName");
+            String page = request.getParameters().get("pagefileName");
+            boolean wellFormed = ns != null && !ns.isBlank()
+                && app != null && app.matches("[A-Za-z0-9_-]+")
+                && page != null && page.matches("[A-Za-z0-9_./-]+\\.json");
+            if (!wellFormed) {
+                throw new NotFoundResponseException();
+            }
             return renderAppEditor(request);
         }
         if (!pageRouteExists(namespace, path)) {

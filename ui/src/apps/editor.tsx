@@ -688,7 +688,8 @@ function boot() {
     const appName = q.get("appName");
     const pagefileName = q.get("pagefileName");
     if (!namespace || !appName || !pagefileName) {
-        root.innerText = "无效编辑地址。期望 /apps/pages-edit?namespace=..&appName=..&pagefileName=*.json";
+        // 防探测：不提示正确格式（服务端已对非法 query 404，此处仅防御性兜底）
+        root.innerText = "404";
         return;
     }
     createRoot(root).render(<PageEditor namespace={namespace} appName={appName} pagefileName={pagefileName} />);
