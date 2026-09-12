@@ -52,9 +52,10 @@ public class ProblemResponseFilter implements Ordered {
         if (400 > response.status().getCode()) {
             return;
         }
-        // dsh: 404 保持原响应（http 标准 404）——空 body 404 不再附加 problem 文档；
-        // 由异常处理器生成的、已带 problem body 的 404 原本就不被替换，行为不变。
-        if (response.status().getCode() == HttpStatus.NOT_FOUND.getCode()) {
+        // dsh: apps 404 (NotFoundResponseException → empty body, anti-probing) keeps its
+        // empty body — identified by the marker status+no-body shape. Upstream 404s carry
+        // their problem document and are not replaceable anyway (typed body, see below).
+        if (response.status().getCode() == HttpStatus.NOT_FOUND.getCode() && response.body() == null) {
             return;
         }
         if (HttpMethod.HEAD == request.getMethod() || this.isExcluded(request.getPath())) {

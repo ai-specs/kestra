@@ -119,17 +119,18 @@ public class ErrorController {
         return this.problems.responseWithoutMessage(request, e);
     }
 
-    /** A request that matched no route at all, and so carries no exception. */
+    /** Upstream behavior preserved: problem+json for every unmatched-route 404 (kestra UI surfaces the detail). */
     @Error(global = true, status = HttpStatus.NOT_FOUND)
-    public HttpResponse<?> notFound(HttpRequest<?> request) {
-        // dsh: http 标准 404——无自定义响应体（防探测）。有异常（如 flow 404）仍由各自 @Error(exception) 处理。
-        return HttpResponse.status(HttpStatus.NOT_FOUND);
+    public HttpResponse<ProblemDetail> notFound(HttpRequest<?> request) {
+        return this.problems.response(request, null, ProblemTypes.NOT_FOUND, List.of());
     }
 
     /**
-     * dsh empty-body 404 marker (apps routes): rendered through the standard error pipeline —
+     * dsh empty-body 404 marker (PageTrigger/ApiTrigger surface only: AppRouterController,
+     * AppsFileController, UiAppController): rendered through the standard error pipeline —
      * framework error handling is OOM-safe for unconsumed streaming bodies (Kestra#17633),
-     * unlike an early raw 404 return inside the controller.
+     * unlike an early raw 404 return inside the controller. Upstream 404s (problem+json,
+     * consumed by the kestra UI) are deliberately untouched.
      */
     @Error(global = true, exception = io.kestra.webserver.controllers.api.NotFoundResponseException.class)
     public HttpResponse<?> notFoundResponse(HttpRequest<?> request, io.kestra.webserver.controllers.api.NotFoundResponseException e) {
