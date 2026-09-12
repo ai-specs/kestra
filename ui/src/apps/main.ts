@@ -167,10 +167,16 @@ const env: RenderOptions = {
             if (csrf) headers["X-CSRF-TOKEN"] = csrf;
         }
         let body: BodyInit | undefined;
-        if (method !== "get" && apiObject.data !== undefined && apiObject.data !== null) {
-            body = typeof apiObject.data === "string" || isFormData
-                ? apiObject.data as BodyInit
-                : JSON.stringify(apiObject.data);
+        if (method !== "get" && apiObject.data != null) {
+            // 空 data（如 schemaApi 页面级加载）不发 body——携带无关空对象是噪音，
+            // 后端 @Body @Nullable 对无 body 的 POST 同样接受；FormData/字符串不受此判断影响。
+            const emptyPlain = typeof apiObject.data === "object" && !isFormData
+                && Object.keys(apiObject.data).length === 0;
+            if (!emptyPlain) {
+                body = typeof apiObject.data === "string" || isFormData
+                    ? apiObject.data as BodyInit
+                    : JSON.stringify(apiObject.data);
+            }
         }
         return fetch(url, {
             method,

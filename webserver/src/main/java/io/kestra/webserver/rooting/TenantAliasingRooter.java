@@ -38,17 +38,40 @@ public class TenantAliasingRooter extends DefaultRouter {
         // a raw-path miss upstream in AuthenticationFilter stays a 404 here too (GHSA-rjhm-qm6w-m7x9).
         String rawPath = request.getPath();
         UriRouteMatch<T, R> closest = super.findClosest(request);
-        if (closest != null || bypassRooting()) {
+        if (bypassRooting()) {
             return closest;
         }
 
         boolean excluded = EXCLUDED_ROUTES.stream().anyMatch(route -> route.matcher(rawPath).matches());
         if (rawPath.startsWith("/api/v1/") && !excluded) {
+            // dsh: the tenant-less /api/v1/{a}/{b}[/{c}] form must resolve to the upstream tenant
+            // routes (rewritten with the tenant segment) — the dsh catch-all controllers
+            // (UiAppController /{namespace} and AppRouterController /api/v1/{ns}/{app}/{page})
+            // would otherwise swallow it into an apps-route 404. Probe the rewritten form against
+            // the upstream routes only (dsh catch-alls excluded — the rewritten URI still starts
+            // with /api/v1, so they would match it too); on a miss fall back to the raw closest
+            // match, which is how the dsh apps API (/api/v1/dsh.apps/hello/index) keeps resolving.
             String rewrittenRawPath = rawPath.replaceFirst("^/api/v1", "/api/v1/" + getTenantId());
             URI updatedUri = new URI(rebuildRawUri(request, rewrittenRawPath));
-            return super.findClosest(request.toMutableRequest().uri(updatedUri));
+            UriRouteMatch<T, R> rewritten = findClosestUpstreamOnly(request.toMutableRequest().uri(updatedUri));
+            if (rewritten != null) {
+                return rewritten;
+            }
         }
-        return null;
+        return closest;
+    }
+
+    /** Closest match excluding the dsh catch-all controllers (probe isolation for the tenant rewrite). */
+    @SuppressWarnings("unchecked")
+    private <T, R> UriRouteMatch<T, R> findClosestUpstreamOnly(HttpRequest<?> probe) {
+        return (UriRouteMatch<T, R>) this.<T, R>find(probe)
+            .filter(match -> {
+                Class<?> declaring = match.getRouteInfo().getDeclaringType();
+                return declaring != io.kestra.webserver.controllers.api.UiAppController.class
+                    && declaring != io.kestra.webserver.controllers.api.AppRouterController.class;
+            })
+            .findFirst()
+            .orElse(null);
     }
 
     // Assembled as a raw string rather than via the scheme/userInfo/host/port/path/query/fragment

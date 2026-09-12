@@ -531,7 +531,10 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
                                     const method = (apiObject.method ?? "get").toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
                                     const apiHeaders = apiObject.headers ?? {};
                                     const contentType = apiHeaders["Content-Type"] ?? apiHeaders["content-type"];
-                                    const body = method === "GET" ? undefined : apiObject.data;
+                                    const d = apiObject.data;
+                                    // 空 data（schemaApi 页面级加载）不发 body；FormData/字符串原样（与 main.ts 同规则）
+                                    const emptyPlain = d != null && typeof d === "object" && !(d instanceof FormData) && Object.keys(d).length === 0;
+                                    const body = method === "GET" ? undefined : (emptyPlain ? undefined : d);
                                     return apiRequest(apiObject.url, method, body, contentType).then(async (resp) => {
                                         // app api 提交：202 + executionUrl + 非终态 → 自动轮询到终态再返回
                                         if (method === "POST" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(apiObject.url)) {
