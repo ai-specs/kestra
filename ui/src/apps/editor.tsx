@@ -189,6 +189,16 @@ html.dark .shortcut-icon-btn:hover { color: #5ab0ff; }
    but the dsh shell chrome (our own classes) needs explicit dark overrides */
 html.dark .Editor-header { background: #1d1e22; border-bottom-color: #303136; }
 html.dark .Editor-title { color: #c9ccd2; }
+/* 页面下拉：编辑器头部当前应用页面切换 */
+.editor-page-picker { display: flex; align-items: center; gap: 8px; }
+.editor-page-picker-label { white-space: nowrap; }
+.editor-page-picker-path { color: #888; font-size: 12px; }
+.editor-page-select {
+    border: 1px solid #d4d6db; border-radius: 4px; background: #fff; color: #333;
+    padding: 3px 8px; font-size: 13px; max-width: 320px; cursor: pointer;
+}
+html.dark .editor-page-picker-path { color: #7a7f88; }
+html.dark .editor-page-select { background: #24262b; border-color: #3c3f46; color: #d5d7dc; }
 html.dark .Editor-view-mode-group { background-color: #303136; }
 html.dark .Editor-view-mode-btn { color: #a0a2a8; }
 html.dark .Editor-view-mode-btn:hover { color: #5ab0ff; }
@@ -365,7 +375,41 @@ function toast(msg: string, background = "#1677ff") {
 }
 
 // ---- page editor (full-screen, /apps/pages-edit#ns/path) ----
+type PageOption = {value: string; label: string};
+
+// path = {ns}/apps/{appName}/{rel...}.json → 下拉数据源用的 (ns, appName)
+function splitPath(path: string): {ns: string; appName: string} | null {
+    const slash = path.indexOf("/");
+    if (slash < 0) {
+        return null;
+    }
+    const ns = path.slice(0, slash);
+    const rest = path.slice(slash + 1);
+    if (!rest.startsWith("apps/")) {
+        return null;
+    }
+    const rel = rest.slice("apps/".length);
+    const appSlash = rel.indexOf("/");
+    if (appSlash < 0) {
+        return null;
+    }
+    return {ns, appName: rel.slice(0, appSlash)};
+}
+
+// 树端点节点 {name, kind, children} → 递归收集页面文件（相对 app，带 .json）
+function collectPages(nodes: Array<{name?: string; kind?: string; children?: unknown[]}> | undefined, prefix: string, out: string[]): void {
+    for (const n of nodes ?? []) {
+        if (n.kind === "page" && n.name) {
+            out.push((prefix ? prefix + "/" : "") + n.name + ".json");
+        }
+        collectPages(n.children as Array<{name?: string; kind?: string; children?: unknown[]}> | undefined, prefix ? prefix + "/" + n.name : String(n.name), out);
+    }
+}
+
 function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
+    // 下拉切换页面：path 仅作初值，currentPath 驱动加载；hash 同步便于分享/刷新
+    const [currentPath, setCurrentPath] = useState(path);
+    const [pageOptions, setPageOptions] = useState<PageOption[] | null>(null);
     const [schema, setSchema] = useState<unknown>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -382,11 +426,52 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
     }, [theme]);
 
     useEffect(() => {
+        setCurrentPath(decodeURIComponent(window.location.hash.replace(/^#/, "")) || path);
+        const onHash = () => {
+            const h = decodeURIComponent(window.location.hash.replace(/^#/, ""));
+            if (h) {
+                setCurrentPath(h);
+            }
+        };
+        window.addEventListener("hashchange", onHash);
+        return () => window.removeEventListener("hashchange", onHash);
+    }, [path]);
+
+    // 当前应用的全部页面（下拉数据）：/api/v1/apps/pages 树按 (ns, appName) 过滤
+    useEffect(() => {
+        let cancelled = false;
+        const scope = splitPath(currentPath);
+        if (!scope) {
+            setPageOptions(null);
+            return;
+        }
+        (async () => {
+            const r = await apiRequest("/api/v1/apps/pages", "GET");
+            if (cancelled) {
+                return;
+            }
+            const out: string[] = [];
+            if (r.ok && Array.isArray(r.data)) {
+                for (const app of r.data as Array<{appName?: string; pages?: unknown[]}>) {
+                    if (app.appName === scope.appName) {
+                        collectPages(app.pages as Array<{name?: string; kind?: string; children?: unknown[]}>, "", out);
+                        break;
+                    }
+                }
+            }
+            setPageOptions(out.map(rel => ({value: `${scope.ns}/apps/${scope.appName}/${rel}`, label: rel})));
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [currentPath]);
+
+    useEffect(() => {
         let cancelled = false;
         setLoading(true);
         setError(null);
         (async () => {
-            const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}`, "GET");
+            const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(currentPath)}`, "GET");
             if (cancelled) {
                 return;
             }
@@ -403,7 +488,7 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
         return () => {
             cancelled = true;
         };
-    }, [path]);
+    }, [currentPath]);
 
     // amis App (type:"app") schemas route off window.location.hash; with no hash the
     // canvas renders amis's NotFound. Seed the landing page url so the canvas shows the
@@ -447,9 +532,9 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
     }, [schema]);
 
     async function save() {
-        const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(path)}`, "PUT", schema as object);
+        const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(currentPath)}`, "PUT", schema as object);
         if (r.ok) {
-            toast(`已保存 ${path}`);
+            toast(`已保存 ${currentPath}`);
         } else {
             toast(`保存失败：${r.msg}`);
         }
@@ -467,7 +552,29 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
             <div className="dsh-editor-shell">
                 <div className="Editor-Demo">
                     <div className="Editor-header">
-                        <div className="Editor-title">页面编辑器：{path}</div>
+                        <div className="Editor-title editor-page-picker">
+                            <span className="editor-page-picker-label">页面编辑器</span>
+                            {pageOptions === null ? (
+                                <span className="editor-page-picker-path">{currentPath}</span>
+                            ) : (
+                                <select
+                                    className="editor-page-select"
+                                    value={currentPath}
+                                    onChange={e => {
+                                        const v = e.target.value;
+                                        setCurrentPath(v);
+                                        window.location.hash = v;
+                                    }}
+                                >
+                                    {!pageOptions.some(o => o.value === currentPath) && (
+                                        <option value={currentPath}>{currentPath}</option>
+                                    )}
+                                    {pageOptions.map(o => (
+                                        <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
                         <div className="Editor-view-mode-group-container">
                             <div className="Editor-view-mode-group">
                                 <div
@@ -503,7 +610,7 @@ function PageEditor({path, embedded}: {path: string; embedded?: boolean}) {
                                 {preview ? "编辑" : "预览"}
                             </button>
                             {!preview && (
-                                <a className="header-action-btn exit-to-pages" href="/ui/main/pages" target="_top">
+                                <a className="header-action-btn exit-to-pages" href="/ui/main/apps" target="_top">
                                     退出
                                 </a>
                             )}
@@ -609,7 +716,8 @@ function boot() {
     // The hash carries "{namespace}/apps/{...}.json": the first segment is the namespace
     // (validated against the root namespace by the files endpoint), the rest is the file
     // path under the convention root. Any existing amis json file is editable.
-    const raw = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+    // AppList 链接对 hash 做过 encodeURIComponent（%2F），先解码再校验
+    const raw = decodeURIComponent(window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash);
     if (!/^[^/\s]+\/apps\/[A-Za-z0-9_\-./]+\.json$/.test(raw)) {
         root.innerText = "无效编辑地址。期望 /apps/pages-edit#dsh.apps/apps/{app}/{page}.json";
         return;
