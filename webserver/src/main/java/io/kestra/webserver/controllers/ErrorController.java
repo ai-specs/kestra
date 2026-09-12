@@ -129,12 +129,15 @@ public class ErrorController {
      * dsh empty-body 404 marker (PageTrigger/ApiTrigger surface only: AppRouterController,
      * AppsFileController, UiAppController): rendered through the standard error pipeline —
      * framework error handling is OOM-safe for unconsumed streaming bodies (Kestra#17633),
-     * unlike an early raw 404 return inside the controller. Upstream 404s (problem+json,
-     * consumed by the kestra UI) are deliberately untouched.
+     * unlike an early raw 404 return inside the controller. The X-Dsh-Empty-404 header lets
+     * ProblemResponseFilter tell this deliberate empty 404 apart from upstream bare 404s
+     * (which carry no body either and must still get a problem document — upstream behavior);
+     * the filter consumes and strips the header before the response leaves.
      */
     @Error(global = true, exception = io.kestra.webserver.controllers.api.NotFoundResponseException.class)
     public HttpResponse<?> notFoundResponse(HttpRequest<?> request, io.kestra.webserver.controllers.api.NotFoundResponseException e) {
-        return HttpResponse.status(HttpStatus.NOT_FOUND);
+        return HttpResponse.status(HttpStatus.NOT_FOUND)
+            .header("X-Dsh-Empty-404", "1");
     }
 
     /**

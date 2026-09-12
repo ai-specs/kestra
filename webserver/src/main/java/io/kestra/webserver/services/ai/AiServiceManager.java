@@ -129,6 +129,9 @@ public class AiServiceManager {
             return null;
         }
 
+        // dsh: openai-compatible is unlocked as a product decision — upstream's OSS/EE split
+        // is a commercial gate, not a technical one (docs/merge-upstream-review-20260912.md
+        // 三.1/风险 #1). Upstream will never take this; guard this branch on every merge.
         if (!"gemini".equals(type) && !"openai".equals(type)) {
             throw new IllegalArgumentException(
                 "Unsupported AI provider type '" + type + "' for Kestra OSS. Only 'gemini' and 'openai' (any OpenAI-compatible endpoint via 'base-url') are supported. " +

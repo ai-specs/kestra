@@ -39,6 +39,13 @@ import jakarta.inject.Inject;
  * unknown URLs never yields a 200 shell whose SPA then shows an error — the shell is served
  * only for pages that actually exist.
  *
+ * <p>The catch-all deliberately does NOT claim prefixes already occupied by upstream
+ * ({@code api}, {@code ui}, {@code app} — route regex below): unmatched paths under those
+ * prefixes fall through to upstream's own route-miss handling (problem+json via
+ * ErrorController), exactly as they would without this controller — never intercepted or
+ * probed here. {@code apps} stays claimable: it is a namespace like any other and carries
+ * the {@code /apps/pages-edit} editor entry.
+ *
  * <p>Authentication is the deployment-wide SecurityFilter (docker-compose {@code intercept-url-map}
  * {@code /** → isAuthenticated()}): every path served here matches no anonymous pattern, so an
  * unauthenticated browser request is 307-redirected to {@code /oidc/login} by
@@ -49,6 +56,11 @@ import jakarta.inject.Inject;
  * <p>Static assets referenced by the shell resolve to {@code /ui/assets/...} (base-path rewrite in
  * UiIndexService) and are served by {@link UiController}; nothing else is mounted here.
  */
+// 命名空间通配不认领上游已占用前缀（api/ui/app）：serve() 首行短路，经上游异常管线
+// 产出 problem+json 404——与上游 route-miss 行为一致，不拦截、不防探测（维护者要求，
+// 2026-09-12）。注意不能用路由级负向前瞻 regex（{namespace:(?!...)...}）——Micronaut
+// UriTemplateMatcher 对其 Pattern.compile 直接抛异常、服务起不来（实测）。
+// apps 仍是可命中命名空间——它承载 /apps/pages-edit 编辑器入口。
 @Controller("/{namespace}")
 @Requires(property = "kestra.webserver.ui.enabled", notEquals = "false", defaultValue = "true")
 @Hidden
@@ -69,11 +81,20 @@ public class UiAppController {
         this.uiIndexService = Objects.requireNonNull(uiIndexService);
     }
 
+    /** 上游已占用的顶级前缀：其下未命中路径不经本控制器防探测，交回上游处理。 */
+    private static final java.util.Set<String> UPSTREAM_RESERVED_NAMESPACES = java.util.Set.of("api", "ui", "app");
+
     @Get("/{path:.*}")
     @ExecuteOn(TaskExecutors.IO)
     public HttpResponse<?> serve(HttpRequest<?> request,
                                  @PathVariable String namespace,
                                  @PathVariable @Nullable String path) {
+        // 上游保留前缀短路：本通配在 Micronaut 路由解析中先于 route-miss 命中它们的
+        // 未命中路径——按维护者要求不认领，经上游异常管线返回 problem+json 404
+        // （与无本控制器时的 route-miss 行为等价）。
+        if (UPSTREAM_RESERVED_NAMESPACES.contains(namespace)) {
+            throw new io.micronaut.http.exceptions.HttpStatusException(HttpStatus.NOT_FOUND, "Not Found");
+        }
         // 只有 /apps/pages-edit 返回编辑器（保留入口）；其余渲染页须能解析到注册的页面路由，
         // 否则抛空 body 404（防探测）——必须走异常管线（Kestra#17633），controller 内
         // raw-404 提前返回会在流式 body 未消费时触发 drain OOM（Kestra#17620）。

@@ -39,6 +39,9 @@ import io.micronaut.http.filter.ServerFilterPhase;
  */
 @ServerFilter("/**")
 public class ProblemResponseFilter implements Ordered {
+    /** Set by ErrorController's NotFoundResponseException handler: this 404 deliberately has no body (dsh apps anti-probing). */
+    private static final String EMPTY_404_MARKER = "X-Dsh-Empty-404";
+
     private final ProblemFactory problems;
     private final List<ProblemFormatExclusion> exclusions;
 
@@ -52,10 +55,15 @@ public class ProblemResponseFilter implements Ordered {
         if (400 > response.status().getCode()) {
             return;
         }
-        // dsh: apps 404 (NotFoundResponseException → empty body, anti-probing) keeps its
-        // empty body — identified by the marker status+no-body shape. Upstream 404s carry
-        // their problem document and are not replaceable anyway (typed body, see below).
-        if (response.status().getCode() == HttpStatus.NOT_FOUND.getCode() && response.body() == null) {
+        // dsh: only the 404s thrown as NotFoundResponseException keep their empty body
+        // (anti-probing on the apps surface) — their @Error handler marks the response
+        // with EMPTY_404_MARKER, consumed and stripped here. Upstream bare 404s (no body,
+        // no marker — e.g. PluginController install-job lookup, ExecutionController
+        // delete/kill) DO need a problem document and fall through to get one below;
+        // a previous body==null-only skip wrongly emptied them.
+        if (response.status().getCode() == HttpStatus.NOT_FOUND.getCode() && response.body() == null
+            && response.getHeaders().contains(EMPTY_404_MARKER)) {
+            response.getHeaders().remove(EMPTY_404_MARKER);
             return;
         }
         if (HttpMethod.HEAD == request.getMethod() || this.isExcluded(request.getPath())) {
