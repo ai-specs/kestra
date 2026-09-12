@@ -457,6 +457,47 @@ function PageEditor({namespace, appName, pagefileName, embedded}: {namespace: st
     }, [currentPath]);
 
 
+    // amis App (type:"app") schemas route off window.location.hash; with no hash the
+    // canvas renders amis's NotFound. Seed the landing page url so the canvas shows the
+    // app's default page (the iframe/standalone url never carries a hash on entry).
+    // Pages may be nested in groups (children[]), so the url search must recurse.
+    useEffect(() => {
+        if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+            return;
+        }
+        const s = schema as {type?: string; pages?: Array<{url?: string; isDefault?: boolean; children?: unknown[]}>};
+        if (s.type !== "app" || !Array.isArray(s.pages) || window.location.hash) {
+            return;
+        }
+        const findUrl = (nodes: Array<{url?: string; isDefault?: boolean; children?: unknown[]}>): string | undefined => {
+            const byDefault = (ns: Array<{url?: string; isDefault?: boolean; children?: unknown[]}>): string | undefined => {
+                for (const n of ns) {
+                    if (n.isDefault && n.url) {
+                        return n.url;
+                    }
+                }
+                return undefined;
+            };
+            const first = (ns: Array<{url?: string; isDefault?: boolean; children?: unknown[]}>): string | undefined => {
+                for (const n of ns) {
+                    if (n.url) {
+                        return n.url;
+                    }
+                    const u = n.children ? first(n.children as Array<{url?: string; isDefault?: boolean; children?: unknown[]}>) : undefined;
+                    if (u) {
+                        return u;
+                    }
+                }
+                return undefined;
+            };
+            return byDefault(nodes) ?? first(nodes);
+        };
+        const url = findUrl(s.pages);
+        if (url) {
+            window.location.hash = url;
+        }
+    }, [schema]);
+
     async function save() {
         const r = await apiRequest(`/api/v1/apps/files?path=${encodePath(currentPath)}`, "PUT", schema as object);
         if (r.ok) {
