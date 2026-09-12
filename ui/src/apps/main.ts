@@ -194,7 +194,10 @@ const env: RenderOptions = {
             } catch {
                 // non-JSON body — keep the text
             }
-            if (method === "post" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(url)) {
+            if (method === "post" && resp.ok) {
+                // 通用轮询契约（与 URL 形态无关，适用所有页面）：响应 body 带
+                // executionState（非终态，如 CREATED/RUNNING）且 executionUrl 有值
+                // → 轮询 executionUrl 直到终态（ApiTrigger ASYNC 的 202 响应形态）。
                 const p = parsed as {executionUrl?: string; executionState?: string} | null;
                 // Poll exactly the URL the first response told us about — never
                 // reconstruct it from the request URL. Polling is triggered ONLY

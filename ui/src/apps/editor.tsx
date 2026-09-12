@@ -571,8 +571,9 @@ function PageEditor({namespace, appName, pagefileName, embedded}: {namespace: st
                                     const emptyPlain = d != null && typeof d === "object" && !(d instanceof FormData) && Object.keys(d).length === 0;
                                     const body = method === "GET" ? undefined : (emptyPlain ? undefined : d);
                                     return apiRequest(apiObject.url, method, body, contentType).then(async (resp) => {
-                                        // app api 提交：202 + executionUrl + 非终态 → 自动轮询到终态再返回
-                                        if (method === "POST" && resp.ok && /\/api\/v1\/apps\/[^/]+\/[^/]+$/.test(apiObject.url)) {
+                                        // 通用轮询契约（与 URL 形态无关）：body 带 executionState（非终态）
+                                        // + executionUrl → 轮询到终态（与 main.ts 同规则）
+                                        if (method === "POST" && resp.ok) {
                                             const payload = resp.data as {executionUrl?: string; executionState?: string} | null;
                                             const pollUrl = payload?.executionUrl;
                                             const state = payload?.executionState;
