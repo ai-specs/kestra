@@ -520,7 +520,7 @@ function PageEditor({namespace, appName, pagefileName, embedded}: {namespace: st
                 <div className="Editor-Demo">
                     <div className="Editor-header">
                         <div className="Editor-title editor-page-picker">
-                            <span className="editor-page-picker-label">页面编辑器</span>
+                            <span className="editor-page-picker-label">请选择 {appName} 下的页面</span>
                             {pageOptions === null ? (
                                 <span className="editor-page-picker-path">{currentPath}</span>
                             ) : (
