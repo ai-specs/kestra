@@ -44,8 +44,10 @@ import java.util.concurrent.TimeUnit;
 @Controller("/api/v1/dsh/relay")
 public class DshRelayController {
 
-    /** 短暂缓存 TTL（§5.4：60s 短期缓冲）。 */
+    /** 转发目标离线时消息缓存 60s（§5.4）。 */
     private static final long CACHE_TTL_MS = 60_000;
+    /** 查询结果缓存 TTL（§5.2 查询转发：Phone 轮询取结果窗口）。 */
+    private static final long QUERY_TTL_MS = 30_000;
     /** SSE 保活间隔（§5.3：heartbeat 15s）。 */
     private static final long HEARTBEAT_MS = 15_000;
 
@@ -62,6 +64,8 @@ public class DshRelayController {
     private final ConcurrentMap<String, Map<String, Boolean>> presence = new ConcurrentHashMap<>();
     /** msgId → 未送达消息（60s TTL，目标上线补推）。 */
     private final ConcurrentMap<String, CachedMessage> cache = new ConcurrentHashMap<>();
+    /** requestId → 查询结果（§5.2 查询转发：PC 回填，Phone 轮询取走）。 */
+    private final ConcurrentMap<String, QueryResult> queryResults = new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "dsh-relay");
@@ -89,6 +93,12 @@ public class DshRelayController {
     /** Phone → PC：审批决策。 */
     public record RelayDecision(String sessionId, Boolean approved, String comment) {}
 
+    /** Phone → PC：会话查询（列表/详情）。requestId 由 Phone 生成，PC 回填时原样携带。 */
+    public record RelayQuery(String requestId, String type, String sessionId) {}
+
+    /** PC → 中台：查询结果回填（type 为 session.list/session.detail；payload 为结果 JSON；error 为查询失败说明）。 */
+    public record RelayQueryResult(String requestId, String type, Object payload, String error) {}
+
     /** 无 SSE 形态（daemon 等）的在线状态心跳。 */
     public record PresenceBody(Boolean online) {}
 
@@ -97,6 +107,13 @@ public class DshRelayController {
 
     /** 一条待补推的未送达消息。 */
     private record CachedMessage(String toSub, String role, String type, Map<String, Object> data, long expiresAt) {
+        boolean expired() {
+            return System.currentTimeMillis() > expiresAt;
+        }
+    }
+
+    /** 一条查询结果（PC 回填后供 Phone 轮询取走，TTL 30s）。 */
+    private record QueryResult(String toSub, Map<String, Object> payload, long expiresAt) {
         boolean expired() {
             return System.currentTimeMillis() > expiresAt;
         }
@@ -213,6 +230,91 @@ public class DshRelayController {
         }
         cacheMessage(caller.sub(), CLIENT_PC, "session.approval.decision", data);
         return HttpResponse.ok(Map.of("delivered", false, "cached", true, "reason", "pc offline"));
+    }
+
+    /**
+     * Phone → PC：会话查询转发（选项 B「Phone 经通道从 PC 拉取会话」）。
+     * PC 在线 → 经 SSE 推 {@code session.query}，返回 202 pending；Phone 随后轮询
+     * {@code GET /relay/query-result/{requestId}} 取 PC 回填的结果。
+     * PC 离线 → 200 {@code offline:true}，Phone 回退本地缓存（可能滞后）。
+     */
+    @Post("/query")
+    @Operation(summary = "Relay a session query (list/detail) from Phone to the same user's PC (option B)")
+    public HttpResponse<Map<String, Object>> query(
+        HttpRequest<?> request,
+        @Body RelayQuery body
+    ) {
+        DshIdentity.Principal caller = userOnly(request);
+        if (caller == null) {
+            return forbidden();
+        }
+        if (body == null || body.requestId() == null || body.requestId().isBlank()
+            || body.type() == null || body.type().isBlank()) {
+            return HttpResponse.badRequest(Map.of("error", "requestId and type are required"));
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("requestId", body.requestId());
+        data.put("type", body.type());
+        data.put("sessionId", body.sessionId());
+        boolean delivered = deliver(caller.sub(), CLIENT_PC, "session.query", data);
+        if (delivered) {
+            return HttpResponse.ok(Map.of("pending", true));
+        }
+        return HttpResponse.ok(Map.of("offline", true, "reason", "pc offline"));
+    }
+
+    /** PC → 中台：查询结果回填（缓存 30s 供 Phone 轮询；Phone 在线时同时推送 SSE）。 */
+    @Post("/query-result")
+    @Operation(summary = "PC fills a session query result back to the relay cache (option B)")
+    public HttpResponse<Map<String, Object>> queryResult(
+        HttpRequest<?> request,
+        @Body RelayQueryResult body
+    ) {
+        DshIdentity.Principal caller = userOnly(request);
+        if (caller == null) {
+            return forbidden();
+        }
+        if (body == null || body.requestId() == null || body.requestId().isBlank()) {
+            return HttpResponse.badRequest(Map.of("error", "requestId is required"));
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("requestId", body.requestId());
+        payload.put("type", body.type());
+        if (body.error() != null && !body.error().isBlank()) {
+            payload.put("error", body.error());
+        } else {
+            payload.put("payload", body.payload());
+        }
+        queryResults.put(body.requestId(), new QueryResult(caller.sub(), payload, System.currentTimeMillis() + QUERY_TTL_MS));
+        // Phone 在线时同步推送（App 现以轮询为主，此推送为可选的实时增强）。
+        deliver(caller.sub(), CLIENT_PHONE, "session.query.result", payload);
+        return HttpResponse.ok(Map.of("ok", true));
+    }
+
+    /** Phone 轮询取查询结果（TTL 30s，取走即删；未命中/过期 404）。 */
+    @Get("/query-result/{requestId}")
+    @Operation(summary = "Phone polls a relayed session query result (option B)")
+    public HttpResponse<Map<String, Object>> queryResultPoll(
+        HttpRequest<?> request,
+        String requestId
+    ) {
+        DshIdentity.Principal caller = userOnly(request);
+        if (caller == null) {
+            return forbidden();
+        }
+        QueryResult result = queryResults.get(requestId);
+        if (result == null || result.expired()) {
+            queryResults.remove(requestId);
+            return HttpResponse.status(io.micronaut.http.HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "result expired or unknown"));
+        }
+        // 只允许发起方（同 sub）取走。
+        if (!result.toSub().equals(caller.sub())) {
+            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "query result belongs to another user"));
+        }
+        queryResults.remove(requestId);
+        return HttpResponse.ok(result.payload());
     }
 
     /**
