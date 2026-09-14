@@ -368,8 +368,8 @@ public class DshRelayController {
             if (previous != null) {
                 previous.complete();
             }
-            emitter.onCancel(() -> disconnect(sub, role, pool));
-            emitter.onDispose(() -> disconnect(sub, role, pool));
+            emitter.onCancel(() -> disconnect(sub, role, pool, emitter));
+            emitter.onDispose(() -> disconnect(sub, role, pool, emitter));
             // 上线补推：缓存中发给本 sub 本角色的未过期消息
             replayCache(sub, role, emitter);
         }, FluxSink.OverflowStrategy.BUFFER);
@@ -429,9 +429,18 @@ public class DshRelayController {
         });
     }
 
+    /**
+     * 连接结束清理。条件删除：仅当池中条目仍指向本 sink 才移除并标记离线——
+     * PC 重启场景下新连接已 {@code put} 替换旧连接，旧连接的 dispose 不得误删
+     * 新连接、也不得把在线状态改回 offline（否则 query 将推给已被删除的 sink）。
+     */
     private void disconnect(String sub, String role,
-                            ConcurrentMap<String, FluxSink<RelayEvent>> pool) {
-        pool.remove(sub);
+                            ConcurrentMap<String, FluxSink<RelayEvent>> pool,
+                            FluxSink<RelayEvent> emitter) {
+        if (!pool.remove(sub, emitter)) {
+            // 已被同一 sub 的新连接替换——本回调属于旧连接，不触碰新条目。
+            return;
+        }
         markOnline(sub, role, false);
         // 对端感知 PC 离线（pc.status）——仅 PC 断开时通知 Phone 有意义
         if (CLIENT_PC.equals(role)) {
