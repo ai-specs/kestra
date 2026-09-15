@@ -34,7 +34,7 @@ import jakarta.inject.Inject;
  *   <li>{@code /api/v1/dsh/**} — sessions/approvals/metrics/gateway (callers: dsh (PC) plugins,
  *       dsh-ui, scripts); gateway endpoints share the same Bearer guard;</li>
  *   <li>{@code /api/v1/executions/dsh/**} — triggering flows in the {@code dsh} namespace (the
- *       AIAgent execution plane), so dsh-ui can start tasks with its provider token.</li>
+ *       dsh container execution plane), so dsh-ui can start tasks with its provider token.</li>
  * </ul>
  *
  * <p>
@@ -68,7 +68,7 @@ public class OidcBearerAuthFilter implements HttpServerFilter {
 
     /**
      * The dsh ecosystem clients: access tokens minted for any of them may reach the dsh APIs —
-     * {@code dsh} (service identity: dsh(PC) plugins, AIAgent containers, scripts),
+     * {@code dsh} (service identity: dsh(PC) plugins, dsh container execution plane, scripts),
      * {@code dsh-ui} (mobile) and {@code dsh-pc} (user PC), the latter two authorization code +
      * PKCE. A token minted for another client (e.g. the nacos config client) must not reach
      * these surfaces — the audience check is the sole gateway authorization factor.

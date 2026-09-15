@@ -16,7 +16,7 @@ import io.micronaut.http.HttpRequest;
  *       {@code dsh-pc} PC): {@code sub} is the IdP account (e.g. {@code alice@kestra.io});
  *       session records they create are OWNED by that sub and invisible to other users;</li>
  *   <li><em>service identity</em> — client_credentials clients ({@code dsh}): {@code sub} equals
- *       the {@code client_id}; used by AIAgent containers, flows and scripts (no human owner).</li>
+ *       the {@code client_id}; used by dsh container execution plane, flows and scripts (no human owner).</li>
  * </ul>
  *
  * <p>

@@ -61,7 +61,7 @@ public class DshMetricsController {
 
     /**
      * Report one golden-indicator measurement into dsh_metrics (Worker plugin DshMetrics REPORT
-     * and AIAgent). Authenticated dsh callers only; a null/0 P99 is stored as NULL (the summary
+     * and dsh container execution plane). Authenticated dsh callers only; a null/0 P99 is stored as NULL (the summary
      * aggregates over non-null P99s, same as the pre-refactor JDBC insert).
      */
     @Post

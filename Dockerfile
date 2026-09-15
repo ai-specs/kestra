@@ -38,6 +38,7 @@ io.kestra.plugin:plugin-script-powershell:LATEST \
 io.kestra.plugin:plugin-script-python:LATEST \
 io.kestra.plugin:plugin-script-r:LATEST \
 io.kestra.plugin:plugin-script-ruby:LATEST \
+io.kestra.plugin:plugin-docker:LATEST \
 io.kestra.plugin:plugin-script-shell:LATEST \
 io.kestra.plugin:plugin-serdes:LATEST \
 io.kestra.plugin:plugin-fs:LATEST \
