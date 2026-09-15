@@ -61,17 +61,22 @@ public class DshGatewayController {
         @Parameter(description = "Target system alias") String system,
         @Parameter(description = "Business path inside the target system") String path,
         @Parameter(description = "Raw query string forwarded to the target") @QueryValue(defaultValue = "") String query,
-        @Body String body
+        @Body String body,
+        // Micronaut 注入当前请求（注意与 java.net.http.HttpRequest 区分，须全限定名）
+        io.micronaut.http.HttpRequest<?> request
     ) throws Exception {
-        // 鉴权：OidcBearerAuthFilter（Bearer + aud=dsh 受众校验）。
+        // 鉴权：OidcBearerAuthFilter（Bearer + aud=dsh 受众校验）。调用方身份取自
+        // 过滤器已校验的 claims（DshIdentity.of），审计必须记录 sub 以保证可追溯。
+        DshIdentity.Principal caller = DshIdentity.of(request);
+        String sub = caller == null ? "?" : caller.sub();
         String base = configuration.systemBaseUrl(system);
         if (base == null) {
-            LOG.info("[dsh-gateway] DENIED system={} path={} status=404 (unknown system)", system, path);
+            LOG.info("[dsh-gateway] DENIED sub={} system={} path={} status=404 (unknown system)", sub, system, path);
             return HttpResponse.notFound("{\"error\":\"unknown system\"}");
         }
 
         String target = base + "/" + path + (query == null || query.isBlank() ? "" : "?" + query);
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest targetRequest = HttpRequest.newBuilder()
             .uri(URI.create(target))
             .timeout(Duration.ofSeconds(configuration.timeoutSeconds()))
             .header("Content-Type", "application/json")
@@ -80,8 +85,8 @@ public class DshGatewayController {
             .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body))
             .build();
 
-        java.net.http.HttpResponse<String> response = httpClient.send(request, BodyHandlers.ofString());
-        LOG.info("[dsh-gateway] FORWARDED system={} path={} status={}", system, path, response.statusCode());
+        java.net.http.HttpResponse<String> response = httpClient.send(targetRequest, BodyHandlers.ofString());
+        LOG.info("[dsh-gateway] FORWARDED sub={} system={} path={} status={}", sub, system, path, response.statusCode());
         return HttpResponse.ok(response.body());
     }
 
