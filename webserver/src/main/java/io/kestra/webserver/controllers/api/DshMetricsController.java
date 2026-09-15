@@ -80,7 +80,7 @@ public class DshMetricsController {
         }
         try (Connection connection = open(); PreparedStatement ps = connection.prepareStatement(
             "INSERT INTO dsh_metrics (session_id, user_id, task_completion_rate, tool_error_rate, p99_latency_ms, token_usage) "
-                + "VALUES (?::uuid, ?, ?, ?, ?, ?) RETURNING id, created_at")) {
+                + "VALUES (?, ?, ?, ?, ?, ?) RETURNING id, created_at")) {
             ps.setString(1, body.sessionId());
             ps.setString(2, body.userId());
             ps.setDouble(3, body.taskCompletionRate() == null ? 0d : body.taskCompletionRate());
