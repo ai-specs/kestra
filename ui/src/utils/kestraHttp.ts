@@ -232,14 +232,16 @@ export function setupKestraHttp(
 
     client.interceptors.response.use((response, _request, opts) => {
         // dsh: 与 request 钩子一致——跳过 NProgress 的请求（stream/SSE 等）也不推进进度条
-        if (!(opts as Record<string, unknown> | undefined)?.[SKIP_PROGRESS]) increaseProgress()
+        const responseOpts = opts as unknown as Record<string, unknown> | undefined
+        if (!responseOpts?.[SKIP_PROGRESS]) increaseProgress()
         return response
     })
 
     client.interceptors.error.use((error, response, request, opts) => {
         const kestraError = error as KestraHttpError
         if (!response) {
-            if (!(opts as Record<string, unknown> | undefined)?.[SKIP_PROGRESS]) increaseProgress()
+            const errorOpts = opts as unknown as Record<string, unknown> | undefined
+            if (!errorOpts?.[SKIP_PROGRESS]) increaseProgress()
             return kestraError
         }
 
@@ -283,15 +285,15 @@ export function setupKestraHttp(
                 const bound = targetAny[method].bind(target)
                 if (method === "stream") {
                     // dsh: stream() 与 sse 方法一致，始终跳过 NProgress（长连接进度条无意义）
-                    targetAny[method] = withAuthRetry((...args: any[]) => {
+                    targetAny[method] = withAuthRetry((...args: unknown[]) => {
                         const lastIndex = args.length - 1
                         const last = args[lastIndex]
-                        if (last && typeof last === "object" && !Array.isArray(last)) {
+                        if (last !== undefined && typeof last === "object" && !Array.isArray(last)) {
                             args[lastIndex] = {...last, [SKIP_PROGRESS]: true}
                         } else {
                             args.push({[SKIP_PROGRESS]: true})
                         }
-                        return bound(...args)
+                        return bound(...(args as never[]))
                     })
                 } else {
                     targetAny[method] = withAuthRetry(bound)
