@@ -82,7 +82,7 @@ public class DshRelayController {
     // ── 请求/事件记录 ────────────────────────────────────────────────────────
 
     /** Phone → PC：App 发起新会话或追问。 */
-    public record RelayInput(String text, String sessionId, Boolean newSession) {}
+    public record RelayInput(String text, String sessionId, Boolean newSession, String workspaceId) {}
 
     /** PC → Phone：执行结果。 */
     public record RelayResult(String sessionId, String phase, Object result) {}
@@ -142,6 +142,9 @@ public class DshRelayController {
         data.put("text", body.text());
         data.put("sessionId", body.sessionId());
         data.put("newSession", body.newSession() == null ? Boolean.FALSE : body.newSession());
+        if (body.workspaceId() != null && !body.workspaceId().isBlank()) {
+            data.put("workspaceId", body.workspaceId());
+        }
         boolean delivered = deliver(caller.sub(), CLIENT_PC, "session.input", data);
         if (delivered) {
             return HttpResponse.ok(Map.of("delivered", true));
