@@ -230,15 +230,16 @@ export function setupKestraHttp(
         return request
     })
 
-    client.interceptors.response.use((response) => {
-        increaseProgress()
+    client.interceptors.response.use((response, _request, opts) => {
+        // dsh: 与 request 钩子一致——跳过 NProgress 的请求（stream/SSE 等）也不推进进度条
+        if (!(opts as Record<string, unknown> | undefined)?.[SKIP_PROGRESS]) increaseProgress()
         return response
     })
 
     client.interceptors.error.use((error, response, request, opts) => {
         const kestraError = error as KestraHttpError
         if (!response) {
-            increaseProgress()
+            if (!(opts as Record<string, unknown> | undefined)?.[SKIP_PROGRESS]) increaseProgress()
             return kestraError
         }
 
@@ -278,7 +279,24 @@ export function setupKestraHttp(
     for (const target of [client, useClient()] as const) {
         const targetAny = target as unknown as Record<string, (...args: any[]) => Promise<any>>
         for (const method of ["get", "post", "put", "patch", "delete", "request", "stream"]) {
-            if (typeof targetAny[method] === "function") targetAny[method] = withAuthRetry(targetAny[method].bind(target))
+            if (typeof targetAny[method] === "function") {
+                const bound = targetAny[method].bind(target)
+                if (method === "stream") {
+                    // dsh: stream() 与 sse 方法一致，始终跳过 NProgress（长连接进度条无意义）
+                    targetAny[method] = withAuthRetry((...args: any[]) => {
+                        const lastIndex = args.length - 1
+                        const last = args[lastIndex]
+                        if (last && typeof last === "object" && !Array.isArray(last)) {
+                            args[lastIndex] = {...last, [SKIP_PROGRESS]: true}
+                        } else {
+                            args.push({[SKIP_PROGRESS]: true})
+                        }
+                        return bound(...args)
+                    })
+                } else {
+                    targetAny[method] = withAuthRetry(bound)
+                }
+            }
         }
     }
 
