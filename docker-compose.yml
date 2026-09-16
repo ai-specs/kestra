@@ -18,11 +18,9 @@
 
 # 与根目录 docker-compose.yml 保持同一组默认值（kestra/kestra/k3str4、18080/18081），
 # 全部经 ${VAR:-default} 参数化：不设环境变量时行为与硬编码一致；设了即可覆盖。
-# 本文件不自动加载根目录 .env（compose 只读「本文件同目录」的 .env），如需共享
-# 根 .env 的覆盖值，两种方式任选：
-#   · 仓库根目录执行  bun run up:standalone / down:standalone（已用 --env-file .env 指向根 .env）
-#   · app-kestra 目录执行  docker compose --env-file ../.env up -d
-# 或先 export 对应变量（CI/脚本场景）。
+# 本文件仅供阅读参考，**不以任何方式执行**（up:standalone / down:standalone 已于
+# 2026-09-16 从根 package.json 移除；kestra 单机 dev 请用 `cd app-kestra && bun run dev`
+# + `make start-standalone-local`，完整企业侧栈用根目录 docker-compose.yml）。
 #
 # 完整企业侧栈（含 Nacos/dsh-ui/dsh(PC)/mock-enterprise）请用根目录 docker-compose.yml。
 # ⚠️ 再次强调：本文件不是启动入口，禁止单独 `docker compose up`。⚠️
