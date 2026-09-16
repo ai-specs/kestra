@@ -2199,8 +2199,10 @@
           "invalid": "変更が必要です",
           "applied": "適用済み",
           "dismiss": "却下",
-          "dismissed": "却下済み"
-        }
+          "dismissed": "却下済み",
+          "previewBanner": "AI による変更案を確認中です — 適用または却下するまでエディターは読み取り専用になります。"
+        },
+        "stop": "停止"
       }
     },
     "playground": {
@@ -2770,6 +2772,11 @@
         "name": "名前",
         "description": "説明"
       }
-    }
+    },
+    "versionUpgradeNotice": {
+      "message": "Kestraが{version}にアップグレードされました。これには、Flowの更新が必要となる破壊的変更が含まれている可能性があります。",
+      "cta": "変更点を確認"
+    },
+    "flow metadata locked": "`id`と`namespace`は、flowの作成後は変更できません。"
   }
 }

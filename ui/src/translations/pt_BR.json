@@ -2196,8 +2196,13 @@
                         "app": "App proposto"
                     },
                     "valid": "Válido",
-                    "invalid": "Precisa de mudanças"
-                }
+                    "invalid": "Precisa de mudanças",
+                    "previewBanner": "Revisando uma alteração sugerida pela IA — o editor fica somente leitura até você aplicar ou descartar.",
+                    "applied": "Aplicado",
+                    "dismiss": "Descartar",
+                    "dismissed": "Descartado"
+                },
+                "stop": "Parar"
             }
         },
         "playground": {
@@ -2767,6 +2772,11 @@
                 "name": "Nome",
                 "description": "Descrição"
             }
-        }
+        },
+        "versionUpgradeNotice": {
+            "message": "O Kestra foi atualizado para a versão {version} e pode incluir alterações que exigem atualizações nos seus Flows.",
+            "cta": "Ver o que mudou"
+        },
+        "flow metadata locked": "`id` e `namespace` não podem ser alterados depois que um flow é criado."
     }
 }

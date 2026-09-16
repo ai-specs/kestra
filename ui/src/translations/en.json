@@ -690,6 +690,10 @@
     "open full page": "Open Full Page",
     "drill down preview": "Preview",
     "errors": {
+      "400": {
+        "title": "Bad request",
+        "content": "The request could not be understood by the server."
+      },
       "401": {
         "title": "Unauthorized",
         "content": "You need to be authenticated to access this page."
@@ -702,10 +706,6 @@
         "title": "Page not found",
         "content": "The requested URL was not found on this server.<br />That’s all we know.",
         "flow or execution": "The flow or execution you are looking for does not exist."
-      },
-      "400": {
-        "title": "Bad request",
-        "content": "The request could not be understood by the server."
       },
       "409": {
         "title": "Conflict",
@@ -2199,8 +2199,10 @@
           "invalid": "Needs changes",
           "applied": "Applied",
           "dismiss": "Dismiss",
-          "dismissed": "Dismissed"
-        }
+          "dismissed": "Dismissed",
+          "previewBanner": "Reviewing an AI-suggested change — the editor is read-only until you apply or dismiss it."
+        },
+        "stop": "Stop"
       }
     },
     "playground": {
@@ -2770,6 +2772,11 @@
         "name": "Name",
         "description": "Description"
       }
-    }
+    },
+    "versionUpgradeNotice": {
+      "message": "Kestra was upgraded to {version} and it may include breaking changes that require updates to your flows.",
+      "cta": "See what changed"
+    },
+    "flow metadata locked": "`id` and `namespace` cannot be changed after a flow is created."
   }
 }
