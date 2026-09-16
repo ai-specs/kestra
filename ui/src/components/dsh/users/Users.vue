@@ -4,7 +4,7 @@
             <ul>
                 <li>
                     <KsButton :icon="Plus" type="primary" data-test="user-add" @click="openCreate">
-                        {{ t("dsh.users.add") }}
+                        {{ $t("dsh.users.add") }}
                     </KsButton>
                 </li>
             </ul>
@@ -15,18 +15,18 @@
         <div class="user-toolbar">
             <KsInput
                 v-model="search"
-                :placeholder="t('dsh.users.searchPlaceholder')"
+                :placeholder="$t('dsh.users.searchPlaceholder')"
                 clearable
                 class="user-search"
                 data-test="user-search"
                 @keyup.enter="load()"
             />
             <KsSelect v-model="typeFilter" class="user-type-filter" data-test="user-type-filter" @change="load()">
-                <KsOption :label="t('dsh.users.allTypes')" value="" />
-                <KsOption :label="t('dsh.users.human')" value="human" />
-                <KsOption :label="t('dsh.users.machine')" value="machine" />
+                <KsOption :label="$t('dsh.users.allTypes')" value="" />
+                <KsOption :label="$t('dsh.users.human')" value="human" />
+                <KsOption :label="$t('dsh.users.machine')" value="machine" />
             </KsSelect>
-            <KsButton :icon="Magnify" type="default" @click="load()">{{ t("search") }}</KsButton>
+            <KsButton :icon="Magnify" type="default" @click="load()">{{ $t("search") }}</KsButton>
         </div>
 
         <KsTable
@@ -37,21 +37,21 @@
             data-test="user-table"
             @row-click="onRowClick"
         >
-            <KsTableColumn prop="username" :label="t('dsh.users.username')" :minWidth="150">
+            <KsTableColumn prop="username" :label="$t('dsh.users.username')" :minWidth="150">
                 <template #default="{row}">
                     <b>{{ row.username }}</b>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.users.type')" width="90">
+            <KsTableColumn :label="$t('dsh.users.type')" width="90">
                 <template #default="{row}">
                     <KsTag :type="row.type === 'machine' ? 'warning' : 'success'" size="small" effect="light">
-                        {{ row.type === 'machine' ? t('dsh.users.machine') : t('dsh.users.human') }}
+                        {{ row.type === 'machine' ? $t('dsh.users.machine') : $t('dsh.users.human') }}
                     </KsTag>
                 </template>
             </KsTableColumn>
-            <KsTableColumn prop="name" :label="t('dsh.users.name')" :minWidth="120" />
-            <KsTableColumn prop="email" :label="t('dsh.users.email')" :minWidth="150" />
-            <KsTableColumn :label="t('dsh.users.roles')" :minWidth="120">
+            <KsTableColumn prop="name" :label="$t('dsh.users.name')" :minWidth="120" />
+            <KsTableColumn prop="email" :label="$t('dsh.users.email')" :minWidth="150" />
+            <KsTableColumn :label="$t('dsh.users.roles')" :minWidth="120">
                 <template #default="{row}">
                     <KsTag
                         v-for="role in (row.roles || [])"
@@ -65,24 +65,24 @@
                     </KsTag>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.users.state')" width="90">
+            <KsTableColumn :label="$t('dsh.users.state')" width="90">
                 <template #default="{row}">
                     <KsTag :type="row.userState === 'ACTIVE' ? 'success' : 'info'" size="small" effect="light">
                         {{ row.userState }}
                     </KsTag>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.users.lastLogin')" width="130">
+            <KsTableColumn :label="$t('dsh.users.lastLogin')" width="130">
                 <template #default="{row}">
                     <KsDateAgo v-if="row.lastLoginAt" :date="row.lastLoginAt" inverted />
                     <span v-else>—</span>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('actions')" width="140">
+            <KsTableColumn :label="$t('actions')" width="140">
                 <template #default="{row}">
                     <KsIconButton
                         data-test="user-edit"
-                        :tooltip="t('edit')"
+                        :tooltip="$t('edit')"
                         placement="left"
                         @click.stop="openEdit(row)"
                     >
@@ -91,7 +91,7 @@
                     <KsIconButton
                         v-if="row.type !== 'machine'"
                         data-test="user-reset-password"
-                        :tooltip="t('dsh.users.resetPassword')"
+                        :tooltip="$t('dsh.users.resetPassword')"
                         placement="left"
                         @click.stop="openResetPassword(row)"
                     >
@@ -100,7 +100,7 @@
                     <KsIconButton
                         v-else
                         data-test="user-rotate-secret"
-                        :tooltip="t('dsh.users.rotateSecret')"
+                        :tooltip="$t('dsh.users.rotateSecret')"
                         placement="left"
                         @click.stop="openResetPassword(row)"
                     >
@@ -108,7 +108,7 @@
                     </KsIconButton>
                     <KsIconButton
                         data-test="user-delete"
-                        :tooltip="t('delete')"
+                        :tooltip="$t('delete')"
                         placement="left"
                         @click.stop="confirmRemove(row)"
                     >
@@ -121,41 +121,41 @@
         <!-- create / edit drawer (right side, same pattern as upstream KV) -->
         <KsDrawer
             v-model="dialogVisible"
-            :title="editing ? t('dsh.users.edit') : t('dsh.users.add')"
+            :title="editing ? $t('dsh.users.edit') : $t('dsh.users.add')"
             data-test="user-dialog"
         >
             <KsForm labelPosition="top" class="user-form">
-                <KsFormItem v-if="!editing" :label="t('dsh.users.type')" required>
+                <KsFormItem v-if="!editing" :label="$t('dsh.users.type')" required>
                     <KsSelect v-model="form.type" class="user-type-select" data-test="user-form-type" @change="onTypeChange">
-                        <KsOption :label="t('dsh.users.human')" value="human" />
-                        <KsOption :label="t('dsh.users.machine')" value="machine" />
+                        <KsOption :label="$t('dsh.users.human')" value="human" />
+                        <KsOption :label="$t('dsh.users.machine')" value="machine" />
                     </KsSelect>
                 </KsFormItem>
-                <KsFormItem v-if="!editing" :label="t('dsh.users.username')" required>
+                <KsFormItem v-if="!editing" :label="$t('dsh.users.username')" required>
                     <KsInput v-model="form.username" data-test="user-form-username" />
                 </KsFormItem>
-                <KsFormItem :label="t('dsh.users.name')" required>
+                <KsFormItem :label="$t('dsh.users.name')" required>
                     <KsInput v-model="form.name" data-test="user-form-name" />
                 </KsFormItem>
-                <KsFormItem v-if="form.type === 'human'" :label="t('dsh.users.email')" required>
+                <KsFormItem v-if="form.type === 'human'" :label="$t('dsh.users.email')" required>
                     <KsInput v-model="form.email" data-test="user-form-email" />
                 </KsFormItem>
-                <KsFormItem v-if="!editing && form.type === 'machine'" :label="t('dsh.users.description')">
+                <KsFormItem v-if="!editing && form.type === 'machine'" :label="$t('dsh.users.description')">
                     <KsInput v-model="form.description" data-test="user-form-description" />
                 </KsFormItem>
-                <KsFormItem v-if="!editing && form.type === 'human'" :label="t('dsh.users.password')">
+                <KsFormItem v-if="!editing && form.type === 'human'" :label="$t('dsh.users.password')">
                     <KsInput v-model="form.password" type="password" showPassword data-test="user-form-password" />
                 </KsFormItem>
-                <KsFormItem v-if="!editing && form.type === 'machine'" :label="t('dsh.users.secret')">
+                <KsFormItem v-if="!editing && form.type === 'machine'" :label="$t('dsh.users.secret')">
                     <KsInput v-model="form.secret" showPassword data-test="user-form-secret"
-                        :placeholder="t('dsh.users.secretPlaceholder')" />
+                        :placeholder="$t('dsh.users.secretPlaceholder')" />
                 </KsFormItem>
-                <KsFormItem :label="t('dsh.users.roles')">
+                <KsFormItem :label="$t('dsh.users.roles')">
                     <KsSelect v-model="form.roles" multiple allowCreate filterable class="user-roles-select">
                         <KsOption v-for="role in availableRoles" :key="role" :label="role" :value="role" />
                     </KsSelect>
                 </KsFormItem>
-                <KsFormItem :label="t('dsh.users.state')">
+                <KsFormItem :label="$t('dsh.users.state')">
                     <KsSelect v-model="form.userState" class="user-state-select">
                         <KsOption label="ACTIVE" value="ACTIVE" />
                         <KsOption label="INACTIVE" value="INACTIVE" />
@@ -164,7 +164,7 @@
             </KsForm>
             <template #footer>
                 <KsButton :icon="ContentSave" type="primary" data-test="user-form-submit" @click="submit">
-                    {{ t("save") }}
+                    {{ $t("save") }}
                 </KsButton>
             </template>
         </KsDrawer>
@@ -172,11 +172,11 @@
         <!-- reset password / rotate secret drawer -->
         <KsDrawer
             v-model="passwordDialogVisible"
-            :title="passwordTarget && passwordTarget.type === 'machine' ? t('dsh.users.rotateSecret') : t('dsh.users.resetPassword')"
+            :title="passwordTarget && passwordTarget.type === 'machine' ? $t('dsh.users.rotateSecret') : $t('dsh.users.resetPassword')"
         >
             <KsForm labelPosition="top">
                 <KsFormItem
-                    :label="passwordTarget && passwordTarget.type === 'machine' ? t('dsh.users.newSecret') : t('dsh.users.newPassword')"
+                    :label="passwordTarget && passwordTarget.type === 'machine' ? $t('dsh.users.newSecret') : $t('dsh.users.newPassword')"
                     required
                 >
                     <KsInput v-model="newPassword" type="password" showPassword data-test="password-input" />
@@ -184,7 +184,7 @@
             </KsForm>
             <template #footer>
                 <KsButton :icon="ContentSave" type="primary" data-test="password-submit" @click="submitPassword">
-                    {{ t("save") }}
+                    {{ $t("save") }}
                 </KsButton>
             </template>
         </KsDrawer>

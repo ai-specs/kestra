@@ -5,7 +5,7 @@
         <!-- 面包屑导航 -->
         <nav class="project-breadcrumb">
             <router-link :to="{name: 'admin/project'}" class="breadcrumb-link">
-                {{ t("dsh.project.title") }}
+                {{ $t("dsh.project.title") }}
             </router-link>
             <span class="breadcrumb-separator">/</span>
             <span class="breadcrumb-current">{{ projectName }}</span>
@@ -15,7 +15,7 @@
         <div class="project-header">
             <div class="project-title-row">
                 <h1 class="project-name">{{ projectName }}</h1>
-                <KsTag type="success" size="small" effect="light">{{ t("dsh.project.defaultProject") }}</KsTag>
+                <KsTag type="success" size="small" effect="light">{{ $t("dsh.project.defaultProject") }}</KsTag>
             </div>
             <p class="project-desc">{{ projectDesc }}</p>
         </div>
@@ -23,25 +23,25 @@
         <!-- Tab 导航 -->
         <KsTabs v-model="activeTab" class="project-tabs" type="box">
             <!-- 概览 Tab -->
-            <KsTabPane :label="t('dsh.project.overview')" name="summary">
+            <KsTabPane :label="$t('dsh.project.overview')" name="summary">
                 <div class="tab-content">
                     <!-- 项目统计（顶部 header 已展示项目名与描述，这里只展示补充信息） -->
                     <div class="info-section">
                         <div class="info-grid">
                             <div class="info-item">
-                                <span class="info-label">{{ t("dsh.project.createdAt") }}</span>
+                                <span class="info-label">{{ $t("dsh.project.createdAt") }}</span>
                                 <span class="info-value">{{ projectCreatedAt }}</span>
                             </div>
                             <div class="info-item">
-                                <span class="info-label">{{ t("dsh.project.applications") }}</span>
+                                <span class="info-label">{{ $t("dsh.project.applications") }}</span>
                                 <span class="info-value">{{ clients.length }}</span>
                             </div>
                             <div class="info-item clickable" role="button" tabindex="0" @click="goToTab('roles')" @keydown.enter="goToTab('roles')">
-                                <span class="info-label">{{ t("dsh.project.roles") }}</span>
+                                <span class="info-label">{{ $t("dsh.project.roles") }}</span>
                                 <span class="info-value">{{ roles.length }}</span>
                             </div>
                             <div class="info-item clickable" role="button" tabindex="0" @click="goToTab('members')" @keydown.enter="goToTab('members')">
-                                <span class="info-label">{{ t("dsh.project.members") }}</span>
+                                <span class="info-label">{{ $t("dsh.project.members") }}</span>
                                 <span class="info-value">{{ users.length }}</span>
                             </div>
                         </div>
@@ -49,7 +49,7 @@
 
                     <!-- Applications 卡片网格 -->
                     <div class="apps-section">
-                        <h3 class="section-title">{{ t("dsh.project.applications") }}</h3>
+                        <h3 class="section-title">{{ $t("dsh.project.applications") }}</h3>
                         <div class="apps-grid">
                             <div v-for="app in clients" :key="app.clientId" class="app-card" :class="{inactive: app.active === false}" @click="openAppDetail(app)">
                                 <div class="app-icon" :class="isPublic(app) ? 'public' : 'confidential'">
@@ -59,19 +59,19 @@
                                     <div class="app-name">{{ app.clientId }}</div>
                                     <div class="app-type">
                                         <KsTag :type="isPublic(app) ? 'info' : 'warning'" size="small" effect="light">
-                                            {{ isPublic(app) ? t("dsh.project.public") : t("dsh.project.confidential") }}
+                                            {{ isPublic(app) ? $t("dsh.project.public") : $t("dsh.project.confidential") }}
                                         </KsTag>
                                     </div>
                                     <div class="app-grants">
                                         <span v-for="g in (app.grantTypes || [])" :key="g" class="grant-tag">{{ g }}</span>
                                     </div>
                                     <div v-if="app.active === false" class="app-inactive-tag">
-                                        <KsTag type="danger" size="small" effect="light">{{ t("dsh.project.inactive") }}</KsTag>
+                                        <KsTag type="danger" size="small" effect="light">{{ $t("dsh.project.inactive") }}</KsTag>
                                     </div>
                                 </div>
                             </div>
                             <div v-if="clients.length === 0 && !loading" class="empty-state">
-                                {{ t("dsh.project.noApplications") }}
+                                {{ $t("dsh.project.noApplications") }}
                             </div>
                         </div>
                     </div>
@@ -79,39 +79,39 @@
                     <!-- 应用详情抽屉（机器身份 = OIDC client 的完整信息；右侧滑出，同上游 KV 查看） -->
                     <KsDrawer
                         v-model="appDialogVisible"
-                        :title="t('dsh.project.appDetail', {clientId: selectedApp?.clientId || ''})"
+                        :title="$t('dsh.project.appDetail', {clientId: selectedApp?.clientId || ''})"
                         class="app-detail-dialog"
                     >
                         <div v-if="selectedApp" class="app-detail">
                             <div class="detail-row">
-                                <span class="detail-label">{{ t("dsh.project.clientId") }}</span>
+                                <span class="detail-label">{{ $t("dsh.project.clientId") }}</span>
                                 <span class="detail-value">{{ selectedApp.clientId }}</span>
                             </div>
                             <div class="detail-row">
-                                <span class="detail-label">{{ t("dsh.project.clientType") }}</span>
+                                <span class="detail-label">{{ $t("dsh.project.clientType") }}</span>
                                 <span class="detail-value">
                                     <KsTag :type="isPublic(selectedApp) ? 'info' : 'warning'" size="small" effect="light">
-                                        {{ isPublic(selectedApp) ? t("dsh.project.public") : t("dsh.project.confidential") }}
+                                        {{ isPublic(selectedApp) ? $t("dsh.project.public") : $t("dsh.project.confidential") }}
                                     </KsTag>
                                 </span>
                             </div>
                             <div class="detail-row">
-                                <span class="detail-label">{{ t("dsh.project.status") }}</span>
+                                <span class="detail-label">{{ $t("dsh.project.status") }}</span>
                                 <span class="detail-value">
                                     <KsTag :type="selectedApp.active === false ? 'danger' : 'success'" size="small" effect="light">
-                                        {{ selectedApp.active === false ? t("dsh.project.inactive") : t("dsh.project.active") }}
+                                        {{ selectedApp.active === false ? $t("dsh.project.inactive") : $t("dsh.project.active") }}
                                     </KsTag>
                                 </span>
                             </div>
                             <div class="detail-row">
-                                <span class="detail-label">{{ t("dsh.project.grantTypes") }}</span>
+                                <span class="detail-label">{{ $t("dsh.project.grantTypes") }}</span>
                                 <span class="detail-value">
                                     <span v-for="g in (selectedApp.grantTypes || [])" :key="g" class="grant-tag">{{ g }}</span>
                                     <span v-if="!selectedApp.grantTypes || selectedApp.grantTypes.length === 0" class="detail-empty">—</span>
                                 </span>
                             </div>
                             <div class="detail-row">
-                                <span class="detail-label">{{ t("dsh.project.roles") }}</span>
+                                <span class="detail-label">{{ $t("dsh.project.roles") }}</span>
                                 <span class="detail-value">
                                     <KsTag
                                         v-for="r in (selectedApp.roles || [])"
@@ -127,14 +127,14 @@
                                 </span>
                             </div>
                             <div class="detail-row">
-                                <span class="detail-label">{{ t("dsh.project.scopes") }}</span>
+                                <span class="detail-label">{{ $t("dsh.project.scopes") }}</span>
                                 <span class="detail-value">
                                     <span v-for="s in (selectedApp.scopes || [])" :key="s" class="grant-tag">{{ s }}</span>
                                     <span v-if="!selectedApp.scopes || selectedApp.scopes.length === 0" class="detail-empty">—</span>
                                 </span>
                             </div>
                             <div class="detail-row" v-if="selectedApp.redirectUris && selectedApp.redirectUris.length > 0">
-                                <span class="detail-label">{{ t("dsh.project.redirectUris") }}</span>
+                                <span class="detail-label">{{ $t("dsh.project.redirectUris") }}</span>
                                 <span class="detail-value redirect-list">
                                     <div v-for="u in selectedApp.redirectUris" :key="u" class="redirect-item">{{ u }}</div>
                                 </span>
@@ -145,32 +145,32 @@
             </KsTabPane>
 
             <!-- 角色 Tab -->
-            <KsTabPane :label="t('dsh.project.roles')" name="roles">
+            <KsTabPane :label="$t('dsh.project.roles')" name="roles">
                 <div class="tab-content">
                     <KsTable :data="roles" v-loading="loading" class="roles-table" :fit="true">
-                        <KsTableColumn prop="roleName" :label="t('dsh.project.roleName')" :minWidth="150">
+                        <KsTableColumn prop="roleName" :label="$t('dsh.project.roleName')" :minWidth="150">
                             <template #default="{row}">
                                 <KsTag :type="roleTagType(row.roleName)" size="small" effect="light">
                                     {{ row.roleName }}
                                 </KsTag>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn :label="t('dsh.project.description')" :minWidth="300">
+                        <KsTableColumn :label="$t('dsh.project.description')" :minWidth="300">
                             <template #default="{row}">
                                 {{ roleDescription(row.roleName, row.description) }}
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn prop="memberCount" :label="t('dsh.project.memberCount')" width="100" align="center">
+                        <KsTableColumn prop="memberCount" :label="$t('dsh.project.memberCount')" width="100" align="center">
                             <template #default="{row}">
                                 <KsButton size="small" type="default" @click="selectRole(row.roleName)">
                                     {{ row.memberCount }}
                                 </KsButton>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn :label="t('actions')" width="80">
+                        <KsTableColumn :label="$t('actions')" width="80">
                             <template #default="{row}">
                                 <KsIconButton
-                                    :tooltip="t('dsh.project.addMember')"
+                                    :tooltip="$t('dsh.project.addMember')"
                                     placement="left"
                                     @click="addMemberToRole(row.roleName)"
                                 >
@@ -183,11 +183,11 @@
                     <!-- 选中角色的成员管理 -->
                     <div v-if="selectedRole" class="role-members-section">
                         <div class="members-header">
-                            <h3 class="section-title">{{ t("dsh.roles.members", {role: selectedRole}) }}</h3>
+                            <h3 class="section-title">{{ $t("dsh.roles.members", {role: selectedRole}) }}</h3>
                             <KsSelect
                                 v-model="memberToAdd"
                                 filterable
-                                :placeholder="t('dsh.roles.addMemberPlaceholder')"
+                                :placeholder="$t('dsh.roles.addMemberPlaceholder')"
                                 class="member-add-select"
                                 @change="addMember"
                             >
@@ -200,24 +200,24 @@
                             </KsSelect>
                         </div>
                         <KsTable :data="members" class="member-table" :fit="true">
-                            <KsTableColumn prop="username" :label="t('dsh.users.username')" :minWidth="180">
+                            <KsTableColumn prop="username" :label="$t('dsh.users.username')" :minWidth="180">
                                 <template #default="{row}">
                                     <b>{{ row.username }}</b>
                                 </template>
                             </KsTableColumn>
-                            <KsTableColumn prop="name" :label="t('dsh.users.name')" :minWidth="120" />
-                            <KsTableColumn prop="email" :label="t('dsh.users.email')" :minWidth="180" />
-                            <KsTableColumn prop="type" :label="t('dsh.users.type')" width="120">
+                            <KsTableColumn prop="name" :label="$t('dsh.users.name')" :minWidth="120" />
+                            <KsTableColumn prop="email" :label="$t('dsh.users.email')" :minWidth="180" />
+                            <KsTableColumn prop="type" :label="$t('dsh.users.type')" width="120">
                                 <template #default="{row}">
                                     <KsTag :type="row.type === 'machine' ? 'info' : 'primary'" size="small" effect="light">
-                                        {{ row.type === 'machine' ? t('dsh.users.machine') : t('dsh.users.human') }}
+                                        {{ row.type === 'machine' ? $t('dsh.users.machine') : $t('dsh.users.human') }}
                                     </KsTag>
                                 </template>
                             </KsTableColumn>
-                            <KsTableColumn :label="t('actions')" width="80">
+                            <KsTableColumn :label="$t('actions')" width="80">
                                 <template #default="{row}">
                                     <KsIconButton
-                                        :tooltip="t('dsh.roles.remove')"
+                                        :tooltip="$t('dsh.roles.remove')"
                                         placement="left"
                                         @click="confirmRemove(row)"
                                     >
@@ -226,39 +226,39 @@
                                 </template>
                             </KsTableColumn>
                         </KsTable>
-                        <div v-if="members.length === 0" class="empty-state">{{ t("dsh.project.noMembers") }}</div>
+                        <div v-if="members.length === 0" class="empty-state">{{ $t("dsh.project.noMembers") }}</div>
                     </div>
                 </div>
             </KsTabPane>
 
             <!-- 成员 Tab（去重用户：一个用户可绑定多个角色，这里按用户去重展示全部成员） -->
-            <KsTabPane :label="t('dsh.project.members')" name="members">
+            <KsTabPane :label="$t('dsh.project.members')" name="members">
                 <div class="tab-content">
                     <div class="members-toolbar">
-                        <h3 class="section-title">{{ t("dsh.project.allMembers") }}</h3>
+                        <h3 class="section-title">{{ $t("dsh.project.allMembers") }}</h3>
                         <KsInput
                             v-model="memberSearch"
-                            :placeholder="t('dsh.project.searchMember')"
+                            :placeholder="$t('dsh.project.searchMember')"
                             clearable
                             class="member-search-input"
                         />
                     </div>
                     <KsTable :data="filteredUsers" v-loading="loading" class="member-table" :fit="true">
-                        <KsTableColumn prop="username" :label="t('dsh.users.username')" :minWidth="180">
+                        <KsTableColumn prop="username" :label="$t('dsh.users.username')" :minWidth="180">
                             <template #default="{row}">
                                 <b>{{ row.username }}</b>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn prop="name" :label="t('dsh.users.name')" :minWidth="120" />
-                        <KsTableColumn prop="email" :label="t('dsh.users.email')" :minWidth="180" />
-                        <KsTableColumn prop="type" :label="t('dsh.users.type')" width="110">
+                        <KsTableColumn prop="name" :label="$t('dsh.users.name')" :minWidth="120" />
+                        <KsTableColumn prop="email" :label="$t('dsh.users.email')" :minWidth="180" />
+                        <KsTableColumn prop="type" :label="$t('dsh.users.type')" width="110">
                             <template #default="{row}">
                                 <KsTag :type="row.type === 'machine' ? 'info' : 'primary'" size="small" effect="light">
-                                    {{ row.type === 'machine' ? t('dsh.users.machine') : t('dsh.users.human') }}
+                                    {{ row.type === 'machine' ? $t('dsh.users.machine') : $t('dsh.users.human') }}
                                 </KsTag>
                             </template>
                         </KsTableColumn>
-                        <KsTableColumn :label="t('dsh.project.roles')" :minWidth="220">
+                        <KsTableColumn :label="$t('dsh.project.roles')" :minWidth="220">
                             <template #default="{row}">
                                 <template v-if="row.roles && row.roles.length > 0">
                                     <KsTag
@@ -276,7 +276,7 @@
                             </template>
                         </KsTableColumn>
                     </KsTable>
-                    <div v-if="filteredUsers.length === 0 && !loading" class="empty-state">{{ t("dsh.project.noMembers") }}</div>
+                    <div v-if="filteredUsers.length === 0 && !loading" class="empty-state">{{ $t("dsh.project.noMembers") }}</div>
                 </div>
             </KsTabPane>
         </KsTabs>

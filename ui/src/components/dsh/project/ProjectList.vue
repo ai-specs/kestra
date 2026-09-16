@@ -4,7 +4,7 @@
             <ul>
                 <li>
                     <KsButton :icon="Plus" type="primary" data-test="project-add" @click="onCreateProject">
-                        {{ t("dsh.project.add") }}
+                        {{ $t("dsh.project.add") }}
                     </KsButton>
                 </li>
             </ul>
@@ -15,12 +15,12 @@
         <div class="project-toolbar">
             <KsInput
                 v-model="search"
-                :placeholder="t('dsh.project.searchPlaceholder')"
+                :placeholder="$t('dsh.project.searchPlaceholder')"
                 clearable
                 class="project-search"
                 @keyup.enter="load"
             />
-            <KsButton :icon="Magnify" type="default" @click="load">{{ t("search") }}</KsButton>
+            <KsButton :icon="Magnify" type="default" @click="load">{{ $t("search") }}</KsButton>
         </div>
 
         <KsTable
@@ -30,7 +30,7 @@
             class="project-table"
             @row-click="onRowClick"
         >
-            <KsTableColumn prop="name" :label="t('dsh.project.name')" :minWidth="160">
+            <KsTableColumn prop="name" :label="$t('dsh.project.name')" :minWidth="160">
                 <template #default="{row}">
                     <div class="project-name-cell">
                         <div class="project-icon" :class="row.id">
@@ -39,33 +39,33 @@
                         <div class="project-name-text">
                             <b>{{ row.name }}</b>
                             <KsTag type="success" size="small" effect="light" class="project-type-tag">
-                                {{ t("dsh.project.defaultProject") }}
+                                {{ $t("dsh.project.defaultProject") }}
                             </KsTag>
                         </div>
                     </div>
                 </template>
             </KsTableColumn>
-            <KsTableColumn prop="description" :label="t('dsh.project.description')" :minWidth="280" />
-            <KsTableColumn :label="t('dsh.project.applications')" width="100" align="center">
+            <KsTableColumn prop="description" :label="$t('dsh.project.description')" :minWidth="280" />
+            <KsTableColumn :label="$t('dsh.project.applications')" width="100" align="center">
                 <template #default="{row}">
                     <b>{{ row.applicationCount }}</b>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.project.roles')" width="100" align="center">
+            <KsTableColumn :label="$t('dsh.project.roles')" width="100" align="center">
                 <template #default="{row}">
                     <b>{{ row.roleCount }}</b>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.project.createdAt')" width="140">
+            <KsTableColumn :label="$t('dsh.project.createdAt')" width="140">
                 <template #default="{row}">
                     <KsDateAgo :date="row.createdAt" inverted />
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('actions')" width="80">
+            <KsTableColumn :label="$t('actions')" width="80">
                 <template #default="{row}">
                     <KsIconButton
                         data-test="project-view"
-                        :tooltip="t('dsh.project.view')"
+                        :tooltip="$t('dsh.project.view')"
                         placement="left"
                         @click.stop="goToDetail(row)"
                     >

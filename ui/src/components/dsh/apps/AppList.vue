@@ -1,6 +1,6 @@
 <template>
     <div class="dsh-app-list">
-        <h1 class="dsh-app-list__title">{{ t("apps") }}</h1>
+        <h1 class="dsh-app-list__title">{{ $t("apps") }}</h1>
         <p class="dsh-app-list__hint">
             声明了 <code>PageTrigger</code> / <code>ApiTrigger</code> 的 flow 会出现在这里，点击进入对应的 flow 编辑器。
         </p>

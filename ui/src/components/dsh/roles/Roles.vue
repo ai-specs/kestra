@@ -4,7 +4,7 @@
     <section class="full-container role-directory">
         <div class="role-layout">
             <aside class="role-list-panel">
-                <div class="panel-title">{{ t("dsh.roles.title") }}</div>
+                <div class="panel-title">{{ $t("dsh.roles.title") }}</div>
                 <KsMenu :defaultActive="selectedRole" class="role-menu" data-test="role-menu" @select="onRoleSelect">
                     <KsMenuItem v-for="role in roleNames" :key="role" :index="role">
                         <KsTag :type="role === 'admin' ? 'danger' : (role === 'authenticated' ? 'info' : 'primary')" size="small" effect="light">
@@ -17,12 +17,12 @@
 
             <div class="role-members-panel">
                 <div class="panel-title">
-                    <span>{{ t("dsh.roles.members", {role: selectedRole}) }}</span>
+                    <span>{{ $t("dsh.roles.members", {role: selectedRole}) }}</span>
                     <span v-if="selectedRoleDescription" class="role-description">{{ selectedRoleDescription }}</span>
                     <KsSelect
                         v-model="memberToAdd"
                         filterable
-                        :placeholder="t('dsh.roles.addMemberPlaceholder')"
+                        :placeholder="$t('dsh.roles.addMemberPlaceholder')"
                         class="member-add-select"
                         data-test="member-add"
                         @change="addMember"
@@ -43,17 +43,17 @@
                     class="member-table"
                     data-test="member-table"
                 >
-                    <KsTableColumn prop="username" :label="t('dsh.users.username')" :minWidth="150">
+                    <KsTableColumn prop="username" :label="$t('dsh.users.username')" :minWidth="150">
                         <template #default="{row}">
                             <b>{{ row.username }}</b>
                         </template>
                     </KsTableColumn>
-                    <KsTableColumn prop="name" :label="t('dsh.users.name')" :minWidth="120" />
-                    <KsTableColumn prop="email" :label="t('dsh.users.email')" :minWidth="150" />
-                    <KsTableColumn :label="t('actions')" width="120">
+                    <KsTableColumn prop="name" :label="$t('dsh.users.name')" :minWidth="120" />
+                    <KsTableColumn prop="email" :label="$t('dsh.users.email')" :minWidth="150" />
+                    <KsTableColumn :label="$t('actions')" width="120">
                         <template #default="{row}">
                             <KsButton size="small" type="danger" data-test="member-remove" @click="confirmRemove(row)">
-                                {{ t("dsh.roles.remove") }}
+                                {{ $t("dsh.roles.remove") }}
                             </KsButton>
                         </template>
                     </KsTableColumn>
