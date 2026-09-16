@@ -54,6 +54,7 @@ docker/app/plugins/*.jar
 docker/app/kestra
 docker/app/confs/*.yml
 docker/app/secrets/*.yml
+.plugin-m2/
 
 ### Build
 core/src/main/resources/gradle.properties
