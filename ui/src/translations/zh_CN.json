@@ -1056,6 +1056,7 @@
       },
       "revisions": {
         "history": "修订历史",
+        "load_error": "无法加载修订 {revision}，它可能已被删除。",
         "restore": {
           "success": "文件修订已成功恢复"
         }
@@ -1376,6 +1377,7 @@
     "onboarding": {
       "tour": {
         "menu": "产品导览",
+        "menu_resume": "继续导览",
         "menu_description": "搭建、运行并修复一个 flow，然后从事件启动它",
         "step_of": "第 {current} / {total} 步",
         "actions": {

@@ -1056,6 +1056,7 @@
       },
       "revisions": {
         "history": "Revision history",
+        "load_error": "Revision {revision} could not be loaded; it may have been deleted.",
         "restore": {
           "success": "File revision restored successfully"
         }
@@ -1376,6 +1377,7 @@
     "onboarding": {
       "tour": {
         "menu": "Product tour",
+        "menu_resume": "Resume tour",
         "menu_description": "Build, run, and fix a flow, then start it from an event",
         "step_of": "Step {current} of {total}",
         "actions": {

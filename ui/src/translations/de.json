@@ -1061,6 +1061,7 @@
             },
             "revisions": {
                 "history": "Revisionsverlauf",
+                "load_error": "Revision {revision} konnte nicht geladen werden; sie wurde möglicherweise gelöscht.",
                 "restore": {
                     "success": "Dateirevision erfolgreich wiederhergestellt"
                 }
@@ -1381,6 +1382,7 @@
         "onboarding": {
             "tour": {
                 "menu": "Produkttour",
+                "menu_resume": "Tour fortsetzen",
                 "menu_description": "Einen Flow erstellen, ausführen und reparieren und ihn dann von einem Event aus starten",
                 "step_of": "Schritt {current} von {total}",
                 "actions": {

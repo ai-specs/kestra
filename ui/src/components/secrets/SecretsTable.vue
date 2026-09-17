@@ -205,7 +205,6 @@
     import {useRoute, useRouter} from "vue-router"
     import type {FormInstance} from "@kestra-io/design-system"
     import {ref, computed, watch, nextTick, useTemplateRef} from "vue"
-    import _merge from "lodash/merge"
 
     import Lock from "vue-material-design-icons/Lock.vue"
     import Delete from "vue-material-design-icons/Delete.vue"
@@ -213,7 +212,7 @@
     import ContentSave from "vue-material-design-icons/ContentSave.vue"
     import FileDocumentEdit from "vue-material-design-icons/FileDocumentEdit.vue"
 
-    import {KsId, KsIconButton, KsPassword} from "@kestra-io/design-system"
+    import {KsId, KsIconButton, KsPassword, deepMerge} from "@kestra-io/design-system"
     import {KsFilter as KSFilter} from "@kestra-io/design-system"
     import {routeQueryToQueryFilters} from "../../utils/queryFilters"
     import NamespaceSelect from "../namespaces/components/NamespaceSelect.vue"
@@ -396,7 +395,7 @@
         const nonFilterRest = Object.fromEntries(
             Object.entries(rest).filter(([key]) => !key.startsWith("filters[")),
         )
-        return _merge(base, nonFilterRest)
+        return deepMerge(base, nonFilterRest)
     }
 
     const namespaceFilter = (namespace: string) =>

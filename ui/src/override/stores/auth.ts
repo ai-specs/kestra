@@ -1,27 +1,27 @@
 import {defineStore} from "pinia"
 
 export class Me {
-    hasAny(_permission: any, _namespace?: any) {
+    hasAny(_permission: string, _namespace?: string) {
         return true
     }
 
 
-    hasAnyAction(_permission: any, _action: any, _namespace?: any) {
+    hasAnyAction(_permission: string, _action: string, _namespace?: string) {
         return true
     }
 
 
-    isAllowed(_permission: any, _action: any, _namespace: any) {
+    isAllowed(_permission: string, _action: string, _namespace?: string) {
         return true
     }
 
 
-    isAllowedGlobal(_permission: any, _action: any) {
+    isAllowedGlobal(_permission: string, _action: string) {
         return true
     }
 
 
-    hasAnyActionOnAnyNamespace(_permission: any, _action: any) {
+    hasAnyActionOnAnyNamespace(_permission: string, _action: string) {
         return true
     }
 
@@ -29,7 +29,7 @@ export class Me {
         return true
     }
 
-    getNamespacesForAction(_permission: any, _action: any): string[] {
+    getNamespacesForAction(_permission: string, _action: string): string[] {
         return []
     }
 }
@@ -54,7 +54,7 @@ export const useAuthStore = defineStore("auth", {
         correction(){
             return Promise.resolve(true)
         },
-        loadAuths(_options: any): Promise<AuthMethods | undefined> {
+        loadAuths(_options: Record<string, unknown>): Promise<AuthMethods | undefined> {
             // dsh fork：MCP OAuth 走内置 kestra-oidc 授权服务器（RFC 8414 发现 + RFC 7591
             // 动态注册，docs/mcp-oauth.md）；上游在此处查询的 /api/v1/auths 在本部署不存在，
             // 直接返回受支持的 oauth 提供方列表，使 MCP 编辑页的 OAuth 认证方式可用。

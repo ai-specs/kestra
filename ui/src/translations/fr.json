@@ -1061,6 +1061,7 @@
             },
             "revisions": {
                 "history": "Historique des révisions",
+                "load_error": "La révision {revision} n'a pas pu être chargée ; elle a peut-être été supprimée.",
                 "restore": {
                     "success": "Révision du fichier restaurée avec succès"
                 }
@@ -1381,6 +1382,7 @@
         "onboarding": {
             "tour": {
                 "menu": "Visite guidée du produit",
+                "menu_resume": "Reprendre la visite",
                 "menu_description": "Construire, exécuter et corriger un flow, puis le démarrer à partir d'un événement",
                 "step_of": "Étape {current} sur {total}",
                 "actions": {

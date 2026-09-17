@@ -1061,6 +1061,7 @@
             },
             "revisions": {
                 "history": "Historial de revisiones",
+                "load_error": "No se pudo cargar la revisión {revision}; es posible que se haya eliminado.",
                 "restore": {
                     "success": "Revisión del archivo restaurada con éxito"
                 }
@@ -1381,6 +1382,7 @@
         "onboarding": {
             "tour": {
                 "menu": "Recorrido del producto",
+                "menu_resume": "Reanudar tour",
                 "menu_description": "Crear, ejecutar y corregir un flow, y luego iniciarlo desde un evento",
                 "step_of": "Paso {current} de {total}",
                 "actions": {
