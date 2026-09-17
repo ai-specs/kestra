@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
@@ -68,6 +69,7 @@ public class DshRelayController {
     private final ConcurrentMap<String, QueryResult> queryResults = new ConcurrentHashMap<>();
     /** requestId → 已受理但可能尚未回填的查询；用于区分 202 pending 与真正的 404。 */
     private final ConcurrentMap<String, PendingQuery> pendingQueries = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, CompletableFuture<Map<String, Object>>> queryWaiters = new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "dsh-relay");
@@ -96,7 +98,7 @@ public class DshRelayController {
     public record RelayDecision(String sessionId, Boolean approved, String comment) {}
 
     /** Phone → PC：会话查询（列表/详情）。requestId 由 Phone 生成，PC 回填时原样携带。 */
-    public record RelayQuery(String requestId, String type, String sessionId) {}
+    public record RelayQuery(String requestId, String type, String sessionId, String since) {}
 
     /** PC → 中台：查询结果回填（type 为 session.list/session.detail；payload 为结果 JSON；error 为查询失败说明）。 */
     public record RelayQueryResult(String requestId, String type, Object payload, String error) {}
@@ -268,6 +270,10 @@ public class DshRelayController {
         data.put("requestId", body.requestId());
         data.put("type", body.type());
         data.put("sessionId", body.sessionId());
+        if (body.since() != null && !body.since().isBlank()) {
+            // session.list 时间线增量：只向 PC 转发 updatedAt 晚于 since 的会话。
+            data.put("since", body.since());
+        }
         // 先登记再投递：SSE sink.next 后 PC 可能极快回填，反序会让合法结果被误判 unknown。
         pendingQueries.put(body.requestId(), new PendingQuery(
             caller.sub(),
@@ -314,9 +320,52 @@ public class DshRelayController {
             payload.put("payload", body.payload());
         }
         queryResults.put(body.requestId(), new QueryResult(caller.sub(), payload, System.currentTimeMillis() + QUERY_TTL_MS));
+        CompletableFuture<Map<String, Object>> waiter = queryWaiters.remove(body.requestId());
+        if (waiter != null) waiter.complete(payload);
         // Phone 在线时同步推送（App 现以轮询为主，此推送为可选的实时增强）。
         deliver(caller.sub(), CLIENT_PHONE, "session.query.result", payload);
         return HttpResponse.ok(Map.of("ok", true));
+    }
+
+    @Get("/sessions/{sessionId}/messages{?afterSeq}")
+    @Operation(summary = "Read incremental messages from the same user's PC session")
+    public CompletableFuture<HttpResponse<Map<String, Object>>> messages(
+        HttpRequest<?> request,
+        String sessionId,
+        Integer afterSeq
+    ) {
+        DshIdentity.Principal caller = userOnly(request);
+        if (caller == null) return CompletableFuture.completedFuture(forbidden());
+        String requestId = UUID.randomUUID().toString();
+        CompletableFuture<Map<String, Object>> waiter = new CompletableFuture<>();
+        queryWaiters.put(requestId, waiter);
+        pendingQueries.put(requestId, new PendingQuery(caller.sub(), System.currentTimeMillis() + QUERY_TTL_MS));
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("requestId", requestId);
+        data.put("type", "session.messages");
+        data.put("sessionId", sessionId);
+        data.put("afterSeq", Math.max(0, afterSeq == null ? 0 : afterSeq));
+        if (!deliver(caller.sub(), CLIENT_PC, "session.query", data)) {
+            queryWaiters.remove(requestId);
+            pendingQueries.remove(requestId);
+            return CompletableFuture.completedFuture(HttpResponse.ok(Map.of("offline", true)));
+        }
+        return waiter.orTimeout(6, TimeUnit.SECONDS).handle((payload, error) -> {
+            queryWaiters.remove(requestId);
+            pendingQueries.remove(requestId);
+            queryResults.remove(requestId);
+            if (error != null) return HttpResponse.status(io.micronaut.http.HttpStatus.GATEWAY_TIMEOUT)
+                .body(Map.of("error", "PC message query timeout"));
+            if (payload.get("error") != null) return HttpResponse.status(io.micronaut.http.HttpStatus.NOT_FOUND)
+                .body(Map.of("error", payload.get("error")));
+            Object body = payload.get("payload");
+            if (body instanceof Map<?, ?> map) {
+                Map<String, Object> response = new LinkedHashMap<>();
+                map.forEach((key, value) -> response.put(String.valueOf(key), value));
+                return HttpResponse.ok(response);
+            }
+            return HttpResponse.ok(Map.of());
+        });
     }
 
     /** Phone 轮询取查询结果（等待中 202；就绪 200 且取走即删；真正未知/过期 404）。 */
