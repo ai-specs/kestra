@@ -66,6 +66,8 @@ public class DshRelayController {
     private final ConcurrentMap<String, CachedMessage> cache = new ConcurrentHashMap<>();
     /** requestId → 查询结果（§5.2 查询转发：PC 回填，Phone 轮询取走）。 */
     private final ConcurrentMap<String, QueryResult> queryResults = new ConcurrentHashMap<>();
+    /** requestId → 已受理但可能尚未回填的查询；用于区分 202 pending 与真正的 404。 */
+    private final ConcurrentMap<String, PendingQuery> pendingQueries = new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "dsh-relay");
@@ -114,6 +116,13 @@ public class DshRelayController {
 
     /** 一条查询结果（PC 回填后供 Phone 轮询取走，TTL 30s）。 */
     private record QueryResult(String toSub, Map<String, Object> payload, long expiresAt) {
+        boolean expired() {
+            return System.currentTimeMillis() > expiresAt;
+        }
+    }
+
+    /** 一条已成功投递给 PC、等待结果的查询。 */
+    private record PendingQuery(String sub, long expiresAt) {
         boolean expired() {
             return System.currentTimeMillis() > expiresAt;
         }
@@ -259,10 +268,16 @@ public class DshRelayController {
         data.put("requestId", body.requestId());
         data.put("type", body.type());
         data.put("sessionId", body.sessionId());
+        // 先登记再投递：SSE sink.next 后 PC 可能极快回填，反序会让合法结果被误判 unknown。
+        pendingQueries.put(body.requestId(), new PendingQuery(
+            caller.sub(),
+            System.currentTimeMillis() + QUERY_TTL_MS
+        ));
         boolean delivered = deliver(caller.sub(), CLIENT_PC, "session.query", data);
         if (delivered) {
             return HttpResponse.ok(Map.of("pending", true));
         }
+        pendingQueries.remove(body.requestId());
         return HttpResponse.ok(Map.of("offline", true, "reason", "pc offline"));
     }
 
@@ -280,6 +295,16 @@ public class DshRelayController {
         if (body == null || body.requestId() == null || body.requestId().isBlank()) {
             return HttpResponse.badRequest(Map.of("error", "requestId is required"));
         }
+        PendingQuery pending = pendingQueries.get(body.requestId());
+        if (pending == null || pending.expired()) {
+            pendingQueries.remove(body.requestId());
+            return HttpResponse.status(io.micronaut.http.HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "query expired or unknown"));
+        }
+        if (!pending.sub().equals(caller.sub())) {
+            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "query belongs to another user"));
+        }
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("requestId", body.requestId());
         payload.put("type", body.type());
@@ -294,7 +319,7 @@ public class DshRelayController {
         return HttpResponse.ok(Map.of("ok", true));
     }
 
-    /** Phone 轮询取查询结果（TTL 30s，取走即删；未命中/过期 404）。 */
+    /** Phone 轮询取查询结果（等待中 202；就绪 200 且取走即删；真正未知/过期 404）。 */
     @Get("/query-result/{requestId}")
     @Operation(summary = "Phone polls a relayed session query result (option B)")
     public HttpResponse<Map<String, Object>> queryResultPoll(
@@ -306,18 +331,29 @@ public class DshRelayController {
             return forbidden();
         }
         QueryResult result = queryResults.get(requestId);
-        if (result == null || result.expired()) {
+        if (result != null && !result.expired()) {
+            if (!result.toSub().equals(caller.sub())) {
+                return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "query result belongs to another user"));
+            }
             queryResults.remove(requestId);
-            return HttpResponse.status(io.micronaut.http.HttpStatus.NOT_FOUND)
-                .body(Map.of("error", "result expired or unknown"));
+            pendingQueries.remove(requestId);
+            return HttpResponse.ok(result.payload());
         }
-        // 只允许发起方（同 sub）取走。
-        if (!result.toSub().equals(caller.sub())) {
+        queryResults.remove(requestId);
+
+        PendingQuery pending = pendingQueries.get(requestId);
+        if (pending == null || pending.expired()) {
+            pendingQueries.remove(requestId);
+            return HttpResponse.status(io.micronaut.http.HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "query expired or unknown"));
+        }
+        if (!pending.sub().equals(caller.sub())) {
             return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
                 .body(Map.of("error", "query result belongs to another user"));
         }
-        queryResults.remove(requestId);
-        return HttpResponse.ok(result.payload());
+        return HttpResponse.status(io.micronaut.http.HttpStatus.ACCEPTED)
+            .body(Map.of("pending", true));
     }
 
     /**
@@ -461,6 +497,8 @@ public class DshRelayController {
 
     private void purgeCache() {
         cache.entrySet().removeIf(e -> e.getValue().expired());
+        pendingQueries.entrySet().removeIf(e -> e.getValue().expired());
+        queryResults.entrySet().removeIf(e -> e.getValue().expired());
     }
 
     private static RelayEvent event(String type, Map<String, Object> data) {
