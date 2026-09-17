@@ -12,7 +12,9 @@ import type {SelectedTheme} from "../../utils/utils"
 
 export const useMiscStore = defineStore("misc", () => {
 
-    const configs = ref<MiscControllerConfiguration>()
+    // dsh fork：secretsEnabled 是客户端探测 /secrets/managed 注入的字段（后端 /configs
+    // 不返回，SDK 类型自然没有）——扩展类型声明，避免上游 explicit-any 收紧后 TS2339。
+    const configs = ref<MiscControllerConfiguration & { secretsEnabled?: boolean }>()
     const contextInfoBarOpenTab = ref("")
     // AI Copilot is the first / default context-dock tab.
     const lastContextTab = ref("ai")
