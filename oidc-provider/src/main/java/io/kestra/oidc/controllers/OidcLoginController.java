@@ -1,6 +1,7 @@
 package io.kestra.oidc.controllers;
 
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -58,6 +59,7 @@ import jakarta.inject.Inject;
 @Requires(property = "kestra.oidc.enabled", notEquals = "false")
 @ExecuteOn(TaskExecutors.IO)
 public class OidcLoginController {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(OidcLoginController.class);
 
     /** The self-bootstrap client seeded by the oidc-provider migration. */
     static final String SELF_CLIENT_ID = "kestra-self";
@@ -159,6 +161,15 @@ public class OidcLoginController {
         String username = form.get("username");
         String password = form.get("password");
         String from = sanitizeFrom(form.get("from"));
+        // Android WebView 偶发丢失登录表单的 from 隐藏字段（实测真机 POST 丢 from，303 被回退到
+        // DEFAULT_LANDING=/ui/，SSO 授权请求无法回到 authorize）。从 POST 的 Referer（登录页
+        // URL 自带 from query，浏览器表单提交必带 Referer）恢复，登录流程不依赖该表单字段。
+        if (from == null || from.equals(DEFAULT_LANDING)) {
+            String refererFrom = extractFromFromReferer(
+                request.getHeaders().get(io.micronaut.http.HttpHeaders.REFERER));
+            LOG.debug("oidc login: form from missing/landing, referer restored={}", refererFrom != null);
+            from = sanitizeFrom(refererFrom);
+        }
 
         String subject = username == null ? "" : username.trim();
         boolean valid = userService.validateCredentials(subject, password);
@@ -484,6 +495,32 @@ public class OidcLoginController {
      * Same-origin {@code from} guard: only absolute-path references survive (an absolute URL or
      * a protocol-relative {@code //host} would turn the login into an open redirect).
      */
+    /** 从登录页 URL（Referer）中恢复 from 参数（登录页 URL 形如 /oidc/login?from=<url-encoded authorize>）。 */
+    static String extractFromFromReferer(String referer) {
+        if (referer == null || referer.isBlank()) return null;
+        int q = referer.indexOf('?');
+        if (q < 0) return null;
+        String query = referer.substring(q + 1);
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq <= 0) continue;
+            String key;
+            try {
+                key = URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException e) {
+                continue;
+            }
+            if ("from".equals(key)) {
+                try {
+                    return URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+                } catch (IllegalArgumentException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
     static String sanitizeFrom(String from) {
         if (from == null || from.isBlank()) return DEFAULT_LANDING;
         if (!from.startsWith("/") || from.startsWith("//") || from.contains("://")) return DEFAULT_LANDING;
