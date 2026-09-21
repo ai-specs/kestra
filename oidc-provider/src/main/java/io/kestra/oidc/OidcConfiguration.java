@@ -46,6 +46,20 @@ public class OidcConfiguration {
         "http://localhost:5173"
     );
     /**
+     * Browser origins whose discovery document may be served with a request-derived
+     * {@code authorization_endpoint} / {@code end_session_endpoint} (Host-aware dynamic
+     * base). One IdP deployment then serves multiple browser-facing entries at once —
+     * the compose host ({@code localhost:18080}) and Tailscale-reachable entries
+     * ({@code 100.71.119.22.nip.io:18080} / the raw Tailscale IP) — while token/jwks/
+     * userinfo stay on the internal issuer. Requests whose scheme://host is in this
+     * allow-list get endpoints built from the actual request host; anything else falls
+     * back to {@link #externalBaseUrl} (Host-header injection is bounded by this list).
+     */
+    private List<String> browserOrigins = List.of(
+        "http://localhost:18080",
+        "http://127.0.0.1:18080"
+    );
+    /**
      * Per-client override of the roles placed in a {@code client_credentials} access token,
      * keyed by {@code client_id}. The directory role of a machine identity stays
      * {@code authenticated} (identity-only — a machine is NOT an administrator in this IdP's
@@ -186,6 +200,14 @@ public class OidcConfiguration {
 
     public void setCorsAllowedOrigins(List<String> corsAllowedOrigins) {
         this.corsAllowedOrigins = corsAllowedOrigins == null ? List.of() : corsAllowedOrigins;
+    }
+
+    public List<String> getBrowserOrigins() {
+        return browserOrigins;
+    }
+
+    public void setBrowserOrigins(List<String> browserOrigins) {
+        this.browserOrigins = browserOrigins == null ? List.of() : browserOrigins;
     }
 
     public Map<String, List<String>> getClientTokenRolesOverride() {

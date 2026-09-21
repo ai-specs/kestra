@@ -19,6 +19,7 @@ import com.nimbusds.openid.connect.sdk.op.OIDCProviderMetadata;
 import io.kestra.oidc.OidcConfiguration;
 
 import io.micronaut.context.annotation.Requires;
+import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.MediaType;
 import io.micronaut.http.annotation.Controller;
@@ -50,12 +51,15 @@ public class OidcDiscoveryController {
 
     @Get("/openid-configuration")
     @Produces(MediaType.APPLICATION_JSON)
-    public HttpResponse<?> openIdConfiguration() {
+    public HttpResponse<?> openIdConfiguration(HttpRequest<?> request) {
         String issuer = configuration.getIssuer();
         // Browser-reachable base for the authorization endpoint only: in the docker-compose
         // topology the issuer is the internal service name (http://kestra:8080) that Nacos uses
         // for token/jwks/userinfo, while the browser must be redirected to a host-side address.
-        String authorizationBase = configuration.getExternalBaseUrl();
+        // The base is host-aware: when the request origin is allow-listed it is built from the
+        // actual request host, so one IdP deployment serves localhost (compose) and
+        // Tailscale/nip.io entries (phone H5 / PC via Tailscale) at the same time.
+        String authorizationBase = browserBase(request);
 
         OIDCProviderMetadata metadata = new OIDCProviderMetadata(
             new Issuer(issuer),
@@ -87,5 +91,31 @@ public class OidcDiscoveryController {
         metadata.setIDTokenJWSAlgs(Collections.singletonList(JWSAlgorithm.RS256));
 
         return HttpResponse.ok(metadata.toJSONObject());
+    }
+
+    /**
+     * Host-aware browser base for the discovery document's browser-facing endpoints.
+     * The request origin ({@code X-Forwarded-Proto/Host}, falling back to the Host header)
+     * is used only when it is present in {@link OidcConfiguration#getBrowserOrigins()} —
+     * otherwise the configured {@code external-base-url} is returned (the compose host, and
+     * the entry MCP / server-side discovery consumers rely on).
+     */
+    private String browserBase(HttpRequest<?> request) {
+        String proto = request.getHeaders().get("X-Forwarded-Proto");
+        if (proto == null || proto.isBlank()) {
+            proto = request.isSecure() ? "https" : "http";
+        }
+        String host = request.getHeaders().get("X-Forwarded-Host");
+        if (host == null || host.isBlank()) {
+            host = request.getHeaders().get("Host");
+        }
+        if (host == null || host.isBlank()) {
+            return configuration.getExternalBaseUrl();
+        }
+        String origin = proto + "://" + host;
+        if (configuration.getBrowserOrigins().contains(origin)) {
+            return origin;
+        }
+        return configuration.getExternalBaseUrl();
     }
 }
