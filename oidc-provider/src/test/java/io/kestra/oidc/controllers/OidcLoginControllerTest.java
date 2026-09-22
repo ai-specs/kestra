@@ -67,23 +67,24 @@ class OidcLoginControllerTest {
     @Test
     void loginPageEscapesFromValue() {
         String html = OidcLoginController.loginPageHtml(
-            "/oidc/authorize?x=\"><script>alert(1)</script>", false);
+            "/oidc/authorize?x=\"><script>alert(1)</script>", "st\"><script>alert(2)</script>", false);
         assertThat(html, not(containsString("<script>")));
         assertThat(html, containsString("&lt;script&gt;"));
         assertThat(html, containsString("action=\"/oidc/login\""));
+        // state 短标识同样转义。
     }
 
     @Test
     void loginPageShowsErrorOnlyOnFailure() {
-        assertThat(OidcLoginController.loginPageHtml("/ui/", true), containsString("用户名或密码错误"));
-        assertThat(OidcLoginController.loginPageHtml("/ui/", false), not(containsString("用户名或密码错误")));
+        assertThat(OidcLoginController.loginPageHtml("/ui/", null, true), containsString("用户名或密码错误"));
+        assertThat(OidcLoginController.loginPageHtml("/ui/", null, false), not(containsString("用户名或密码错误")));
         // The escaped empty error paragraph keeps layout stable.
-        assertThat(OidcLoginController.loginPageHtml("/ui/", false), containsString("class=\"error\""));
+        assertThat(OidcLoginController.loginPageHtml("/ui/", null, false), containsString("class=\"error\""));
     }
 
     @Test
     void loginPageIsSelfContained() {
-        String html = OidcLoginController.loginPageHtml("/ui/", false);
+        String html = OidcLoginController.loginPageHtml("/ui/", null, false);
         // No external assets: the page renders identically offline.
         assertThat(html, allOf(
             containsString("<!DOCTYPE html>"),

@@ -94,6 +94,12 @@ import jakarta.inject.Inject;
 public class OidcProviderController {
     /** 未认证 authorize 请求的临时载体：HttpOnly 短 TTL cookie（手机 WebView 会丢长表单字段且不带 Referer）。 */
     static final String PENDING_AUTHORIZE_COOKIE = "dsh_pending_auth";
+    /** 服务端记住的未认证授权请求：state → "时间戳|原始 path+query"。手机 WebView 丢长表单字段、
+     * 丢 Referer、cookie 也不可靠，但短 state 字段与 username/password 同级（实测能正常提交），
+     * 因此登录表单只带短 state，POST 后凭 state 从服务端恢复完整授权请求（OIDC 标准姿势）。 */
+    static final java.util.concurrent.ConcurrentHashMap<String, String> PENDING_AUTH_REQUESTS =
+        new java.util.concurrent.ConcurrentHashMap<>();
+    static final long PENDING_AUTH_TTL_MS = 600_000;
 
     private final OidcConfiguration configuration;
     private final OidcClientService clientService;
@@ -196,7 +202,7 @@ public class OidcProviderController {
 
         Optional<OidcUserService.OidcUser> user = userService.authenticatedUser(request);
         if (user.isEmpty()) {
-            return redirectToLogin(request);
+            return redirectToLogin(request, state != null ? state.getValue() : null);
         }
 
         AuthorizationCode code = authCodeService.create(
@@ -558,17 +564,25 @@ public class OidcProviderController {
      * (2) an HttpOnly short-TTL cookie — 真机 Android WebView 会丢长表单字段、POST 也可能不带
      * Referer（实测），cookie 是同域 POST 必带的标准载体，登录成功后据此恢复授权请求。
      */
-    private HttpResponse<?> redirectToLogin(HttpRequest<?> request) {
+    private HttpResponse<?> redirectToLogin(HttpRequest<?> request, String stateValue) {
         String pathAndQuery = request.getUri().getPath()
             + (request.getUri().getRawQuery() == null ? "" : "?" + request.getUri().getRawQuery());
+        // 服务端记住授权请求（key=客户端 state，短标识），登录 POST 凭 state 恢复，不依赖表单长字段。
+        if (stateValue != null && !stateValue.isEmpty()) {
+            PENDING_AUTH_REQUESTS.put(stateValue,
+                System.currentTimeMillis() + "|" + pathAndQuery);
+        }
         Cookie pending = Cookie.of(PENDING_AUTHORIZE_COOKIE,
             URLEncoder.encode(pathAndQuery, StandardCharsets.UTF_8))
             .maxAge(Duration.ofMinutes(10))
             .httpOnly(true)
             .secure(request.isSecure());
-        String loginUri = configuration.getLoginUrl()
-            + "?from=" + URLEncoder.encode(pathAndQuery, StandardCharsets.UTF_8);
-        return OidcRedirects.temporary(loginUri).cookie(pending);
+        StringBuilder loginUri = new StringBuilder(configuration.getLoginUrl()).append('?');
+        if (stateValue != null && !stateValue.isEmpty()) {
+            loginUri.append("state=").append(URLEncoder.encode(stateValue, StandardCharsets.UTF_8)).append('&');
+        }
+        loginUri.append("from=").append(URLEncoder.encode(pathAndQuery, StandardCharsets.UTF_8));
+        return OidcRedirects.temporary(loginUri.toString()).cookie(pending);
     }
 
     private HttpResponse<?> tokenErrorResponse(ErrorObject error) {

@@ -138,8 +138,14 @@ public class OidcLoginController {
     @Get("/login")
     @Produces(MediaType.TEXT_HTML)
     public HttpResponse<String> loginPage(@io.micronaut.http.annotation.QueryValue Optional<String> from,
+                                          @io.micronaut.http.annotation.QueryValue Optional<String> state,
                                           @io.micronaut.http.annotation.QueryValue Optional<String> error) {
-        return HttpResponse.ok(loginPageHtml(sanitizeFrom(from.orElse(null)), error.isPresent()))
+        String fromVal = sanitizeFrom(from.orElse(null));
+        if (fromVal == null || fromVal.equals(DEFAULT_LANDING)) {
+            fromVal = restoreFromPendingState(state.orElse(null));
+            fromVal = sanitizeFrom(fromVal);
+        }
+        return HttpResponse.ok(loginPageHtml(fromVal, state.orElse(null), error.isPresent()))
             .contentType(MediaType.TEXT_HTML_TYPE);
     }
 
@@ -161,12 +167,19 @@ public class OidcLoginController {
         String username = form.get("username");
         String password = form.get("password");
         String from = sanitizeFrom(form.get("from"));
-        // Android WebView 会丢长表单字段且 POST 可能不带 Referer（实测真机两者都失效）。
-        // 恢复顺序：① authorize 侧的 HttpOnly pending cookie（同域 POST 必带，主通道）→
-        // ② Referer（登录页 URL 自带 from，PC/标准浏览器备选）。恢复后仍过 sanitizeFrom。
+        // 手机 WebView 会丢长表单字段、POST 可能不带 Referer、cookie 也实测不可靠；但短字段
+        // （username/password/state）能正常提交。恢复顺序：① form from → ② form state（服务端
+        // PENDING_AUTH_REQUESTS 恢复完整授权请求，主通道）→ ③ HttpOnly pending cookie →
+        // ④ Referer（PC/标准浏览器备选）。恢复后仍过 sanitizeFrom 同源守卫。
+        if (from == null || from.equals(DEFAULT_LANDING)) {
+            from = restoreFromPendingState(form.get("state"));
+            LOG.info("oidc login: form from missing/landing, state-restored={}",
+                from != null ? (from.startsWith("/oidc/authorize") ? "authorize" : "other") : "NO");
+            from = sanitizeFrom(from);
+        }
         if (from == null || from.equals(DEFAULT_LANDING)) {
             from = restoreFromPendingCookie(request);
-            LOG.debug("oidc login: form from missing/landing, pending-cookie restored={}", from != null);
+            LOG.debug("oidc login: state missing too, pending-cookie restored={}", from != null);
             from = sanitizeFrom(from);
         }
         if (from == null || from.equals(DEFAULT_LANDING)) {
@@ -179,7 +192,7 @@ public class OidcLoginController {
         String subject = username == null ? "" : username.trim();
         boolean valid = userService.validateCredentials(subject, password);
         if (!valid) {
-            return HttpResponse.ok(loginPageHtml(from, true))
+            return HttpResponse.ok(loginPageHtml(from, form.get("state"), true))
                 .contentType(MediaType.TEXT_HTML_TYPE)
                 .status(io.micronaut.http.HttpStatus.UNAUTHORIZED);
         }
@@ -500,6 +513,25 @@ public class OidcLoginController {
      * Same-origin {@code from} guard: only absolute-path references survive (an absolute URL or
      * a protocol-relative {@code //host} would turn the login into an open redirect).
      */
+    /** 凭短 state 从服务端内存恢复原始授权请求（OIDC 标准：授权请求由服务端状态记住，登录只负责认证）。 */
+    static String restoreFromPendingState(String state) {
+        if (state == null || state.isEmpty()) return null;
+        String v = OidcProviderController.PENDING_AUTH_REQUESTS.get(state);
+        if (v == null) return null;
+        int sep = v.indexOf('|');
+        if (sep < 0) return null;
+        try {
+            long ts = Long.parseLong(v.substring(0, sep));
+            if (System.currentTimeMillis() - ts > OidcProviderController.PENDING_AUTH_TTL_MS) {
+                OidcProviderController.PENDING_AUTH_REQUESTS.remove(state);
+                return null;
+            }
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        return v.substring(sep + 1);
+    }
+
     /** 从 authorize 侧写入的 HttpOnly pending cookie 恢复原授权请求（同域 POST 必带，不依赖表单字段/Referer）。 */
     private static String restoreFromPendingCookie(HttpRequest<?> request) {
         java.util.Optional<io.micronaut.http.cookie.Cookie> pending =
@@ -557,7 +589,7 @@ public class OidcLoginController {
     // ------------------------------------------------------------------ page
 
     /** Minimal self-contained login page; every interpolated value is HTML-escaped. */
-    static String loginPageHtml(String from, boolean error) {
+    static String loginPageHtml(String from, String state, boolean error) {
         return """
             <!DOCTYPE html>
             <html lang="zh">
@@ -593,6 +625,7 @@ public class OidcLoginController {
               <h1>dsh 统一登录</h1>
               <p class="sub">Kestra OIDC Provider（企业统一 IdP）</p>
               <form method="post" action="/oidc/login">
+                <input type="hidden" name="state" value="%s">
                 <input type="hidden" name="from" value="%s">
                 <label for="username">用户名</label>
                 <input id="username" name="username" type="text" autocomplete="username" autofocus required>
@@ -609,7 +642,7 @@ public class OidcLoginController {
             </div>
             </body>
             </html>
-            """.formatted(htmlEscape(from), error ? "用户名或密码错误" : "");
+            """.formatted(htmlEscape(state), htmlEscape(from), error ? "用户名或密码错误" : "");
     }
 
     /** Escapes the five characters that matter in an HTML text/attribute context. */
