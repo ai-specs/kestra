@@ -663,6 +663,12 @@ public class OidcLoginController {
         int q = from.indexOf('?');
         String path = q >= 0 ? from.substring(0, q) : from;
         if (!path.startsWith("/") || path.startsWith("//")) return DEFAULT_LANDING;
+        // 反斜杠/控制字符：部分浏览器/代理会把 /\evil 归一化为 //evil（开放重定向绕过，
+        // OWASP 检查表）。路径只允许 URL 路径字符，其他一律回落 /ui/。
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (c == '\\' || c < 0x20 || c == 0x7f) return DEFAULT_LANDING;
+        }
         return from;
     }
 

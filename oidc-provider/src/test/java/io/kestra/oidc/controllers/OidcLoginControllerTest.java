@@ -42,6 +42,15 @@ class OidcLoginControllerTest {
             is(OidcLoginController.DEFAULT_LANDING));
         assertThat(OidcLoginController.sanitizeFrom("oidc/authorize"),
             is(OidcLoginController.DEFAULT_LANDING));
+        // 反斜杠/控制字符变体：部分浏览器/代理归一化为协议相对 URL（OWASP 检查表）。
+        assertThat(OidcLoginController.sanitizeFrom("/\\evil.example"),
+            is(OidcLoginController.DEFAULT_LANDING));
+        assertThat(OidcLoginController.sanitizeFrom("/\t/evil.example"),
+            is(OidcLoginController.DEFAULT_LANDING));
+        assertThat(OidcLoginController.sanitizeFrom("/\n/evil.example"),
+            is(OidcLoginController.DEFAULT_LANDING));
+        assertThat(OidcLoginController.sanitizeFrom("/oidc/authorize?redirect_uri=http://100.71.119.22.nip.io:13010/"),
+            is("/oidc/authorize?redirect_uri=http://100.71.119.22.nip.io:13010/"));
     }
 
     @Test
