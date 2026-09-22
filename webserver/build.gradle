@@ -27,6 +27,9 @@ dependencies {
     implementation("dev.langchain4j:langchain4j-mcp")
     implementation("dev.langchain4j:langchain4j-google-ai-gemini")
     implementation("dev.langchain4j:langchain4j-http-client-jdk")
+    // dsh fork: OpenAiAiService kept (upstream removed the OpenAI adapter); migrations use DelegatingDataSource
+    implementation("dev.langchain4j:langchain4j-open-ai")
+    implementation("io.micronaut.data:micronaut-data-connection-jdbc")
     implementation('org.bouncycastle:bcpkix-jdk18on')
 
     // mcp
