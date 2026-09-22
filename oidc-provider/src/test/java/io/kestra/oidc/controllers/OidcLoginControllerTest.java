@@ -21,6 +21,11 @@ class OidcLoginControllerTest {
         assertThat(OidcLoginController.sanitizeFrom("/oidc/authorize?client_id=nacos"),
             is("/oidc/authorize?client_id=nacos"));
         assertThat(OidcLoginController.sanitizeFrom("/ui/"), is("/ui/"));
+        // 真机 App 的 authorize redirect_uri 未编码：query 里含裸 "://" 是参数值，必须放行
+        //（303 回 authorize 会重新校验 redirect_uri 白名单，不构成开放重定向）。
+        assertThat(OidcLoginController.sanitizeFrom(
+                "/oidc/authorize?response_type=code&redirect_uri=http://100.71.119.22.nip.io:13010/&scope=openid%20profile"),
+            is("/oidc/authorize?response_type=code&redirect_uri=http://100.71.119.22.nip.io:13010/&scope=openid%20profile"));
         // Blank falls back to the UI landing page.
         assertThat(OidcLoginController.sanitizeFrom(null), is(OidcLoginController.DEFAULT_LANDING));
         assertThat(OidcLoginController.sanitizeFrom("  "), is(OidcLoginController.DEFAULT_LANDING));

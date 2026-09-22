@@ -572,7 +572,13 @@ public class OidcLoginController {
 
     static String sanitizeFrom(String from) {
         if (from == null || from.isBlank()) return DEFAULT_LANDING;
-        if (!from.startsWith("/") || from.startsWith("//") || from.contains("://")) return DEFAULT_LANDING;
+        // 只校验 path 部分（拒绝外部 URL / 协议相对 URL）。query 里的 "://" 是参数值
+        // （如 redirect_uri=http://...），不是开放重定向——from 永远重定向回同源路径，
+        // authorize 端会重新校验 redirect_uri 白名单。真机 App 的 authorize 请求
+        // redirect_uri 未编码，state 恢复出的 from 含裸 http://，旧实现误拒导致 303 落 /ui/。
+        int q = from.indexOf('?');
+        String path = q >= 0 ? from.substring(0, q) : from;
+        if (!path.startsWith("/") || path.startsWith("//")) return DEFAULT_LANDING;
         return from;
     }
 
