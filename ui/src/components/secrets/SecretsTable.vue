@@ -134,22 +134,18 @@
             </KsTableColumn>
         </KsDataTable>
 
-        <KsDialog
+        <KsDrawer
             v-if="addSecretDrawerVisible"
             v-model="addSecretDrawerVisible"
             :title="secretModalTitle"
             :dirty="isSecretDirty"
-            formLayout
-            scrollable
         >
-            <KsForm labelPosition="left" :model="secret" :rules="rules" ref="form">
+            <KsForm class="ks-horizontal" :model="secret" :rules="rules" ref="form">
                 <KsFormItem
                     v-if="namespace === undefined"
                     :label="$t('namespace')"
                     prop="namespace"
                     required
-                    inline
-                    class="field-item"
                 >
                     <NamespaceSelect
                         v-model="secret.namespace"
@@ -158,13 +154,13 @@
                         all
                     />
                 </KsFormItem>
-                <KsFormItem :label="$t('secret.key')" prop="key" required inline class="field-item">
+                <KsFormItem :label="$t('secret.key')" prop="key" required>
                     <KsInput v-model="secret.key" :disabled="secret.update" :placeholder="$t('secret.keyPlaceholder')" required />
                 </KsFormItem>
-                <KsFormItem v-if="!secret.update" :label="$t('secret.name')" prop="value" required inline class="field-item">
+                <KsFormItem v-if="!secret.update" :label="$t('secret.name')" prop="value" required>
                     <KsPassword v-model="secret.value" :placeholder="$t('secret.valuePlaceholder')" />
                 </KsFormItem>
-                <KsFormItem v-if="secret.update" :label="$t('secret.name')" prop="value" inline class="field-item">
+                <KsFormItem v-if="secret.update" :label="$t('secret.name')" prop="value">
                     <div class="secret-value-control">
                         <KsPassword
                             v-model="secret.value"
@@ -177,7 +173,7 @@
                         />
                     </div>
                 </KsFormItem>
-                <KsFormItem :label="$t('secret.description')" prop="description" labelPosition="top">
+                <KsFormItem :label="$t('secret.description')" prop="description">
                     <KsInput
                         v-model="secret.description"
                         :placeholder="$t('secret.descriptionPlaceholder')"
@@ -189,14 +185,11 @@
             </KsForm>
 
             <template #footer>
-                <KsButton @click="addSecretDrawerVisible = false">
-                    {{ $t('cancel') }}
-                </KsButton>
                 <KsButton :icon="ContentSave" @click="saveSecret(form)" type="primary">
                     {{ $t('save') }}
                 </KsButton>
             </template>
-        </KsDialog>
+        </KsDrawer>
     </div>
 </template>
 
@@ -592,15 +585,6 @@
 
     .no-pointer-events {
         pointer-events: none;
-    }
-
-    .field-item :deep(.kel-form-item__content) {
-        flex: 0 0 260px;
-        max-width: 260px;
-    }
-
-    .field-item :deep(.kel-form-item__content) > * {
-        width: 100%;
     }
 
     .secret-value-control {
