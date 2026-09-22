@@ -181,7 +181,7 @@ public class OidcLoginController {
         // ④ Referer（PC/标准浏览器备选）。恢复后仍过 sanitizeFrom 同源守卫。
         if (from == null || from.equals(DEFAULT_LANDING)) {
             from = restoreFromPendingState(form.get("state"));
-            LOG.info("oidc login: form from missing/landing, state-restored={}",
+            LOG.debug("oidc login: form from missing/landing, state-restored={}",
                 from != null ? (from.startsWith("/oidc/authorize") ? "authorize" : "other") : "NO");
             from = sanitizeFrom(from);
         }
@@ -216,7 +216,7 @@ public class OidcLoginController {
         // PENDING_AUTH_REQUESTS，这里凭 state 恢复后直接颁发 code → 302 redirect_uri?code=...&state=...，
         // 全程不依赖 cookie/会话。completeAuthorizeFromLogin 返回 null 仅当数据异常，回退原路径。
         if (from != null && from.startsWith("/oidc/authorize")) {
-            LOG.info("oidc login: direct-authorize branch entered, from prefix={}", from.substring(0, Math.min(from.length(), 80)));
+            LOG.debug("oidc login: direct-authorize branch entered, from prefix={}", from.substring(0, Math.min(from.length(), 80)));
             HttpResponse<?> completed = completeAuthorizeFromLogin(from, subject);
             if (completed != null) {
                 io.micronaut.http.MutableHttpResponse<?> ok =
@@ -556,9 +556,9 @@ public class OidcLoginController {
      * 返回 null 表示数据异常（不应发生），调用方回退原 303→authorize 路径。
      */
     private HttpResponse<?> completeAuthorizeFromLogin(String from, String subject) {
-        LOG.info("oidc completeAuthorizeFromLogin: from={}", from == null ? "null" : from.substring(0, Math.min(from.length(), 260)));
+        LOG.debug("oidc completeAuthorizeFromLogin: from={}", from == null ? "null" : from.substring(0, Math.min(from.length(), 260)));
         int q = from.indexOf('?');
-        if (q < 0) { LOG.info("oidc completeAuthorize: q<0"); return null; }
+        if (q < 0) { LOG.debug("oidc completeAuthorize: q<0"); return null; }
         Map<String, String> params = new LinkedHashMap<>();
         for (String pair : from.substring(q + 1).split("&")) {
             int eq = pair.indexOf('=');
@@ -574,18 +574,18 @@ public class OidcLoginController {
         String codeChallenge = params.get("code_challenge");
         String codeChallengeMethod = params.get("code_challenge_method");
         String nonce = params.get("nonce");
-        if (clientId == null || redirectUri == null) { LOG.info("oidc completeAuthorize: clientId/redirectUri null, clientId={}", clientId); return null; }
+        if (clientId == null || redirectUri == null) { LOG.debug("oidc completeAuthorize: clientId/redirectUri null, clientId={}", clientId); return null; }
         OidcClientService.OidcClient client = clientService.find(clientId).orElse(null);
-        if (client == null) { LOG.info("oidc completeAuthorize: client not found {}", clientId); return null; }
-        if (!clientService.isRedirectUriRegistered(client, redirectUri)) { LOG.info("oidc completeAuthorize: redirect_uri not registered: {}", redirectUri); return null; }
-        if (responseType == null || !responseType.contains("code")) { LOG.info("oidc completeAuthorize: bad response_type {}", responseType); return null; }
+        if (client == null) { LOG.debug("oidc completeAuthorize: client not found {}", clientId); return null; }
+        if (!clientService.isRedirectUriRegistered(client, redirectUri)) { LOG.debug("oidc completeAuthorize: redirect_uri not registered: {}", redirectUri); return null; }
+        if (responseType == null || !responseType.contains("code")) { LOG.debug("oidc completeAuthorize: bad response_type {}", responseType); return null; }
         List<String> scopes = scopeStr == null || scopeStr.isBlank()
             ? client.scopes()
             : Arrays.asList(scopeStr.split("\\s+"));
-        if (!clientService.isScopeAllowed(client, scopes)) { LOG.info("oidc completeAuthorize: scope not allowed: {}", scopeStr); return null; }
+        if (!clientService.isScopeAllowed(client, scopes)) { LOG.debug("oidc completeAuthorize: scope not allowed: {}", scopeStr); return null; }
         if (clientService.isPublic(client)
-            && (codeChallenge == null || !"S256".equals(codeChallengeMethod))) { LOG.info("oidc completeAuthorize: pkce missing, cc={} m={}", codeChallenge, codeChallengeMethod); return null; }
-        LOG.info("oidc completeAuthorize: ALL OK, issuing code for client={} state={}", clientId, state);
+            && (codeChallenge == null || !"S256".equals(codeChallengeMethod))) { LOG.debug("oidc completeAuthorize: pkce missing, cc={} m={}", codeChallenge, codeChallengeMethod); return null; }
+        LOG.debug("oidc completeAuthorize: ALL OK, issuing code for client={} state={}", clientId, state);
         AuthorizationCode code = authCodeService.create(
             new ClientID(client.clientId()), subject, redirectUri, scopes,
             codeChallenge,
