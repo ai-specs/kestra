@@ -1,9 +1,3 @@
-# ---------------------------------------------------------------------------
-# NOTE (dsh): 本工作流为上游 kestra-io 继承、与 dsh 镜像构建/发布任务无关，
-# 已在 GitHub Actions 页面停用 (Disabled)，运行列表中看不到它是正常的。
-# 当本仓库代码相对上游发生大的变化时，应重新启用本工作流并跑通完整流程。
-# 启用前先确认其 job 不依赖本 fork 未配置的 secrets（否则运行期会失败）。
-# ---------------------------------------------------------------------------
 name: Pull Request Workflow
 
 on:
@@ -129,6 +123,7 @@ jobs:
       ui-design-system: ${{ steps.changes.outputs.ui-design-system }}
       translations: ${{ steps.changes.outputs.translations }}
       backend: ${{ steps.changes.outputs.backend }}
+      e2e: ${{ steps.changes.outputs.e2e }}
     steps:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
@@ -142,8 +137,10 @@ jobs:
               - 'ui/src/translations/**'
               - 'ui/scripts/translations/**'
               - 'ui/packages/design-system/**/*.locale.ts'
+            e2e:
+              - 'e2e/**'
             backend:
-              - '!{ui,.github}/**'
+              - '!{ui,e2e,.github}/**'
           token: ${{ secrets.GITHUB_TOKEN }}
 
   # Fills in whatever the PR left missing or stale and commits it straight onto the branch, so the
@@ -324,6 +321,32 @@ jobs:
     secrets:
       GITHUB_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  e2e-checks:
+    name: E2E - Checks
+    needs: [file-changes]
+    if: "needs.file-changes.outputs.e2e == 'true'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.x'
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      # No browsers and no product build: this is the static half of what the frontend job used to
+      # cover for the specs, and it is the only check an e2e-only PR gets before the suite itself.
+      - working-directory: e2e
+        run: npm ci
+
+      - working-directory: e2e
+        run: npm run check:types
+
+      - working-directory: e2e
+        run: npm run test:lint
+
   backend:
     name: Backend - Tests
     needs: file-changes
@@ -347,7 +370,7 @@ jobs:
     # build; drafts are filtered by file-changes' own if. Fork PRs can't
     # share artifacts (their runs hold no repo write token), so they keep
     # the E2E build-from-source fallback below.
-    if: "(needs.file-changes.outputs.ui == 'true' || needs.file-changes.outputs.backend == 'true') && github.event.pull_request.head.repo.fork == false"
+    if: "(needs.file-changes.outputs.ui == 'true' || needs.file-changes.outputs.backend == 'true' || needs.file-changes.outputs.e2e == 'true') && github.event.pull_request.head.repo.fork == false"
     uses: kestra-io/actions/.github/workflows/kestra-oss-build-artifacts.yml@main
     secrets:
       OTLP_ENDPOINT: ${{ secrets.OTLP_ENDPOINT }}
@@ -360,7 +383,7 @@ jobs:
     needs: [file-changes, build-artifacts]
     # Runs when build-artifacts succeeded (prebuilt exe) or was skipped for a
     # fork (falls back to building from source); not when the build failed.
-    if: "!cancelled() && needs.build-artifacts.result != 'failure' && (needs.file-changes.outputs.ui == 'true' || needs.file-changes.outputs.backend == 'true')"
+    if: "!cancelled() && needs.build-artifacts.result != 'failure' && (needs.file-changes.outputs.ui == 'true' || needs.file-changes.outputs.backend == 'true' || needs.file-changes.outputs.e2e == 'true')"
     uses: kestra-io/actions/.github/workflows/kestra-oss-e2e-tests.yml@main
     secrets:
       OTLP_ENDPOINT: ${{ secrets.OTLP_ENDPOINT }}
@@ -382,3 +405,46 @@ jobs:
     with:
       java-version: 25
       skip-build: ${{ needs.build-artifacts.result == 'success' }}
+
+  # Single gate for "require status checks to pass". The test jobs above are
+  # path-gated with `if:`, and several are reusable workflows (`uses:`) whose
+  # nested checks are never reported when the caller job is skipped — so a
+  # branch-protection rule on them individually would wait forever for a status
+  # that never arrives. This job always runs, and fails only when a required job
+  # actually failed or was cancelled; skipped and successful jobs both pass.
+  # Require only this check in branch protection instead of the individual jobs.
+  required-checks:
+    name: Required checks
+    if: always()
+    needs: [file-changes, frontend, design-system-frontend, e2e-checks, backend, build-artifacts, e2e-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: >-
+          contains(needs.*.result, 'failure') ||
+          contains(needs.*.result, 'cancelled')
+        run: |
+          echo "A required job failed or was cancelled:"
+          echo '${{ toJSON(needs) }}'
+          exit 1
+      - name: Success
+        run: echo "All required jobs passed or were legitimately skipped."
+
+  otel-export-trace:
+    name: OpenTelemetry - Export Trace
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [ trigger-ee, file-changes, frontend, design-system-frontend, e2e-checks, backend, build-artifacts, e2e-tests, generate-pull-request-docker-image ]
+    env:
+      OTLP_ENDPOINT: ${{ secrets.OTLP_ENDPOINT }}
+    steps:
+      - name: OpenTelemetry - Export trace
+        uses: kestra-io/actions/actions/otel-export-trace@main
+        if: ${{ env.OTLP_ENDPOINT != '' }}
+        with:
+          mode: export-all
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          otlp-endpoint: ${{ secrets.OTLP_ENDPOINT }}
+          otlp-headers: "${{ secrets.OTLP_HEADERS }}"
+          logs-enabled: 'true'
+          service-name: "Github Actions - ${{ github.repository }} - ${{ github.workflow }}"

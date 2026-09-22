@@ -1,5 +1,9 @@
 {
   "zh_CN": {
+    "versionUpgradeNotice": {
+      "message": "Kestra 已升级到 {version}，可能包含需要更新 Flow 的重大更改。",
+      "cta": "查看更改"
+    },
     "loading": "加载中...",
     "more actions": "更多操作",
     "recipe": {
@@ -894,6 +898,7 @@
     "flow creation denied in namespace": "您没有权限在namespace `{namespace}`中创建flows。",
     "readonly property": "只读属性",
     "namespace and id readonly": "属性 `namespace` 和 `id` 无法更改 — 它们现在已设置为初始值。如果您想重命名 flow 或更改其 namespace，可以创建一个新的 flow 并删除旧的。",
+    "flow metadata locked": "`id` 和 `namespace` 在 flow 创建后无法更改。",
     "avg": "平均",
     "sum": "总计",
     "min": "最小",
@@ -2048,6 +2053,7 @@
         "title": "AI 副驾驶",
         "placeholder": "告诉我构建什么…",
         "send": "发送",
+        "stop": "停止",
         "mode": {
           "ask": "询问",
           "edit": "编辑",
@@ -2120,7 +2126,7 @@
         },
         "unavailable": {
           "title": "AI Copilot 不可用",
-          "detail": "未配置 AI 提供商。请联系管理员进行配置。",
+          "detail": "此实例未配置 AI 提供商。请在 Kestra 配置文件中配置一个以启用 AI Copilot。",
           "docs": "查看文档"
         },
         "thinkingWords": [
@@ -2159,8 +2165,12 @@
         "draft": {
           "openInEditor": "在编辑器中打开",
           "apply": "应用",
+          "dismiss": "忽略",
+          "dismissed": "已忽略",
+          "applied": "已应用",
+          "previewBanner": "正在查看 AI 建议的更改——在您应用或忽略之前，编辑器为只读状态。",
           "applyTitle": "应用 flow",
-          "applyConfirm": "是否应用 flow {namespace}.{id}？如果尚不存在将创建它，如果已存在则将覆盖。",
+          "applyConfirm": "将 flow {namespace}.{id} 保存为待审核的草稿修订版？如果尚不存在将被创建，如果已存在则会添加一个新的草稿修订版 — 草稿在发布之前不会被 trigger 或 subflow 处理。",
           "applyConfirmDashboard": "应用仪表盘 {id}？它将被创建，如果已存在则会覆盖。",
           "applyError": "无法应用该 flow。请重试。",
           "applyErrorDashboard": "未能应用仪表盘。请重试。",
@@ -2172,13 +2182,8 @@
             "app": "拟议应用"
           },
           "valid": "有效",
-          "invalid": "需要修改",
-          "applied": "已应用",
-          "dismiss": "忽略",
-          "dismissed": "已忽略",
-          "previewBanner": "正在查看 AI 建议的更改——在您应用或忽略之前，编辑器为只读状态。"
-        },
-        "stop": "停止"
+          "invalid": "需要修改"
+        }
       }
     },
     "playground": {
@@ -2641,6 +2646,9 @@
       "install": "安装",
       "dismiss": "暂不"
     },
+    "iteration": "迭代",
+    "iteration_number": "迭代 {number}",
+    "delete_log_iteration": "确定要删除 {iteration} 的日志吗？",
     "dsh": {
       "account": {
         "title": "当前用户",
@@ -2732,12 +2740,7 @@
         "name": "名称",
         "description": "描述"
       }
-    },
-    "versionUpgradeNotice": {
-      "message": "Kestra 已升级到 {version}，可能包含需要更新 Flow 的重大更改。",
-      "cta": "查看更改"
-    },
-    "flow metadata locked": "`id` 和 `namespace` 在 flow 创建后无法更改。"
+    }
   },
   "secret": {
     "tags": "标签",
