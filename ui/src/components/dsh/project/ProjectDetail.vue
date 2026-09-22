@@ -502,6 +502,18 @@
 <style scoped lang="scss">
     .project-detail {
         padding: var(--ks-spacing-4);
+        // 全局 app.scss 对 .full-container > * 设 flex:1（拉伸填满），但本页有 3 个直接子元素：
+        // 内容矮时（角色/成员 tab）剩余空间会被 breadcrumb/header 分走导致高度膨胀、切换 tab
+        // 时头部反复跳动。固定 breadcrumb/header 为内容高度，tabs 独占剩余空间。
+        > .project-breadcrumb,
+        > .project-header {
+            flex: 0 0 auto;
+        }
+        // tabs 保持全局 flex:1（矮内容时填满剩余空间），但不得压缩内容高度：
+        // min-height 默认 auto，summary 卡片列表高时 tabs 撑开、main 可滚动到底部。
+        > .project-tabs {
+            flex: 1 1 0%;
+        }
     }
 
     .project-breadcrumb {
