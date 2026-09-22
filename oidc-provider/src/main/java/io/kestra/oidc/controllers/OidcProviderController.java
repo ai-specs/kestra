@@ -3,6 +3,7 @@ package io.kestra.oidc.controllers;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -65,6 +66,7 @@ import io.kestra.oidc.services.OidcUserService;
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
+import io.micronaut.http.cookie.Cookie;
 import io.micronaut.http.MediaType;
 import io.micronaut.http.annotation.Body;
 import io.micronaut.http.annotation.Consumes;
@@ -90,6 +92,8 @@ import jakarta.inject.Inject;
 @Requires(property = "kestra.oidc.enabled", notEquals = "false")
 @ExecuteOn(TaskExecutors.IO)
 public class OidcProviderController {
+    /** 未认证 authorize 请求的临时载体：HttpOnly 短 TTL cookie（手机 WebView 会丢长表单字段且不带 Referer）。 */
+    static final String PENDING_AUTHORIZE_COOKIE = "dsh_pending_auth";
 
     private final OidcConfiguration configuration;
     private final OidcClientService clientService;
@@ -548,12 +552,23 @@ public class OidcProviderController {
         return OidcRedirects.temporary(response.toURI());
     }
 
-    /** Redirects to the Kestra login page, preserving the current authorize request as {@code from}. */
+    /**
+     * Redirects to the Kestra login page. The original authorize request is preserved two ways:
+     * (1) classic {@code from} query (same-origin path+query, sanitized on the login side), and
+     * (2) an HttpOnly short-TTL cookie — 真机 Android WebView 会丢长表单字段、POST 也可能不带
+     * Referer（实测），cookie 是同域 POST 必带的标准载体，登录成功后据此恢复授权请求。
+     */
     private HttpResponse<?> redirectToLogin(HttpRequest<?> request) {
-        String from = request.getUri().toString();
+        String pathAndQuery = request.getUri().getPath()
+            + (request.getUri().getRawQuery() == null ? "" : "?" + request.getUri().getRawQuery());
+        Cookie pending = Cookie.of(PENDING_AUTHORIZE_COOKIE,
+            URLEncoder.encode(pathAndQuery, StandardCharsets.UTF_8))
+            .maxAge(Duration.ofMinutes(10))
+            .httpOnly(true)
+            .secure(request.isSecure());
         String loginUri = configuration.getLoginUrl()
-            + "?from=" + URLEncoder.encode(from, StandardCharsets.UTF_8);
-        return OidcRedirects.temporary(loginUri);
+            + "?from=" + URLEncoder.encode(pathAndQuery, StandardCharsets.UTF_8);
+        return OidcRedirects.temporary(loginUri).cookie(pending);
     }
 
     private HttpResponse<?> tokenErrorResponse(ErrorObject error) {

@@ -161,13 +161,18 @@ public class OidcLoginController {
         String username = form.get("username");
         String password = form.get("password");
         String from = sanitizeFrom(form.get("from"));
-        // Android WebView 偶发丢失登录表单的 from 隐藏字段（实测真机 POST 丢 from，303 被回退到
-        // DEFAULT_LANDING=/ui/，SSO 授权请求无法回到 authorize）。从 POST 的 Referer（登录页
-        // URL 自带 from query，浏览器表单提交必带 Referer）恢复，登录流程不依赖该表单字段。
+        // Android WebView 会丢长表单字段且 POST 可能不带 Referer（实测真机两者都失效）。
+        // 恢复顺序：① authorize 侧的 HttpOnly pending cookie（同域 POST 必带，主通道）→
+        // ② Referer（登录页 URL 自带 from，PC/标准浏览器备选）。恢复后仍过 sanitizeFrom。
+        if (from == null || from.equals(DEFAULT_LANDING)) {
+            from = restoreFromPendingCookie(request);
+            LOG.debug("oidc login: form from missing/landing, pending-cookie restored={}", from != null);
+            from = sanitizeFrom(from);
+        }
         if (from == null || from.equals(DEFAULT_LANDING)) {
             String refererFrom = extractFromFromReferer(
                 request.getHeaders().get(io.micronaut.http.HttpHeaders.REFERER));
-            LOG.debug("oidc login: form from missing/landing, referer restored={}", refererFrom != null);
+            LOG.debug("oidc login: pending-cookie missing too, referer restored={}", refererFrom != null);
             from = sanitizeFrom(refererFrom);
         }
 
@@ -495,6 +500,18 @@ public class OidcLoginController {
      * Same-origin {@code from} guard: only absolute-path references survive (an absolute URL or
      * a protocol-relative {@code //host} would turn the login into an open redirect).
      */
+    /** 从 authorize 侧写入的 HttpOnly pending cookie 恢复原授权请求（同域 POST 必带，不依赖表单字段/Referer）。 */
+    private static String restoreFromPendingCookie(HttpRequest<?> request) {
+        java.util.Optional<io.micronaut.http.cookie.Cookie> pending =
+            request.getCookies().findCookie(OidcProviderController.PENDING_AUTHORIZE_COOKIE);
+        if (pending.isEmpty()) return null;
+        try {
+            return URLDecoder.decode(pending.get().getValue(), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     /** 从登录页 URL（Referer）中恢复 from 参数（登录页 URL 形如 /oidc/login?from=<url-encoded authorize>）。 */
     static String extractFromFromReferer(String referer) {
         if (referer == null || referer.isBlank()) return null;
