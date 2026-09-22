@@ -15,12 +15,6 @@ dependencies {
     implementation "io.micronaut:micronaut-management"
     implementation "io.micronaut:micronaut-http-client"
     implementation "io.micronaut:micronaut-http-server-netty"
-    // DelegatingDataSource.unwrapDataSource() for migrations run outside a @Connectable context
-    implementation("io.micronaut.data:micronaut-data-connection-jdbc")
-    // See https://github.com/netty-contrib/codec-multipart/pull/25
-    // See https://github.com/kestra-io/kestra/issues/9743
-    // There is an issue on Netty multipart content decoding that is fixed in 5.x, this library will bring the same fix for 4.x
-    implementation("io.netty.contrib:netty-codec-multipart-vintage:1.0.0.Final")
     implementation "io.micronaut.cache:micronaut-cache-core"
     implementation "io.micronaut.cache:micronaut-cache-caffeine"
 
@@ -32,7 +26,6 @@ dependencies {
     implementation("dev.langchain4j:langchain4j")
     implementation("dev.langchain4j:langchain4j-mcp")
     implementation("dev.langchain4j:langchain4j-google-ai-gemini")
-    implementation("dev.langchain4j:langchain4j-open-ai")
     implementation("dev.langchain4j:langchain4j-http-client-jdk")
     implementation('org.bouncycastle:bcpkix-jdk18on')
 
