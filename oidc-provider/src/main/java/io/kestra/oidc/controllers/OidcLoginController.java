@@ -6,7 +6,10 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -16,8 +19,13 @@ import io.kestra.oidc.services.OidcClientService;
 import io.kestra.oidc.services.OidcSessionService;
 import io.kestra.oidc.services.OidcTokenService;
 
+import com.nimbusds.oauth2.sdk.AuthorizationCode;
+import com.nimbusds.oauth2.sdk.AuthorizationSuccessResponse;
+import com.nimbusds.oauth2.sdk.ResponseMode;
 import com.nimbusds.oauth2.sdk.Scope;
 import com.nimbusds.oauth2.sdk.id.ClientID;
+import com.nimbusds.oauth2.sdk.id.State;
+import com.nimbusds.oauth2.sdk.pkce.CodeChallengeMethod;
 import com.nimbusds.oauth2.sdk.token.RefreshToken;
 import io.kestra.oidc.services.OidcUserService;
 
@@ -202,6 +210,33 @@ public class OidcLoginController {
         // → 每次进入其他应用都要重新认证（复用是显式选择，不是默认行为）。Kestra UI 自身的登录态
         // （JWT + oidc_refresh）与此无关，两种选择下都正常颁发。
         boolean rememberSession = "true".equals(form.get("remember_session"));
+        // ===== 手机 WebView 主通道：登录 POST 直接完成授权 =====
+        // 手机 WebView 的 cookie 不可靠（oidc_session 偶发丢失），authorize 靠 cookie 判定已认证
+        // 会形成「303→authorize→302→login」死循环。授权请求已由 authorize 在全部校验通过后存入
+        // PENDING_AUTH_REQUESTS，这里凭 state 恢复后直接颁发 code → 302 redirect_uri?code=...&state=...，
+        // 全程不依赖 cookie/会话。completeAuthorizeFromLogin 返回 null 仅当数据异常，回退原路径。
+        if (from != null && from.startsWith("/oidc/authorize")) {
+            HttpResponse<?> completed = completeAuthorizeFromLogin(from, subject);
+            if (completed != null) {
+                io.micronaut.http.MutableHttpResponse<?> ok =
+                    (io.micronaut.http.MutableHttpResponse<?>) completed;
+                ok.header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
+                if (rememberSession) {
+                    String sessionId = sessionService.create(subject);
+                    ok.cookie(sessionService.sessionCookie(request, sessionId));
+                }
+                jwtTokenGenerator.ifPresent(generator -> generator
+                    .generateToken(Authentication.build(subject, userService.bySubject(subject).roles()),
+                        Math.toIntExact(configuration.getAccessTokenTtl().toSeconds()))
+                    .ifPresent(token -> ok.cookie(jwtCookie(request, token, configuration.getAccessTokenTtl()))));
+                ok.cookie(refreshCookie(request,
+                    tokenService.issueRefreshToken(new ClientID(SELF_CLIENT_ID), subject, SELF_LOGIN_SCOPE)));
+                ok.cookie(uiAuthFlagCookie(request, configuration.getRefreshTokenTtl()));
+                ok.cookie(clearCookie(LEGACY_BASIC_AUTH_FLAG_COOKIE, request.isSecure()));
+                ok.cookie(clearCookie(CSRF_COOKIE_NAME, request.isSecure()));
+                return ok;
+            }
+        }
         io.micronaut.http.MutableHttpResponse<?> response = HttpResponse.seeOther(URI.create(from))
             .header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-store");
         if (rememberSession) {
@@ -513,6 +548,52 @@ public class OidcLoginController {
      * Same-origin {@code from} guard: only absolute-path references survive (an absolute URL or
      * a protocol-relative {@code //host} would turn the login into an open redirect).
      */
+    /**
+     * 从登录 POST 的授权请求（PENDING_AUTH_REQUESTS 恢复的 /oidc/authorize?...）直接颁发
+     * authorization code → 302 到 redirect_uri?code=...&state=...。授权请求在 authorize 端已
+     * 完成 client/redirect_uri/scope/PKCE 校验，这里复核最小集合后颁发；全程不依赖 cookie。
+     * 返回 null 表示数据异常（不应发生），调用方回退原 303→authorize 路径。
+     */
+    private HttpResponse<?> completeAuthorizeFromLogin(String from, String subject) {
+        int q = from.indexOf('?');
+        if (q < 0) return null;
+        Map<String, String> params = new LinkedHashMap<>();
+        for (String pair : from.substring(q + 1).split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq < 0) continue;
+            params.put(URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8),
+                URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8));
+        }
+        String clientId = params.get("client_id");
+        String redirectUri = params.get("redirect_uri");
+        String responseType = params.get("response_type");
+        String state = params.get("state");
+        String scopeStr = params.get("scope");
+        String codeChallenge = params.get("code_challenge");
+        String codeChallengeMethod = params.get("code_challenge_method");
+        String nonce = params.get("nonce");
+        if (clientId == null || redirectUri == null) return null;
+        OidcClientService.OidcClient client = clientService.find(clientId).orElse(null);
+        if (client == null) return null;
+        if (!clientService.isRedirectUriRegistered(client, redirectUri)) return null;
+        if (responseType == null || !responseType.contains("code")) return null;
+        List<String> scopes = scopeStr == null || scopeStr.isBlank()
+            ? client.scopes()
+            : Arrays.asList(scopeStr.split("\\s+"));
+        if (!clientService.isScopeAllowed(client, scopes)) return null;
+        if (clientService.isPublic(client)
+            && (codeChallenge == null || !"S256".equals(codeChallengeMethod))) return null;
+        AuthorizationCode code = authCodeService.create(
+            new ClientID(client.clientId()), subject, redirectUri, scopes,
+            codeChallenge,
+            "S256".equals(codeChallengeMethod) ? CodeChallengeMethod.S256 : null,
+            nonce);
+        AuthorizationSuccessResponse success = new AuthorizationSuccessResponse(
+            URI.create(redirectUri), code, null,
+            state != null ? new State(state) : null, ResponseMode.QUERY);
+        return OidcRedirects.temporary(success.toURI());
+    }
+
     /** 凭短 state 从服务端内存恢复原始授权请求（OIDC 标准：授权请求由服务端状态记住，登录只负责认证）。 */
     static String restoreFromPendingState(String state) {
         if (state == null || state.isEmpty()) return null;
