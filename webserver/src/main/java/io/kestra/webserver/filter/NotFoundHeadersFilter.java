@@ -60,7 +60,21 @@ public class NotFoundHeadersFilter implements Ordered {
      */
     @RequestFilter
     public void rememberRouteMatch(@NonNull HttpRequest<?> request) {
-        request.setAttribute(ROUTE_MATCHED_ATTRIBUTE, BasicHttpAttributes.getRouteMatchInfo(request).isPresent());
+        // dsh fork: the UiAppController catch-all ({namespace}/{path:.*}) matches every
+        // /api/v1/... request that no real route owns, then short-circuits into a 404.
+        // That is a route-miss semantically, not a genuine application 404, so exclude it
+        // from the route-matched verdict (keeps upstream NotFoundHeadersFilter semantics).
+        boolean matched = BasicHttpAttributes.getRouteMatchInfo(request)
+            .filter(match -> {
+                if (!(match instanceof io.micronaut.web.router.UriRouteMatch<?, ?> routeMatch)) {
+                    return true;
+                }
+                io.micronaut.web.router.UriRouteInfo<?, ?> routeInfo = routeMatch.getRouteInfo();
+                return routeInfo == null
+                    || routeInfo.getDeclaringType() != io.kestra.webserver.controllers.api.UiAppController.class;
+            })
+            .isPresent();
+        request.setAttribute(ROUTE_MATCHED_ATTRIBUTE, matched);
     }
 
     /**

@@ -41,6 +41,18 @@ public class TenantAliasingRooter extends DefaultRouter {
         if (bypassRooting()) {
             return closest;
         }
+        // dsh: keep the upstream short-circuit — a genuine route hit returns immediately.
+        // Only when the closest hit is one of the dsh catch-all controllers (which would
+        // swallow tenant-less /api/v1 requests into an apps-route 404) do we continue into
+        // the tenant-rewrite probe below.
+        if (closest != null) {
+            Class<?> declaring = closest.getRouteInfo().getDeclaringType();
+            boolean dshCatchAll = declaring == io.kestra.webserver.controllers.api.UiAppController.class
+                || declaring == io.kestra.webserver.controllers.api.AppRouterController.class;
+            if (!dshCatchAll) {
+                return closest;
+            }
+        }
 
         boolean excluded = EXCLUDED_ROUTES.stream().anyMatch(route -> route.matcher(rawPath).matches());
         if (rawPath.startsWith("/api/v1/") && !excluded) {
