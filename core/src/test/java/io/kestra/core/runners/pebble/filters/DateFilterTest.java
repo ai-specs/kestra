@@ -176,7 +176,8 @@ class DateFilterTest {
 
         render = variableRenderer.render("{{ now(format=\"iso_local_date\") }}", ImmutableMap.of());
 
-        assertThat(render).isEqualTo(ZonedDateTime.now(ZoneId.of("Europe/Lisbon")).format(DateTimeFormatter.ISO_LOCAL_DATE));
+        // the render without an explicit timeZone uses the JVM default zone, so assert against that
+        assertThat(render).isEqualTo(ZonedDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE));
 
         render = variableRenderer.render("{{ now(format=\"sql_milli\") }}", ImmutableMap.of());
 
