@@ -50,8 +50,6 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>{@code GET /api/v1/apps/files?path=apps/{appName}/{...}.json} — 按约定路径读页面 schema。</li>
  *   <li>{@code PUT /api/v1/apps/files?path=apps/{appName}/{...}.json} — 按约定路径写页面 schema
  *       （文件不存在则创建；body 必须是 JSON 对象，否则 400）。</li>
- *   <li>{@code GET /api/v1/apps/pages} — 目录扫描约定根 {@code apps/}，返回页面树
- *       （一级 = App，二级/三级 = 文件/子目录层级，同名文件 + 目录合并为同一菜单节点）。</li>
  * </ul>
  *
  * <p>约定与硬约束：路径各段仅 {@code [A-Za-z0-9_-]}、最终 resolve 后必须落在

@@ -80,7 +80,7 @@ services:
             jdbc-username: ${POSTGRES_USER:-kestra}
             jdbc-password: ${POSTGRES_PASSWORD:-k3str4}
           gateway:
-            token: ${DSH_GATEWAY_TOKEN:-dsh-gateway-token}
+            # 入站鉴权 = OIDC Bearer（aud=dsh，OidcBearerAuthFilter）；出站企业代理 token：
             enterprise-token: ${ENTERPRISE_TOKEN:-dsh-enterprise-token}
             systems:
               enterprise:
