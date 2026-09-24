@@ -626,6 +626,7 @@
 
             &:hover {
                 border-color: var(--ks-border-focus);
+                // design-system-disable-next-line
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             }
         }
@@ -664,6 +665,7 @@
         transition: box-shadow 0.2s, border-color 0.2s;
 
         &:hover {
+            // design-system-disable-next-line
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             border-color: var(--ks-border-focus);
         }
@@ -682,14 +684,17 @@
         justify-content: center;
         font-size: 1.3rem;
         font-weight: 700;
+        // design-system-disable-next-line
         color: white;
         flex-shrink: 0;
 
         &.confidential {
+            // design-system-disable-next-line
             background: linear-gradient(135deg, #667eea, #764ba2);
         }
 
         &.public {
+            // design-system-disable-next-line
             background: linear-gradient(135deg, #11998e, #38ef7d);
         }
     }

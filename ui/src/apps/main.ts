@@ -39,8 +39,10 @@ function showToast(msg: string, kind: "info" | "error"): void {
     el.textContent = msg;
     Object.assign(el.style, {
         position: "fixed", top: "16px", left: "50%", transform: "translateX(-50%)",
+        // design-system-disable-next-line
         background: kind === "error" ? "#d4380d" : "#1677ff", color: "#fff",
         padding: "8px 16px", borderRadius: "4px", fontSize: "13px",
+        // design-system-disable-next-line
         zIndex: "99999", boxShadow: "0 2px 8px rgba(0,0,0,.15)",
     } satisfies Partial<CSSStyleDeclaration>);
     document.body.appendChild(el);

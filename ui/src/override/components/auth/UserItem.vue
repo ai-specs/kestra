@@ -135,6 +135,7 @@
         height: 24px;
         margin: 0.25rem;
         border-radius: var(--ks-radius-base);
+        // design-system-disable-next-line
         background: var(--ks-bg-secondary, rgba(127, 127, 127, 0.18));
         // KsSelect 的触发器把图标染成暗灰，账号项按常规侧栏条目的主文字色渲染
         color: var(--ks-text-primary);

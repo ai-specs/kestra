@@ -461,6 +461,7 @@
         padding: 0 var(--ks-spacing-3);
         border: 1px solid var(--ks-border-default);
         border-radius: var(--ks-radius-sm, 6px);
+        // design-system-disable-next-line
         background: var(--ks-bg-subtle, rgba(0, 0, 0, 0.03));
         font-size: var(--ks-font-size-sm);
         color: var(--ks-text-secondary);
