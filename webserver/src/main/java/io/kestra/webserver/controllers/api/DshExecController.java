@@ -78,6 +78,9 @@ public class DshExecController {
     /** 上传文件默认上限 20MB（compose 可配 EXEC_UPLOAD_MAX_BYTES，规格 §4.4）。 */
     static final long DEFAULT_UPLOAD_MAX_BYTES = 20L * 1024 * 1024;
 
+    /** 任务文本服务端兜底上限（手机端输入框限 2000；防绕过 UI 直打 LLM 的滥用）。 */
+    static final int MAX_TASK_TEXT_LENGTH = 10_000;
+
     /** 手机端公开客户端（aud 要求，规格 §2.7）。 */
     private static final String AUD_DSH_UI = "dsh-ui";
 
@@ -131,6 +134,10 @@ public class DshExecController {
         if (body == null || isBlank(body.sessionId()) || isBlank(body.text())) {
             return HttpResponse.badRequest(Map.of("error", "sessionId and text are required"));
         }
+        if (body.text().length() > MAX_TASK_TEXT_LENGTH) {
+            return HttpResponse.badRequest(Map.of("error", "text too long",
+                "limitChars", MAX_TASK_TEXT_LENGTH, "actualChars", body.text().length()));
+        }
         String sessionId = body.sessionId().trim();
         if (!sessionId.matches("[0-9a-fA-F-]{8,64}")) {
             return HttpResponse.badRequest(Map.of("error", "sessionId must be an id-shaped token"));
@@ -153,10 +160,21 @@ public class DshExecController {
             }
         }
 
-        // 并发守卫：同 sessionId 有活跃执行 → 409（手机端应等待上一任务终态或重试）
-        if (executionRepository.find(null, tenantService.resolveTenant(), null, EXEC_FLOW_NAMESPACE, EXEC_FLOW_ID,
-            null, null, List.copyOf(ACTIVE_STATES), Map.of(LABEL_SESSION, sessionId), null)
-            .blockFirst(Duration.ofSeconds(5)) != null) {
+        // 并发守卫：同 sessionId 有活跃执行 → 409（手机端应等待上一任务终态或重试）。
+        // 查询超时（DB 极慢）→ 503 而非放行：双执行会并发写同一会话 home（文件即记忆），
+        // 漏检的代价高于误拒；503 语义 = 稍后重试。blockFirst 超时抛 IllegalStateException，
+        // 必须捕获（否则 500）。
+        Boolean busy;
+        try {
+            busy = executionRepository.find(null, tenantService.resolveTenant(), null, EXEC_FLOW_NAMESPACE, EXEC_FLOW_ID,
+                null, null, List.copyOf(ACTIVE_STATES), Map.of(LABEL_SESSION, sessionId), null)
+                .blockFirst(Duration.ofSeconds(5)) != null;
+        } catch (Exception e) {
+            log.warn("dsh exec concurrency check timed out for session {}", sessionId, e);
+            return HttpResponse.status(io.micronaut.http.HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Map.of("error", "concurrency check unavailable, retry shortly"));
+        }
+        if (busy) {
             return HttpResponse.status(io.micronaut.http.HttpStatus.CONFLICT)
                 .body(Map.of("error", "session_busy", "sessionId", sessionId));
         }
