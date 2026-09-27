@@ -91,21 +91,35 @@ public class RelayOidcAuthFilter implements HttpServerFilter {
 
         String authorization = request.getHeaders().get(HttpHeaders.AUTHORIZATION);
         if (authorization == null || !authorization.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length())) {
-            return Publishers.just(unauthorized("missing_token",
-                "Authorization: Bearer <oidc access token> is required (POST /oidc/token)"));
+            return withCorsHeaders(Publishers.just(unauthorized("missing_token",
+                "Authorization: Bearer <oidc access token> is required (POST /oidc/token)")), origin, originAllowed);
         }
         String token = authorization.substring(BEARER_PREFIX.length()).trim();
         try {
             var claims = tokenService.validateAccessToken(token);
             if (claims.getAudience() == null || claims.getAudience().stream().noneMatch(DSH_AUDIENCES::contains)) {
-                return Publishers.just(unauthorized("invalid_audience",
-                    "this token's audience is not a dsh ecosystem client (dsh/dsh-ui/dsh-pc)"));
+                return withCorsHeaders(Publishers.just(unauthorized("invalid_audience",
+                    "this token's audience is not a dsh ecosystem client (dsh/dsh-ui/dsh-pc)")), origin, originAllowed);
             }
             request.getAttributes().put(CLAIMS_ATTRIBUTE, claims.toJSONObject());
-            return chain.proceed(request);
+            return withCorsHeaders(chain.proceed(request), origin, originAllowed);
         } catch (Exception e) {
-            return Publishers.just(unauthorized("invalid_token", e.getMessage()));
+            return withCorsHeaders(Publishers.just(unauthorized("invalid_token", e.getMessage())), origin, originAllowed);
         }
+    }
+
+    // 实际响应（非预检）也必须带 ACAO：浏览器 CORS 要求预检与实际响应都授权来源，
+    // 否则 H5（13010）能发出请求但读不到任何响应体（2026-09-27 relay 拆分时只移植了
+    // 预检分支导致本地模式手机数据面全断）。与 oidc-provider OidcBearerAuthFilter 的
+    // withCorsHeaders 同款：允许来源时把 origin 回显进下游响应。
+    private static Publisher<MutableHttpResponse<?>> withCorsHeaders(Publisher<MutableHttpResponse<?>> downstream, String origin, boolean originAllowed) {
+        if (origin == null || !originAllowed) {
+            return downstream;
+        }
+        return Publishers.map(downstream, response -> {
+            response.header(ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+            return response;
+        });
     }
 
     private static MutableHttpResponse<?> unauthorized(String error, String description) {
