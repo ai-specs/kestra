@@ -133,11 +133,13 @@ public class DshExecController {
                 if (ref == null) {
                     continue;
                 }
-                // 上传引用只能指向本人会话的 uploads/ 目录（路径形态校验；namespace 由服务端推导，不存在越权面）
-                if (!ref.startsWith("sessions/" + sessionId + "/uploads/") || ref.contains("..")) {
+                // 上传引用只能指向本人会话的 uploads/ 目录（相对路径或上传端点返回的
+                // kestra:// URI 均可；namespace 由服务端推导，URI 中的 namespace 必须与推导一致）
+                String normalized = normalizeFileRef(ref, sessionId, employeeNamespace);
+                if (normalized == null) {
                     return HttpResponse.badRequest(Map.of("error", "invalid fileRef", "fileRef", ref));
                 }
-                fileRefs.add(ref);
+                fileRefs.add(normalized);
             }
         }
 
@@ -362,7 +364,23 @@ public class DshExecController {
         }
     }
 
+/** Accepts `sessions/{sid}/uploads/name` or `kestra://{employeeNs}/sessions/{sid}/uploads/name`; returns the relative form, null when foreign. */
+    private static String normalizeFileRef(String ref, String sessionId, String employeeNamespace) {
+        String value = ref;
+        String prefix = "kestra://" + employeeNamespace + "/";
+        if (value.startsWith(prefix)) {
+            value = value.substring(prefix.length());
+        } else if (value.startsWith("kestra://")) {
+            return null; // 他人 namespace 的 URI（namespace 由服务端推导，不接受任何其他值）
+        }
+        if (!value.startsWith("sessions/" + sessionId + "/uploads/") || value.contains("..")) {
+            return null;
+        }
+        return value;
+    }
+
     /** Strips any path components; null when nothing safe remains. */
+
     private static String sanitizeFilename(String raw) {
         String name = raw;
         int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
