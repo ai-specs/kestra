@@ -4,6 +4,10 @@ import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.models.Label;
+import io.kestra.core.models.executions.ExecutionKilled;
+import io.kestra.core.models.executions.ExecutionKilledExecution;
+import io.kestra.core.queues.BroadcastQueueInterface;
+import io.kestra.core.events.CrudEvent;
 import io.kestra.core.repositories.ExecutionRepositoryInterface;
 import io.kestra.core.runners.FlowInputOutput;
 import io.kestra.core.services.FlowService;
@@ -99,6 +103,12 @@ public class DshExecController {
 
     @Inject
     private NamespaceFactory namespaceFactory;
+
+    @Inject
+    private BroadcastQueueInterface<ExecutionKilled> killQueue;
+
+    @Inject
+    private io.micronaut.context.event.ApplicationEventPublisher<CrudEvent<Execution>> eventPublisher;
 
     @Inject
     private StorageInterface storageInterface;
@@ -245,6 +255,50 @@ public class DshExecController {
             result.put("reply", reply);
         }
         result.put("sessionId", execution.getInputs().get("sessionId"));
+        return HttpResponse.ok(result);
+    }
+
+    /** 手机端取消自己的执行（发错任务不必干等超时；KILL 后手机端可重试）。 */
+    @io.micronaut.http.annotation.Delete(uri = "/run/{executionId}")
+    @Operation(summary = "Cancel one dsh cloud-computer execution (ownership enforced via dsh.sub label)")
+    public HttpResponse<Map<String, Object>> cancel(HttpRequest<?> request, String executionId) {
+        DshIdentity.Principal caller = DshIdentity.of(request);
+        if (caller == null) {
+            return unauthorized();
+        }
+        HttpResponse<Map<String, Object>> rejected = rejectNonMobile(caller);
+        if (rejected != null) {
+            return rejected;
+        }
+        Optional<Execution> maybe = executionRepository.findByIdWithoutAcl(tenantService.resolveTenant(), executionId);
+        if (maybe.isEmpty()) {
+            return notFound();
+        }
+        Execution execution = maybe.get();
+        if (!caller.sub().equals(labelValue(execution, LABEL_SUB))) {
+            return notFound();
+        }
+        if (execution.getState().isTerminated()) {
+            return HttpResponse.status(io.micronaut.http.HttpStatus.CONFLICT)
+                .body(Map.of("error", "already terminated", "executionState", execution.getState().getCurrent()));
+        }
+        eventPublisher.publishEvent(CrudEvent.of(execution, execution.withState(State.Type.KILLING)));
+        try {
+            killQueue.emit(ExecutionKilledExecution.builder()
+                .state(ExecutionKilled.State.REQUESTED)
+                .executionId(execution.getId())
+                .isOnKillCascade(true)
+                .tenantId(tenantService.resolveTenant())
+                .build());
+        } catch (Exception e) {
+            log.error("dsh exec cancel emit failed for {}", executionId, e);
+            return HttpResponse.serverError(Map.of("error", "cancel emit failed", "detail", String.valueOf(e.getMessage())));
+        }
+        log.info("dsh exec cancel: sub={} execution={} session={}", caller.sub(), executionId,
+            execution.getInputs().get("sessionId"));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("executionId", execution.getId());
+        result.put("executionState", State.Type.KILLING);
         return HttpResponse.ok(result);
     }
 
