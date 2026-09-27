@@ -5,15 +5,18 @@ micronaut:
     # 独立转发端口（compose 映射宿主 ${KESTRA_RELAY_PORT:-18090}:8090）；与 Kestra 主服务
     # 8080（UI/API/IdP）彻底分离，relay 的高频轮询流量不占主端口。
     port: 8090
-    # 方案 A（2026-09-27）：连接级活性检测。PC 断电/内核死/网络分区 → TCP 半开，relay
-    # 写"成功"但送不到。SO_KEEPALIVE + 30s 空闲 + 每 5s 探测 ×3 → 半开连接 ~45s 内被内核
-    # 判死 → channel inactive → SSE disconnect → relay 切 offline。仅配置在 relay 服务上，
-    # 不触碰 Kestra 主监听器的连接参数。
-    child-options:
-      SO_KEEPALIVE: true
-      TCP_KEEPIDLE: 30
-      TCP_KEEPINTVL: 5
-      TCP_KEEPCNT: 3
+  netty:
+    # 方案 A（2026-09-27）：TCP keepalive 半开断线检测已代码级强制
+    # （RelayKeepAliveCustomizer，NettyServerCustomizer 在 CONNECTION channel 上
+    # setOption SO_KEEPALIVE/TCP_KEEPIDLE=30/TCP_KEEPINTVL=5/TCP_KEEPCNT=3）。
+    # ⚠️ 不要改用 micronaut.server.netty.child-options yml 配置：Micronaut 5.1.15 该通道
+    # 实测不生效（getsockopt 探针仍为内核默认 7200s idle / keepalive 关闭，yml 与 -D
+    # 系统属性均不应用），曾导致"半开断线永不判死"。回归门：
+    # app-scripts/src/verify/relay-keepalive-test.sh（半开断线行为级测试）。
+    # ⚠️ 生效边界（2026-09-27 行为级实证）：keepalive 只对「无出站流量的静默连接」判死；
+    # SSE 连接（relay 每 15s 出站心跳）会持续刷新内核 keepalive idle 计数 → 永不触发，
+    # 故 PC 半开判死由应用层心跳承担（PC 每 30s POST /heartbeat，90s 超时判离线，
+    # 见 DshRelayController.pcHeartbeats / deliver()）。
 
 datasources:
   postgres:

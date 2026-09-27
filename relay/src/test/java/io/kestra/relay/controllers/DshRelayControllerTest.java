@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentMap;
 
 import org.junit.jupiter.api.Test;
 
@@ -12,6 +13,7 @@ import io.kestra.relay.DshIdentity;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
+import reactor.core.publisher.FluxSink;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -113,4 +115,93 @@ class DshRelayControllerTest {
         HttpResponse<Map<String, Object>> response = controller.input(request, body);
         assertEquals(HttpStatus.FORBIDDEN, response.getStatus());
     }
+
+    // ── 方案 A'（2026-09-27）：应用层心跳判活 ─────────────────────────────────
+
+    /** SSE 连接建立：往 pcSinks 放一个未取消的 sink（等价 PC 在线 + 心跳新鲜）。 */
+    private static FluxSink<DshRelayController.RelayEvent> attachPcSse(DshRelayController controller, String sub) {
+        @SuppressWarnings("unchecked")
+        FluxSink<DshRelayController.RelayEvent> sink = mock(FluxSink.class);
+        when(sink.isCancelled()).thenReturn(false);
+        attachViaReflection(controller, sub, sink);
+        return sink;
+    }
+
+    private static void attachViaReflection(DshRelayController controller, String sub, FluxSink<DshRelayController.RelayEvent> sink) {
+        try {
+            var field = DshRelayController.class.getDeclaredField("pcSinks");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            ConcurrentMap<String, FluxSink<DshRelayController.RelayEvent>> pcSinks =
+                (ConcurrentMap<String, FluxSink<DshRelayController.RelayEvent>>) field.get(controller);
+            pcSinks.put(sub, sink);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void recordHeartbeat(DshRelayController controller, String sub, long epochMs) {
+        try {
+            var field = DshRelayController.class.getDeclaredField("pcHeartbeats");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            ConcurrentMap<String, Long> beats = (ConcurrentMap<String, Long>) field.get(controller);
+            beats.put(sub, epochMs);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Test
+    void heartbeatMarksPcAliveAndInputDelivers() {
+        DshRelayController controller = new DshRelayController();
+        String sub = "alice@kestra.io";
+        attachPcSse(controller, sub);
+        // PC 心跳（正常 30s 周期内）
+        HttpResponse<Map<String, Object>> beat =
+            controller.heartbeat(requestFor(sub, "dsh-pc"), Map.of());
+        assertEquals(HttpStatus.OK, beat.getStatus());
+        assertEquals(Boolean.TRUE, beat.getBody().orElseThrow().get("accepted"));
+        // 手机 input 应 delivered（SSE 连接在 + 心跳新鲜）
+        var body = new DshRelayController.RelayInput("hello", UUID.randomUUID().toString(), true, null);
+        HttpResponse<Map<String, Object>> input = controller.input(requestFor(sub, "dsh-ui"), body);
+        assertEquals(HttpStatus.OK, input.getStatus());
+        assertEquals(Boolean.TRUE, input.getBody().orElseThrow().get("delivered"));
+    }
+
+    @Test
+    void pcHalfOpenWithoutFreshHeartbeatIsOffline() {
+        DshRelayController controller = new DshRelayController();
+        String sub = "alice@kestra.io";
+        attachPcSse(controller, sub);
+        // 心跳已过期（120s > 90s 超时）——模拟 PC 断电后 SSE 连接仍半开（TCP 未判死）
+        recordHeartbeat(controller, sub, System.currentTimeMillis() - 120_000);
+        var body = new DshRelayController.RelayInput("hello", UUID.randomUUID().toString(), true, null);
+        HttpResponse<Map<String, Object>> input = controller.input(requestFor(sub, "dsh-ui"), body);
+        assertEquals(HttpStatus.OK, input.getStatus());
+        assertEquals(Boolean.FALSE, input.getBody().orElseThrow().get("delivered"),
+            "SSE 连接在但心跳超时 → PC 半开离线，手机必须拿到确定 offline");
+    }
+
+    @Test
+    void pcWithoutAnyHeartbeatIsOfflineEvenWithSse() {
+        DshRelayController controller = new DshRelayController();
+        String sub = "alice@kestra.io";
+        attachPcSse(controller, sub);
+        // 从未上报心跳（无 pcHeartbeats 条目）
+        var body = new DshRelayController.RelayInput("hello", UUID.randomUUID().toString(), true, null);
+        HttpResponse<Map<String, Object>> input = controller.input(requestFor(sub, "dsh-ui"), body);
+        assertEquals(Boolean.FALSE, input.getBody().orElseThrow().get("delivered"),
+            "只连 SSE 不报心跳 = 未激活，禁止投递");
+    }
+
+    @Test
+    void phoneHeartbeatIsRejected() {
+        DshRelayController controller = new DshRelayController();
+        HttpResponse<Map<String, Object>> beat =
+            controller.heartbeat(requestFor("alice@kestra.io", "dsh-ui"), Map.of());
+        assertEquals(HttpStatus.FORBIDDEN, beat.getStatus(),
+            "手机端上报心跳必须 403——防止手机端复活 PC");
+    }
+
 }
