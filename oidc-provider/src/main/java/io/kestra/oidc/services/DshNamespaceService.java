@@ -36,6 +36,12 @@ import jakarta.inject.Singleton;
 @Requires(bean = PostgresSecretStore.class)
 public class DshNamespaceService extends DefaultNamespaceService {
 
+    /** 云电脑模式全局执行 flow 的命名空间（docs/dsh-云电脑模式需求规格.md §4.1：dsh.exec/exec-run）。 */
+    static final String EXEC_FLOW_NAMESPACE = "dsh.exec";
+
+    /** 员工命名空间前缀（规格 §4.2：employee.{slug}-{hash8}）。 */
+    static final String EMPLOYEE_NAMESPACE_PREFIX = "employee.";
+
     @Inject
     public DshNamespaceService(Provider<FlowMetaStoreInterface> flowMetaStore) {
         super(flowMetaStore);
@@ -45,6 +51,15 @@ public class DshNamespaceService extends DefaultNamespaceService {
     public boolean isAllowedNamespace(String tenant, String namespace, String fromTenant, String fromNamespace) {
         // 目标 namespace 必须在来源 namespace 的继承链上（含自身）：
         // from=a.b.c 访问 a / a.b / a.b.c → 允许（子读祖先）；访问 b / a.b.x 等链外 → 拒绝。
-        return PostgresSecretStore.namespaceChain(fromNamespace).contains(namespace);
+        if (PostgresSecretStore.namespaceChain(fromNamespace).contains(namespace)) {
+            return true;
+        }
+        // 例外（云电脑模式，规格 §3-B/§4.3/§4.9）：全局执行 flow（dsh.exec/exec-run）按注入的
+        // employeeNamespace 挂载/回写员工 namespace 存储——共享 flow 是所有员工 namespace 的
+        // 「链外」访问者，链内语义天然不覆盖。此处的授权点不在本闸门：手机端唯一触发面是
+        // DshExecController 封装端点（白名单 flow + namespace 从 token sub 推导、请求体伪造一律
+        // 忽略 + sub == 所有者）；原生管理面直接触发属管理员信任边界（与现状一致）。仅放行
+        // dsh.exec → employee.* 单一方向，其余链外访问维持拒绝。
+        return EXEC_FLOW_NAMESPACE.equals(fromNamespace) && namespace.startsWith(EMPLOYEE_NAMESPACE_PREFIX);
     }
 }
