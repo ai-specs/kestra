@@ -23,7 +23,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * DshRelayController 纯单元测试（Mockito 直接驱动 controller 实例，不依赖 OIDC 装配）：
- * 覆盖 2026-09-27 新增的 per-sub 宽松限流与 relay/input 缓存去重，以及 PC 离线语义。
+ * 覆盖 per-sub 宽松限流、缓存去重、PC 离线语义。半开判死由 TCP keepalive
+ * （RelayKeepAliveCustomizer）在连接真空闲时承担——本进程不发出站 SSE ping。
  */
 class DshRelayControllerTest {
 
@@ -116,9 +117,9 @@ class DshRelayControllerTest {
         assertEquals(HttpStatus.FORBIDDEN, response.getStatus());
     }
 
-    // ── 方案 A'（2026-09-27）：应用层心跳判活 ─────────────────────────────────
+    // ── SSE 连接即在线（半开判死由 TCP keepalive 承担）─────────────────────────
 
-    /** SSE 连接建立：往 pcSinks 放一个未取消的 sink（等价 PC 在线 + 心跳新鲜）。 */
+    /** SSE 连接建立：往 pcSinks 放一个未取消的 sink（等价 PC 在线）。 */
     private static FluxSink<DshRelayController.RelayEvent> attachPcSse(DshRelayController controller, String sub) {
         @SuppressWarnings("unchecked")
         FluxSink<DshRelayController.RelayEvent> sink = mock(FluxSink.class);
@@ -140,29 +141,11 @@ class DshRelayControllerTest {
         }
     }
 
-    private static void recordHeartbeat(DshRelayController controller, String sub, long epochMs) {
-        try {
-            var field = DshRelayController.class.getDeclaredField("pcHeartbeats");
-            field.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            ConcurrentMap<String, Long> beats = (ConcurrentMap<String, Long>) field.get(controller);
-            beats.put(sub, epochMs);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     @Test
-    void heartbeatMarksPcAliveAndInputDelivers() {
+    void inputDeliversWhenPcSseConnected() {
         DshRelayController controller = new DshRelayController();
         String sub = "alice@kestra.io";
         attachPcSse(controller, sub);
-        // PC 心跳（正常 30s 周期内）
-        HttpResponse<Map<String, Object>> beat =
-            controller.heartbeat(requestFor(sub, "dsh-pc"), Map.of());
-        assertEquals(HttpStatus.OK, beat.getStatus());
-        assertEquals(Boolean.TRUE, beat.getBody().orElseThrow().get("accepted"));
-        // 手机 input 应 delivered（SSE 连接在 + 心跳新鲜）
         var body = new DshRelayController.RelayInput("hello", UUID.randomUUID().toString(), true, null);
         HttpResponse<Map<String, Object>> input = controller.input(requestFor(sub, "dsh-ui"), body);
         assertEquals(HttpStatus.OK, input.getStatus());
@@ -170,38 +153,14 @@ class DshRelayControllerTest {
     }
 
     @Test
-    void pcHalfOpenWithoutFreshHeartbeatIsOffline() {
+    void inputCachesWhenPcSseAbsent() {
         DshRelayController controller = new DshRelayController();
         String sub = "alice@kestra.io";
-        attachPcSse(controller, sub);
-        // 心跳已过期（120s > 90s 超时）——模拟 PC 断电后 SSE 连接仍半开（TCP 未判死）
-        recordHeartbeat(controller, sub, System.currentTimeMillis() - 120_000);
+        // 不 attach SSE → PC 离线 → delivered:false + cached:true
         var body = new DshRelayController.RelayInput("hello", UUID.randomUUID().toString(), true, null);
         HttpResponse<Map<String, Object>> input = controller.input(requestFor(sub, "dsh-ui"), body);
-        assertEquals(HttpStatus.OK, input.getStatus());
-        assertEquals(Boolean.FALSE, input.getBody().orElseThrow().get("delivered"),
-            "SSE 连接在但心跳超时 → PC 半开离线，手机必须拿到确定 offline");
-    }
-
-    @Test
-    void pcWithoutAnyHeartbeatIsOfflineEvenWithSse() {
-        DshRelayController controller = new DshRelayController();
-        String sub = "alice@kestra.io";
-        attachPcSse(controller, sub);
-        // 从未上报心跳（无 pcHeartbeats 条目）
-        var body = new DshRelayController.RelayInput("hello", UUID.randomUUID().toString(), true, null);
-        HttpResponse<Map<String, Object>> input = controller.input(requestFor(sub, "dsh-ui"), body);
-        assertEquals(Boolean.FALSE, input.getBody().orElseThrow().get("delivered"),
-            "只连 SSE 不报心跳 = 未激活，禁止投递");
-    }
-
-    @Test
-    void phoneHeartbeatIsRejected() {
-        DshRelayController controller = new DshRelayController();
-        HttpResponse<Map<String, Object>> beat =
-            controller.heartbeat(requestFor("alice@kestra.io", "dsh-ui"), Map.of());
-        assertEquals(HttpStatus.FORBIDDEN, beat.getStatus(),
-            "手机端上报心跳必须 403——防止手机端复活 PC");
+        assertEquals(Boolean.FALSE, input.getBody().orElseThrow().get("delivered"));
+        assertEquals(Boolean.TRUE, input.getBody().orElseThrow().get("cached"));
     }
 
 }

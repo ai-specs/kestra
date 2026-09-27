@@ -24,16 +24,16 @@ import jdk.net.ExtendedSocketOptions;
  * {@code register()} —— 之后每个 accept 的连接都会应用 keepalive 选项（register 前无
  * 业务连接，无漏网窗口）。
  *
- * <p><b>生效边界（2026-09-27 行为级实证，勿再宣称 keepalive 能判 SSE 半开）</b>：
- * relay-keepalive-test.sh 用 iptables 双向 DROP 模拟 PC 断电，实证：
- * <ul>
- *   <li>纯静默连接（无出站流量）：DROP 后 ~45-72s 被内核判死 → keepalive 生效；</li>
- *   <li>SSE 心跳连接（relay 每 15s 出站 heartbeat）：DROP 后 150s 仍不判死 —— 出站
- *       心跳持续刷新内核 keepalive idle 计数，探测永不触发。keepalive 对 SSE 场景无效。</li>
- * </ul>
- * 因此 <b>PC 半开判死由应用层心跳承担</b>（DshRelayController：PC 每 30s POST
- * /heartbeat，90s 超时判离线）；本 customizer 仅作为<b>纯静默连接</b>（无出站流量的
- * 8090 消费者）的僵尸连接兜底，不可作为 SSE 判死依据。
+ * <p><b>方案 A（2026-09-27 定稿，行为级实证通过）</b>：删除应用层心跳和出站 SSE ping 后，
+ * SSE 连接在两次手机消息之间是纯静默的。配合 docker-compose sysctl
+ * （tcp_keepalive_time=30 / tcp_keepalive_intvl=5 / tcp_keepalive_probes=3 /
+ * tcp_retries2=3），内核 ~30-60s 内判死半开连接 → Netty channelInactive →
+ * FluxSink dispose → disconnect() → sink 从 map 移除 → 手机下一条 /input 返回
+ * delivered:false。回归门：relay-keepalive-test.sh。
+ *
+ * <p>注意：JVM ExtendedSocketOptions（NioChannelOption.of）在 Micronaut 5.1.15 NIO
+ * transport 上 setOption 返回 true 但实测不生效，故实际 keepalive 参数由 docker-compose
+ * sysctl 设置；本 customizer 仅确保 SO_KEEPALIVE=on（开关），参数值由 sysctl 提供。
  *
  * <p>只对 relay 服务的连接生效（本 bean 只存在于 relay 模块），不触碰 Kestra 主监听器。
  */

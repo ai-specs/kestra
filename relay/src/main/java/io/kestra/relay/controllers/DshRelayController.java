@@ -35,10 +35,11 @@ import java.util.concurrent.TimeUnit;
  *       （relay/result）、审批请求（relay/approval）与审批决策（relay/approval/decide）；</li>
  *   <li><b>SSE 事件流</b>（§5.3）：GET relay/events 按 {@code sub} 隔离，同一用户
  *       PC（client_id=dsh-pc）与 Phone（client_id=dsh-ui）各一条连接；</li>
- *   <li><b>在线状态注册表</b>（§5.1）：PC 在线 = SSE 连接存在 <b>且</b> 应用层心跳
- *       未超时（方案 A'，2026-09-27：PC 每 30s POST /heartbeat，90s 无心跳即半开
- *       离线——TCP keepalive 对 SSE 心跳连接不生效，行为级测试 relay-keepalive-test.sh
- *       实证）；Phone 在线 = SSE 连接存在；</li>
+ *   <li><b>在线状态注册表</b>（§5.1）：PC/Phone 在线 = SSE 连接存在。半开断线（PC
+ *       断电/死机无 RST）由 TCP keepalive（RelayKeepAliveCustomizer：KEEPIDLE=30s
+ *       + INTVL=5s × CNT=3，~45s 判死）在连接真空闲时检测——本进程不发出站 SSE ping
+ *       （docker 内网无代理），避免出站数据刷新内核 keepalive idle 计数。channel
+ *       inactive → sink 自动从 map 删除 → 手机端查询即得确定 offline；</li>
  *   <li><b>短暂缓存</b>（§5.4）：转发目标离线时消息缓存 60s，目标上线（SSE 重连）
  *       后立即补推。</li>
  * </ul>
@@ -55,15 +56,6 @@ public class DshRelayController {
     private static final long CACHE_TTL_MS = 60_000;
     /** 查询结果缓存 TTL（§5.2 查询转发：Phone 轮询取结果窗口）。 */
     private static final long QUERY_TTL_MS = 30_000;
-    /** SSE 保活间隔（§5.3：heartbeat 15s）。仅供防 PC 侧 45s idle guard 断连；不参与判活。 */
-    private static final long HEARTBEAT_MS = 15_000;
-    /**
-     * PC 应用层活性判死超时（方案 A'，2026-09-27）：PC 每 30s POST /heartbeat，
-     * 超过 90s（3 倍心跳周期裕量）未收到 → 视为半开离线。TCP keepalive 经行为级
-     * 测试（relay-keepalive-test.sh）实证对 SSE 心跳连接不生效（出站心跳持续刷新
-     * 内核 idle 计数），判死必须由应用层心跳承担；SSE heartbeat 与判活解耦。
-     */
-    private static final long PC_HEARTBEAT_TIMEOUT_MS = 90_000;
     /** Per-sub 宽松限流：滑动窗口 10s 内最多请求数（2026-09-27 异常兜底）。 */
     private static final int RATE_LIMIT_PER_WINDOW = 60;
     /** Per-sub 限流滑动窗口时长（毫秒）。 */
@@ -78,8 +70,6 @@ public class DshRelayController {
     private final ConcurrentMap<String, FluxSink<RelayEvent>> pcSinks = new ConcurrentHashMap<>();
     /** sub → Phone 端 SSE sink。 */
     private final ConcurrentMap<String, FluxSink<RelayEvent>> phoneSinks = new ConcurrentHashMap<>();
-    /** sub → PC 最近一次应用层心跳时刻（epoch ms；方案 A' 判活依据，非 SSE 心跳）。 */
-    private final ConcurrentMap<String, Long> pcHeartbeats = new ConcurrentHashMap<>();
     /** sub → 在线状态（SSE 连接即在线；role 由 client_id 判定）。 */
     private final ConcurrentMap<String, Map<String, Boolean>> presence = new ConcurrentHashMap<>();
     /** msgId → 未送达消息（60s TTL，目标上线补推）。 */
@@ -99,9 +89,9 @@ public class DshRelayController {
     });
 
     public DshRelayController() {
-        // 每 30s：清理过期缓存；每 15s：SSE 保活心跳
+        // 每 30s：清理过期缓存/查询/限流窗口。不发出站 SSE ping——保持连接真空闲，
+        // TCP keepalive（RelayKeepAliveCustomizer）才能在半开时判死。
         scheduler.scheduleAtFixedRate(this::purgeCache, 30, 30, TimeUnit.SECONDS);
-        scheduler.scheduleAtFixedRate(this::heartbeat, HEARTBEAT_MS, HEARTBEAT_MS, TimeUnit.MILLISECONDS);
     }
 
     // ── 请求/事件记录 ────────────────────────────────────────────────────────
@@ -474,33 +464,6 @@ public class DshRelayController {
         return HttpResponse.ok(Map.of("sub", caller.sub(), "role", roleOf(caller), "online", online));
     }
 
-    /**
-     * PC 应用层活性心跳（方案 A'，2026-09-27）：PC 每 30s POST 一次，relay 以
-     * {@code PC_HEARTBEAT_TIMEOUT_MS}=90s 超时判 PC 半开离线（PC 断电/死机后心跳
-     * 停更）。只接受 PC 角色（client_id=dsh-pc）——手机端上报一律 403，防止
-     * 手机端"复活"PC。SSE 心跳（relay→PC 15s）与判活解耦，不参与本判定。
-     */
-    @Post("/heartbeat")
-    @Operation(summary = "PC application-level liveness heartbeat (option A': half-open detection by heartbeat timeout)")
-    public HttpResponse<Map<String, Object>> heartbeat(
-        HttpRequest<?> request,
-        @Body Map<String, Object> body
-    ) {
-        DshIdentity.Principal caller = userOnly(request);
-        if (caller == null) {
-            return forbidden();
-        }
-        if (rateLimited(caller.sub())) {
-            return tooManyRequests();
-        }
-        if (!CLIENT_PC.equals(roleOf(caller))) {
-            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
-                .body(Map.of("error", "heartbeat is PC-only; phone must not resurrect a PC"));
-        }
-        pcHeartbeats.put(caller.sub(), System.currentTimeMillis());
-        return HttpResponse.ok(Map.of("sub", caller.sub(), "accepted", true));
-    }
-
     // ── SSE 事件流（§5.3）────────────────────────────────────────────────────
 
     /**
@@ -531,6 +494,9 @@ public class DshRelayController {
             }
             emitter.onCancel(() -> disconnect(sub, role, pool, emitter));
             emitter.onDispose(() -> disconnect(sub, role, pool, emitter));
+            // 立即 flush 响应头：Micronaut/Netty 在收到第一个 onNext 前不写 HTTP 响应，
+            // 无事件时客户端会一直挂起到超时。发一个 connected 事件让 SSE 连接落地。
+            emitter.next(event("connected", java.util.Map.of("sub", sub, "role", role)));
             // 上线补推：缓存中发给本 sub 本角色的未过期消息
             replayCache(sub, role, emitter);
         }, FluxSink.OverflowStrategy.BUFFER);
@@ -558,26 +524,16 @@ public class DshRelayController {
     }
 
     /**
-     * 推送到同 sub 指定角色；目标无连接则 false。PC 角色额外以应用层心跳判活
-     * （方案 A'）：SSE 连接在但 lastHeartbeat 超时（PC 半开死机、TCP 半开未被
-     * keepalive 判死）→ 视为离线，手机得到确定 offline。
+     * 推送到同 sub 指定角色；目标无连接则 false。半开断线由 TCP keepalive 在连接
+     * 真空闲时检测（~45s），channel inactive → sink 自动移除 → 下次 deliver 即 false。
      */
     private boolean deliver(String sub, String role, String type, Map<String, Object> data) {
         FluxSink<RelayEvent> sink = (CLIENT_PC.equals(role) ? pcSinks : phoneSinks).get(sub);
         if (sink == null || sink.isCancelled()) {
             return false;
         }
-        if (CLIENT_PC.equals(role) && !pcRecentlyAlive(sub)) {
-            return false;
-        }
         sink.next(event(type, data));
         return true;
-    }
-
-    /** PC 最近一次应用层心跳是否在超时窗口内（90s）。 */
-    private boolean pcRecentlyAlive(String sub) {
-        Long last = pcHeartbeats.get(sub);
-        return last != null && System.currentTimeMillis() - last < PC_HEARTBEAT_TIMEOUT_MS;
     }
 
     /**
@@ -656,8 +612,6 @@ public class DshRelayController {
         }
         markOnline(sub, role, false);
         if (CLIENT_PC.equals(role)) {
-            // 连接没了，PC 活性心跳记录一并清除（新连接会重新上报）。
-            pcHeartbeats.remove(sub);
             // 对端感知 PC 离线（pc.status）——仅 PC 断开时通知 Phone 有意义
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("online", false);
@@ -665,21 +619,11 @@ public class DshRelayController {
         }
     }
 
-    private void heartbeat() {
-        RelayEvent beat = new RelayEvent("heartbeat", UUID.randomUUID().toString(), Map.of());
-        pcSinks.forEach((sub, sink) -> safeNext(sink, beat));
-        phoneSinks.forEach((sub, sink) -> safeNext(sink, beat));
-    }
-
     private void purgeCache() {
         cache.entrySet().removeIf(e -> e.getValue().expired());
         pendingQueries.entrySet().removeIf(e -> e.getValue().expired());
         queryResults.entrySet().removeIf(e -> e.getValue().expired());
         rateWindows.entrySet().removeIf(e -> e.getValue().isEmpty());
-        // 清理已超时 2 倍仍无新心跳的 PC 记录（保持 map 干净；判活本身不受影响）
-        pcHeartbeats.entrySet().removeIf(
-            e -> System.currentTimeMillis() - e.getValue() > 2 * PC_HEARTBEAT_TIMEOUT_MS
-        );
     }
 
     private static RelayEvent event(String type, Map<String, Object> data) {
@@ -690,12 +634,5 @@ public class DshRelayController {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("error", message);
         return new RelayEvent(type, UUID.randomUUID().toString(), data);
-    }
-
-    private static void safeNext(FluxSink<RelayEvent> sink,
-                                 RelayEvent event) {
-        if (!sink.isCancelled()) {
-            sink.next(event);
-        }
     }
 }
