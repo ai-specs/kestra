@@ -12,11 +12,13 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 
 import java.time.Instant;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -51,6 +53,10 @@ public class DshRelayController {
     private static final long QUERY_TTL_MS = 30_000;
     /** SSE 保活间隔（§5.3：heartbeat 15s）。 */
     private static final long HEARTBEAT_MS = 15_000;
+    /** Per-sub 宽松限流：滑动窗口 10s 内最多请求数（2026-09-27 异常兜底）。 */
+    private static final int RATE_LIMIT_PER_WINDOW = 60;
+    /** Per-sub 限流滑动窗口时长（毫秒）。 */
+    private static final long RATE_LIMIT_WINDOW_MS = 10_000;
 
     /** PC 端 client_id（dsh-pc，PKCE 用户身份）。 */
     private static final String CLIENT_PC = "dsh-pc";
@@ -70,6 +76,8 @@ public class DshRelayController {
     /** requestId → 已受理但可能尚未回填的查询；用于区分 202 pending 与真正的 404。 */
     private final ConcurrentMap<String, PendingQuery> pendingQueries = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, CompletableFuture<Map<String, Object>>> queryWaiters = new ConcurrentHashMap<>();
+    /** sub → 限流滑动窗口（请求时间戳队列；每 30s purgeCache 顺带清理空桶）。 */
+    private final ConcurrentMap<String, Deque<Long>> rateWindows = new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "dsh-relay");
@@ -146,6 +154,9 @@ public class DshRelayController {
         if (caller == null) {
             return forbidden();
         }
+        if (rateLimited(caller.sub())) {
+            return tooManyRequests();
+        }
         if (body == null || body.text() == null || body.text().isBlank()) {
             return HttpResponse.badRequest(Map.of("error", "text is required"));
         }
@@ -178,6 +189,9 @@ public class DshRelayController {
         if (caller == null) {
             return forbidden();
         }
+        if (rateLimited(caller.sub())) {
+            return tooManyRequests();
+        }
         if (body == null || body.sessionId() == null || body.sessionId().isBlank()) {
             return HttpResponse.badRequest(Map.of("error", "sessionId is required"));
         }
@@ -203,6 +217,9 @@ public class DshRelayController {
         DshIdentity.Principal caller = userOnly(request);
         if (caller == null) {
             return forbidden();
+        }
+        if (rateLimited(caller.sub())) {
+            return tooManyRequests();
         }
         if (body == null || body.sessionId() == null || body.sessionId().isBlank()) {
             return HttpResponse.badRequest(Map.of("error", "sessionId is required"));
@@ -230,6 +247,9 @@ public class DshRelayController {
         DshIdentity.Principal caller = userOnly(request);
         if (caller == null) {
             return forbidden();
+        }
+        if (rateLimited(caller.sub())) {
+            return tooManyRequests();
         }
         if (body == null || body.sessionId() == null || body.sessionId().isBlank()) {
             return HttpResponse.badRequest(Map.of("error", "sessionId is required"));
@@ -261,6 +281,9 @@ public class DshRelayController {
         DshIdentity.Principal caller = userOnly(request);
         if (caller == null) {
             return forbidden();
+        }
+        if (rateLimited(caller.sub())) {
+            return tooManyRequests();
         }
         if (body == null || body.requestId() == null || body.requestId().isBlank()
             || body.type() == null || body.type().isBlank()) {
@@ -297,6 +320,9 @@ public class DshRelayController {
         DshIdentity.Principal caller = userOnly(request);
         if (caller == null) {
             return forbidden();
+        }
+        if (rateLimited(caller.sub())) {
+            return tooManyRequests();
         }
         if (body == null || body.requestId() == null || body.requestId().isBlank()) {
             return HttpResponse.badRequest(Map.of("error", "requestId is required"));
@@ -336,6 +362,7 @@ public class DshRelayController {
     ) {
         DshIdentity.Principal caller = userOnly(request);
         if (caller == null) return CompletableFuture.completedFuture(forbidden());
+        if (rateLimited(caller.sub())) return CompletableFuture.completedFuture(tooManyRequests());
         String requestId = UUID.randomUUID().toString();
         CompletableFuture<Map<String, Object>> waiter = new CompletableFuture<>();
         queryWaiters.put(requestId, waiter);
@@ -379,6 +406,9 @@ public class DshRelayController {
         if (caller == null) {
             return forbidden();
         }
+        if (rateLimited(caller.sub())) {
+            return tooManyRequests();
+        }
         QueryResult result = queryResults.get(requestId);
         if (result != null && !result.expired()) {
             if (!result.toSub().equals(caller.sub())) {
@@ -418,6 +448,9 @@ public class DshRelayController {
         DshIdentity.Principal caller = userOnly(request);
         if (caller == null) {
             return forbidden();
+        }
+        if (rateLimited(caller.sub())) {
+            return tooManyRequests();
         }
         boolean online = body == null || body.online() == null || body.online();
         presence.compute(caller.sub(), (k, v) -> {
@@ -494,9 +527,48 @@ public class DshRelayController {
         return true;
     }
 
+    /**
+     * 缓存按 (sub, role, type, 载荷指纹) 去重（2026-09-27）：手机端积压指令每 8s
+     * 重发一次（flushLocal），此前每发一次生成一个新 UUID 条目（60s TTL 内同指令
+     * 最多 ~7 副本）。以内容指纹为 key 覆盖写入：同指令 60s 内只留一条、TTL 随最近
+     * 一次重发续期；PC 上线补推语义不变（replayCache 仍按 toSub+role 匹配，推后删除）。
+     */
     private void cacheMessage(String sub, String role, String type, Map<String, Object> data) {
-        String msgId = UUID.randomUUID().toString();
-        cache.put(msgId, new CachedMessage(sub, role, type, data, System.currentTimeMillis() + CACHE_TTL_MS));
+        String key = cacheKeyOf(sub, role, type, data);
+        cache.put(key, new CachedMessage(sub, role, type, data, System.currentTimeMillis() + CACHE_TTL_MS));
+    }
+
+    /**
+     * 缓存条目指纹：sub + role + type + 载荷内容。载荷为插入序固定的 LinkedHashMap，
+     * 同一条指令（sessionId/text 等全部相同）重发产生同一指纹 → 覆盖去重；
+     * 不同内容（新消息/新决策）指纹不同 → 各自独立缓存。
+     */
+    static String cacheKeyOf(String sub, String role, String type, Map<String, Object> data) {
+        return sub + "\u0000" + role + "\u0000" + type + "\u0000" + String.valueOf(data);
+    }
+
+    /**
+     * Per-sub 滑动窗口宽松限流（2026-09-27 异常兜底）：手机端正常流量
+     * ≤~0.26 req/s/sub（列表 20s + 积压重发 8s + 详情轮询 30s），阈值 60 次 / 10s
+     * 留 ~23 倍余量——只挡客户端 bug / 重试风暴，不误伤正常使用；纯内存，随
+     * purgeCache（30s）清理空桶。SSE 长连接端点（events）不参与限流。
+     */
+    private boolean rateLimited(String sub) {
+        long now = System.currentTimeMillis();
+        Deque<Long> window = rateWindows.computeIfAbsent(sub, k -> new ConcurrentLinkedDeque<>());
+        while (!window.isEmpty() && now - window.peekFirst() > RATE_LIMIT_WINDOW_MS) {
+            window.pollFirst();
+        }
+        if (window.size() >= RATE_LIMIT_PER_WINDOW) {
+            return true;
+        }
+        window.addLast(now);
+        return false;
+    }
+
+    private static HttpResponse<Map<String, Object>> tooManyRequests() {
+        return HttpResponse.status(io.micronaut.http.HttpStatus.TOO_MANY_REQUESTS)
+            .body(Map.of("error", "rate limit exceeded; retry later"));
     }
 
     /** 上线补推：把目标离线期间缓存的未过期消息按序推给新连接。 */
@@ -548,6 +620,7 @@ public class DshRelayController {
         cache.entrySet().removeIf(e -> e.getValue().expired());
         pendingQueries.entrySet().removeIf(e -> e.getValue().expired());
         queryResults.entrySet().removeIf(e -> e.getValue().expired());
+        rateWindows.entrySet().removeIf(e -> e.getValue().isEmpty());
     }
 
     private static RelayEvent event(String type, Map<String, Object> data) {
