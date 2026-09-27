@@ -159,7 +159,7 @@ public class OidcLoginController {
 
     /**
      * Validate the submitted credentials and, on success, create a provider session and set the
-     * {@code oidc_session} cookie (HttpOnly, SameSite=Strict) then redirect back to {@code from}
+     * {@code oidc_session} cookie (HttpOnly, SameSite=Lax so the cross-site top-level navigation back to the IdP's authorize endpoint carries it; Lax still blocks CSRF) then redirect back to {@code from}
      * (303 so a browser refresh does not re-post the password). Credentials are exchanged for the
      * session cookie once and never re-sent on later requests.
      *
@@ -285,7 +285,7 @@ public class OidcLoginController {
 
     /**
      * The {@code JWT} cookie Kestra's Micronaut SecurityFilter validates (default cookie name).
-     * HttpOnly, SameSite=Strict, TLS-only when applicable. Per the OAuth2 model this is the
+     * HttpOnly, SameSite=Lax (cross-site top-level navigation must carry the session back from the IdP across domains; Lax still blocks CSRF), TLS-only when applicable. Per the OAuth2 model this is the
      * SHORT-lived access token: Max-Age = {@code accessTokenTtl} in lockstep with the {@code exp}
      * claim, so a stolen/expired access cookie leaves nothing behind — renewal happens only
      * through the long-lived, rotating {@code oidc_refresh} cookie.
@@ -295,17 +295,17 @@ public class OidcLoginController {
             .path("/")
             .httpOnly(true)
             .secure(request.isSecure())
-            .sameSite(SameSite.Strict)
+            .sameSite(SameSite.Lax)
             .maxAge(accessTokenTtl);
     }
 
-    /** The long-lived {@code oidc_refresh} cookie (HttpOnly; Max-Age = refresh-token TTL). */
+    /** The long-lived {@code oidc_refresh} cookie (HttpOnly; SameSite=Lax for the cross-site navigation case; Max-Age = refresh-token TTL). */
     private Cookie refreshCookie(HttpRequest<?> request, RefreshToken refreshToken) {
         return Cookie.of(REFRESH_COOKIE_NAME, refreshToken.getValue())
             .path("/")
             .httpOnly(true)
             .secure(request.isSecure())
-            .sameSite(SameSite.Strict)
+            .sameSite(SameSite.Lax)
             .maxAge(configuration.getRefreshTokenTtl());
     }
 
@@ -328,7 +328,7 @@ public class OidcLoginController {
             .path("/")
             .httpOnly(false)
             .secure(request.isSecure())
-            .sameSite(SameSite.Strict)
+            .sameSite(SameSite.Lax)
             .maxAge(sessionTtl);
     }
 
@@ -539,7 +539,7 @@ public class OidcLoginController {
             .path("/")
             .httpOnly(true)
             .secure(secure)
-            .sameSite(SameSite.Strict)
+            .sameSite(SameSite.Lax)
             .maxAge(0);
     }
 

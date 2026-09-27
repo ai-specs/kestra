@@ -153,7 +153,7 @@ public class OidcSessionService {
             .path("/")
             .httpOnly(true)
             .secure(request.isSecure())
-            .sameSite(SameSite.Strict)
+            .sameSite(SameSite.Lax)
             .maxAge(maxAge);
     }
 
