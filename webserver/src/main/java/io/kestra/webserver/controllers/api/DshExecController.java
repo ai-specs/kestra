@@ -192,6 +192,12 @@ public class DshExecController {
         inputs.put("employeeNamespace", employeeNamespace);
         inputs.put("sessionId", sessionId);
         inputs.put("text", body.text());
+        // Pebble 注入防护（2026-09-28 轮次4）：kestra 对 env Property 的渲染会对值做
+        // 二次求值（实测 text 含 {{ 7*7 }} 传到 agent 已变 49）——用户自由文本直入 env
+        // 构成表达式注入面（{{ secret(...) }} 会把中台秘密泄漏进 LLM 上下文）。
+        // textB64 走 base64 通道（字母表无 {{ }}，无法被求值），flow 侧 sh 内解码使用。
+        inputs.put("textB64", java.util.Base64.getEncoder()
+            .encodeToString(body.text().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         inputs.put("fileRefs", fileRefs);
 
         Execution execution = Execution.builder()
