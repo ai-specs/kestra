@@ -1,0 +1,43 @@
+plugins {
+    id 'java'
+    id 'java-library'
+    id 'application'
+    id 'com.gradleup.shadow' version '9.6.1'
+}
+
+// 注意：relay 是独立轻量进程，故意【不】继承 root 的公共 micronaut configuration
+// （那会带入 micronaut-management / micrometer-prometheus / tracing 等一整套，既膨胀 jar
+// 又会触发 HealthMonitorTask 的 @Scheduled 启动失败）。这里只声明 relay 真正需要的依赖。
+dependencies {
+    annotationProcessor "io.micronaut:micronaut-inject-java"
+
+    implementation "io.micronaut:micronaut-http-server-netty"
+    // SSE 转发用 reactor Flux/FluxSink（http-server-netty 传递的是 runtime 期，编译期需显式）
+    implementation "io.projectreactor:reactor-core"
+    // HTTP 错误响应 JSON 序列化（JsonErrorResponseBodyProvider 等 bean 在此模块）
+    implementation "io.micronaut:micronaut-jackson-databind"
+    // DataSource bean from `datasources.*` (relay validates tokens against oidc_token/oidc_jwk)
+    implementation "io.micronaut.data:micronaut-data-connection-jdbc"
+    // connection-jdbc 只有接口；DataSource(HikariCP) bean 由 jdbc-hikari 提供
+    implementation "io.micronaut.sql:micronaut-jdbc-hikari"
+    // JWT RS256 verification (same library family as oidc-provider)
+    implementation "com.nimbusds:nimbus-jose-jwt"
+    implementation "com.fasterxml.jackson.core:jackson-databind"
+    runtimeOnly "org.postgresql:postgresql"
+
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testImplementation "org.mockito:mockito-core"
+}
+
+application {
+    mainClass = "io.kestra.relay.RelayApplication"
+}
+
+shadowJar {
+    archiveClassifier.set("all")
+    mergeServiceFiles()
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

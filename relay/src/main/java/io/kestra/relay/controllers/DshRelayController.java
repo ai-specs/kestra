@@ -1,5 +1,6 @@
-package io.kestra.webserver.controllers.api;
+package io.kestra.relay.controllers;
 
+import io.kestra.relay.DshIdentity;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.MediaType;

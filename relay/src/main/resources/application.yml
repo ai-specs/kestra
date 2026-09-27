@@ -1,0 +1,33 @@
+micronaut:
+  application:
+    name: dsh-relay
+  server:
+    # 独立转发端口（compose 映射宿主 ${KESTRA_RELAY_PORT:-18090}:8090）；与 Kestra 主服务
+    # 8080（UI/API/IdP）彻底分离，relay 的高频轮询流量不占主端口。
+    port: 8090
+    # 方案 A（2026-09-27）：连接级活性检测。PC 断电/内核死/网络分区 → TCP 半开，relay
+    # 写"成功"但送不到。SO_KEEPALIVE + 30s 空闲 + 每 5s 探测 ×3 → 半开连接 ~45s 内被内核
+    # 判死 → channel inactive → SSE disconnect → relay 切 offline。仅配置在 relay 服务上，
+    # 不触碰 Kestra 主监听器的连接参数。
+    child-options:
+      SO_KEEPALIVE: true
+      TCP_KEEPIDLE: 30
+      TCP_KEEPINTVL: 5
+      TCP_KEEPCNT: 3
+
+datasources:
+  postgres:
+    # compose 以环境变量覆盖（DATASOURCES_POSTGRES_*）；默认值仅本地直跑 dev 用。
+    url: jdbc:postgresql://localhost:5432/kestra
+    driverClassName: org.postgresql.Driver
+    username: kestra
+    password: k3str4
+
+kestra:
+  oidc:
+    enabled: true
+    # IdP 的 issuer（Kestra 主服务 8080 上的 OIDC Provider，与主服务配置一致）
+    issuer: http://kestra:8080
+    # 手机端 H5 跨域直连 relay 的浏览器来源白名单（compose 覆盖，与主服务一致）
+    cors-allowed-origins:
+      - http://localhost:13010

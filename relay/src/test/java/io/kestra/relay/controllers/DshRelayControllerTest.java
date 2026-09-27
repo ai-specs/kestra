@@ -1,4 +1,4 @@
-package io.kestra.webserver.controllers.api;
+package io.kestra.relay.controllers;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import io.kestra.relay.DshIdentity;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
