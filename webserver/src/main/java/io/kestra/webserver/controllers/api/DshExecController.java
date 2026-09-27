@@ -469,8 +469,12 @@ public class DshExecController {
         if (name.isEmpty() || name.equals(".") || name.equals("..") || name.length() > 255) {
             return null;
         }
-        if (name.contains("\u0000")) {
-            return null;
+        // 全集控制字符防御（轮次12）：ISO C0/C1 控制字符一律拒绝——multipart 的
+        // quoted-string 语法允许携带，浏览器正常不会发，但不能信任调用方。
+        for (int i = 0; i < name.length(); i++) {
+            if (Character.isISOControl(name.charAt(i))) {
+                return null;
+            }
         }
         return name;
     }
