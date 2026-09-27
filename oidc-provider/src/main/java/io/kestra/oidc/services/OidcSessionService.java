@@ -153,6 +153,13 @@ public class OidcSessionService {
             .path("/")
             .httpOnly(true)
             .secure(request.isSecure())
+            // ⚠️ AI guard: SameSite=Lax is REQUIRED — the IdP↔app OIDC redirect chain crosses
+            // sites (app on localhost, IdP on Tailscale nip.io / production domains). A
+            // cross-site top-level navigation back from the IdP does NOT carry a Strict cookie,
+            // so Strict makes a freshly minted session read as logged out → infinite login loop
+            // (2026-09-27 incident, root repo docs/upstream-sync.md). When merging upstream,
+            // do NOT "restore" Strict. Lax still blocks cross-site subresource/POST (CSRF).
+            // Locked by OidcSessionServiceTest.sessionCookieIsSameSiteLaxForCrossSiteRedirects.
             .sameSite(SameSite.Lax)
             .maxAge(maxAge);
     }

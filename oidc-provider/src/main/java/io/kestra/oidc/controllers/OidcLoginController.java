@@ -295,6 +295,12 @@ public class OidcLoginController {
             .path("/")
             .httpOnly(true)
             .secure(request.isSecure())
+            // ⚠️ AI guard: SameSite=Lax is REQUIRED — the IdP↔app OIDC redirect chain crosses
+            // sites (app on localhost, IdP on Tailscale nip.io / production domains). A
+            // cross-site top-level navigation back from the IdP does NOT carry a Strict cookie,
+            // so Strict makes a freshly minted session read as logged out → infinite login loop
+            // (2026-09-27 incident, root repo docs/upstream-sync.md). When merging upstream,
+            // do NOT "restore" Strict. Lax still blocks cross-site subresource/POST (CSRF).
             .sameSite(SameSite.Lax)
             .maxAge(accessTokenTtl);
     }
@@ -305,6 +311,8 @@ public class OidcLoginController {
             .path("/")
             .httpOnly(true)
             .secure(request.isSecure())
+            // ⚠️ AI guard: SameSite=Lax is REQUIRED (cross-site OIDC redirect chain, multi-domain);
+            // never "restore" Strict on merge — it breaks login (2026-09-27, docs/upstream-sync.md).
             .sameSite(SameSite.Lax)
             .maxAge(configuration.getRefreshTokenTtl());
     }
@@ -328,6 +336,8 @@ public class OidcLoginController {
             .path("/")
             .httpOnly(false)
             .secure(request.isSecure())
+            // ⚠️ AI guard: SameSite=Lax is REQUIRED (cross-site OIDC redirect chain, multi-domain);
+            // never "restore" Strict on merge — it breaks login (2026-09-27, docs/upstream-sync.md).
             .sameSite(SameSite.Lax)
             .maxAge(sessionTtl);
     }
@@ -539,6 +549,8 @@ public class OidcLoginController {
             .path("/")
             .httpOnly(true)
             .secure(secure)
+            // ⚠️ AI guard: SameSite=Lax is REQUIRED (cross-site OIDC redirect chain, multi-domain);
+            // never "restore" Strict on merge — it breaks login (2026-09-27, docs/upstream-sync.md).
             .sameSite(SameSite.Lax)
             .maxAge(0);
     }
