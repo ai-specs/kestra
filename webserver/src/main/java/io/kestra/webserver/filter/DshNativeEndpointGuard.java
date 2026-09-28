@@ -2,7 +2,7 @@ package io.kestra.webserver.filter;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Optional;
 
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.http.HttpRequest;
@@ -12,63 +12,62 @@ import io.micronaut.http.annotation.Filter;
 import io.micronaut.http.filter.HttpServerFilter;
 import io.micronaut.http.filter.ServerFilterChain;
 import io.micronaut.http.filter.ServerFilterPhase;
+import io.micronaut.management.endpoint.annotation.Endpoint;
+import io.micronaut.web.router.MethodBasedRouteMatch;
+import io.micronaut.web.router.RouteMatch;
+import io.micronaut.web.router.RouteMatchUtils;
 
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
 
 /**
- * dsh fork（2026-09-28 安全评审 P0-2/P1-1，2026-09-29 复核扩展）：原生管理面收紧。
+ * dsh fork（维护者裁定 2026-09-29）：Kestra UI 及全部原生 API **仅 admin 可用**；
+ * 非 admin 用户任何时候只能访问少数定制功能面——OIDC 认证、dsh 联动、云电脑 API。
  *
  * <p>
- * 评审实证（alice，roles=[user]，JWT cookie）：
+ * 演进：2026-09-28 首版只拦 executions 写（P0-2）；2026-09-29 上午扩展 flows 写 +
+ * executions 读写；本版按裁定收敛为**默认全拒 + 显式白名单**（flows GET、plugins/
+ * namespaces/blueprints 等其余原生 API 一并关闭）。产品语义：员工用手机端
+ * （Bearer，dsh 面），Kestra UI/原生 API 是管理员运维面。
+ *
+ * <p>
+ * 非 admin 白名单（均自校验或为基础设施探针）：
  * <ul>
- *   <li>user 可 {@code POST /api/v1/{tenant}/executions/{ns}/{flowId}} 原生触发 exec-run
- *       （绕过 DshExecController 的归属推导/格式校验/textB64/fileRefs 白名单）；</li>
- *   <li>user 有完整 flow 写权限（创建/改/删 flow → docker.sock 自建 flow = 宿主机 RCE 链）；</li>
- *   <li>user 可 {@code GET /api/v1/{tenant}/executions/search} 读全部执行记录
- *       （含他人 inputs.text）。</li>
+ *   <li>{@code /oidc/**}、{@code /.well-known/**}——OIDC 认证与发现（登录/token/
+ *       刷新/userinfo/登出，手机 PKCE 与 IdP 表单登录都走这里）；</li>
+ *   <li>{@code /api/v1/dsh/**}——dsh 联动 + 云电脑（{@code exec/**}）：OidcBearerAuthFilter
+ *       强制 Bearer（手机 PKCE / PC / dsh 服务身份），DshExecController 自带归属推导/
+ *       白名单/格式/textB64/fileRefs/并发防护；{@code dsh/employee}、{@code dsh/gateway}
+ *       等子面各自再做自身 admin 校验；</li>
+ *   <li>{@code /api/v1/executions/dsh/**}——dsh 容器执行面（无租户形式，手机端 PC 模式
+ *       触发 dsh 命名空间 flow；OidcBearerAuthFilter 验 Bearer）。注意只放行无租户
+ *       形式：tenantful {@code /api/v1/{tenant}/executions/dsh/**} 是原生 create 路径，
+ *       属被拒面；</li>
+ *   <li>{@code /api/v1/{tenant}/mcp/**}——MCP 协议端点（Streamable HTTP/SSE 传输，
+ *       OidcMcpBearerAuthFilter 验 Bearer；{@code mcp-servers} 管理面不在此列，仍
+ *       admin-only）；</li>
+ *   <li>{@code /health}、{@code /prometheus} 与 @Endpoint 管理端点——容器 healthcheck /
+ *       Prometheus 抓取（compose intercept-url-map 同样匿名）。</li>
  * </ul>
  *
  * <p>
- * 收紧语义（fork-only 新文件，零上游改写）——产品裁定 Kestra UI/原生 API 是管理员面，
- * 员工只走手机端 dsh 通道：
- * <ul>
- *   <li>{@code /api/v1/{tenant}/executions/**}：非 admin 一律 403（读+写）。执行记录全在
- *       dsh.exec namespace 下仅靠 dsh.sub label 区分归属，label 级过滤在 filter 层无法
- *       可靠注入（搜索为 PHP 风格嵌套 query 绑定），整面拒绝是唯一干净边界。连带效应：
- *       webhook 端点（executions/webhook/**）对非 admin/匿名关闭——本部署无任何 flow
- *       使用 webhook trigger（评审 grep 实证），属攻击面收敛而非功能损失。</li>
- *   <li>{@code /api/v1/{tenant}/flows/**}：非 admin 禁全部写（POST/PUT/DELETE），仅放行
- *       只读型 POST（编辑器预览/校验/导出，见 {@link #READONLY_FLOW_POST_SUFFIXES}）；
- *       GET 放行（flow 源码无秘密值，secret 以 {{ secret() }} 引用形式存在）。</li>
- * </ul>
+ * 其余一切（含 {@code /ui/**}、根级 apps 页面、全部 {@code /api/v1/**} 原生 API、
+ * {@code /api/v1/oidc/**} 目录管理面、webhook）非 admin 一律 403。webhook 关闭是
+ * 连带效应（本部署无 flow 使用 webhook trigger，属攻击面收敛）。
  *
  * <p>
- * 路径判定用解码+归一化后的 URI（防 {@code /api/v1/main/%66lows} 编码绕过，同
- * AuthenticationFilter 对 GHSA-rjhm-qm6w-m7x9 的处理）；filter pattern 放宽到
- * {@code /api/v1/**} 由代码内细分，{@code /api/v1/executions/dsh/**}（dsh 容器执行面，
- * Bearer 认证）与 {@code /api/v1/dsh/**} 不匹配任一管理面正则，不受影响。
- *
- * <p>
- * 角色来源：JWT cookie（OIDC login 写入，roles claim = IdP 目录角色）。admin 放行全部；
- * 未登录请求已被上游 AuthenticationFilter 拦截（不会到达此 filter）。
+ * 路径判定用解码+归一化 URI（防 {@code /api/v1/main/%66lows} 编码绕过，同
+ * AuthenticationFilter 对 GHSA-rjhm-qm6w-m7x9 的处理）。角色来源：JWT cookie 或
+ * Authorization Bearer（均已被 Micronaut SecurityFilter 在更早 order 验签，本 filter
+ * 只读 roles claim；Bearer 通道供 init:flows 等脚本客户端使用）。未登录请求已被
+ * 上游拦截（浏览器 307 到 /oidc/login，API 401），不会到达本 filter。
  */
-@Filter("/api/v1/**")
+@Filter(Filter.MATCH_ALL_PATTERN)
 @Requires(property = "kestra.server-type", pattern = "(WEBSERVER|STANDALONE)")
 public class DshNativeEndpointGuard implements HttpServerFilter {
 
     private static final String JWT_COOKIE = "JWT";
     private static final String ADMIN_ROLE = "admin";
-
-    /** flows 下允许非 admin 的 POST：只读型编辑器预览/校验/表达式提示/导出。 */
-    private static final Set<String> READONLY_FLOW_POST_SUFFIXES = Set.of(
-        "graph",                       // parse a source for graph preview
-        "source/replace/preview",      // search-replace preview (persists nothing)
-        "validate/task",
-        "validate/trigger",
-        "expressions",                 // No-Code editor autocompletion hints
-        "export/by-ids"                // export selected flows (read-only)
-    );
 
     @Override
     public int getOrder() {
@@ -78,63 +77,49 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
 
     @Override
     public Publisher<MutableHttpResponse<?>> doFilter(HttpRequest<?> request, ServerFilterChain chain) {
-        String path = normalizedPath(request);
-
-        boolean executionsArea = isGuardedExecutions(path);
-        boolean flowsArea = path != null && path.matches("^/api/v1/([^/]+/)?flows(/.*|$)");
-        if (!executionsArea && !flowsArea) {
-            return chain.proceed(request);
-        }
-
         String method = request.getMethod().name();
         if ("HEAD".equals(method) || "OPTIONS".equals(method)) {
             return chain.proceed(request);
         }
 
-        if (isAdminCaller(request)) {
+        String path = normalizedPath(request);
+        if (path == null) {
+            // 无法解析的 URI 由路由层拒绝；不在此扩大判定
             return chain.proceed(request);
         }
 
-        if (flowsArea && "GET".equals(method)) {
-            return chain.proceed(request);
-        }
-        if (flowsArea && "POST".equals(method) && READONLY_FLOW_POST_SUFFIXES.contains(suffixAfterFlows(path))) {
+        if (isAdminCaller(request) || isNonAdminAllowedSurface(path, request)) {
             return chain.proceed(request);
         }
 
-        String guidance = executionsArea
-            ? "execution management is admin-only; use POST /api/v1/dsh/exec/run for cloud tasks"
-            : "flow management is admin-only";
+        if (path.startsWith("/api/")) {
+            return Mono.just(HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
+                .body(Map.of(
+                    "error", "forbidden",
+                    "error_description", "kestra ui and native apis are admin-only"
+                        + " (dsh ruling 2026-09-29); non-admin surfaces:"
+                        + " /oidc/**, /api/v1/dsh/**, /api/v1/executions/dsh/**, /api/v1/{tenant}/mcp/**")));
+        }
         return Mono.just(HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
-            .body(Map.of(
-                "error", "forbidden",
-                "error_description", guidance)));
+            .contentType(io.micronaut.http.MediaType.TEXT_PLAIN_TYPE)
+            .body("Kestra UI is admin-only."));
     }
 
-    /**
-     * Guarded executions area. Two shapes reach ExecutionController：
-     * <ul>
-     *   <li>{@code /api/v1/{tenant}/executions/**}（tenantful，直连路由）；</li>
-     *   <li>{@code /api/v1/executions/**}（tenant-less——TenantAliasingRooter 在路由层重写为
-     *       main 租户，但 filter 看到的是 raw path，必须另行匹配，否则非 admin 可经无租户
-     *       形式绕过）。例外：{@code /api/v1/executions/dsh/**} 是 dsh 容器执行面
-     *       （OidcBearerAuthFilter Bearer 认证，手机端 PC 模式在用），不在守卫范围。</li>
-     * </ul>
-     */
-    private static boolean isGuardedExecutions(String path) {
-        if (path == null) {
-            return false;
-        }
-        if (path.matches("^/api/v1/[^/]+/executions(/.*|$)")) {
-            return true;
-        }
-        if (path.startsWith("/api/v1/executions")) {
-            String rest = path.substring("/api/v1/executions".length());
-            if (rest.isEmpty() || rest.startsWith("/")) {
-                return !(rest.equals("/dsh") || rest.startsWith("/dsh/"));
-            }
-        }
-        return false;
+    /** 非 admin 放行面：OIDC 认证/发现、dsh 联动+云电脑、dsh 执行面、MCP 协议端点、基础设施探针。 */
+    private static boolean isNonAdminAllowedSurface(String path, HttpRequest<?> request) {
+        return hasPrefix(path, "/oidc")
+            || hasPrefix(path, "/.well-known")
+            || hasPrefix(path, "/api/v1/dsh")
+            || hasPrefix(path, "/api/v1/executions/dsh")
+            || path.matches("^/api/v1/[^/]+/mcp(/.*|$)")
+            || path.equals("/health")
+            || path.equals("/prometheus")
+            || isManagementEndpoint(request);
+    }
+
+    /** {@code path == prefix} or {@code path starts with prefix + "/"}（段边界，不放走 /oidc-evil）。 */
+    private static boolean hasPrefix(String path, String prefix) {
+        return path.equals(prefix) || path.startsWith(prefix + "/");
     }
 
     /** Decoded + {@code //}-collapsed path（编码/多斜杠绕过防护）；null when unparsable. */
@@ -147,12 +132,13 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
         }
     }
 
-    /** Path after the {@code .../flows} segment, no leading slash（"validate/task" for a preview call）. */
-    private static String suffixAfterFlows(String path) {
-        int idx = path.indexOf("/flows/");
-        String rest = idx >= 0 ? path.substring(idx + "/flows/".length())
-            : path.endsWith("/flows") ? "" : path;
-        return rest;
+    @SuppressWarnings("rawtypes")
+    private static boolean isManagementEndpoint(HttpRequest<?> request) {
+        Optional<RouteMatch> routeMatch = RouteMatchUtils.findRouteMatch(request);
+        if (routeMatch.isPresent() && routeMatch.get() instanceof MethodBasedRouteMatch<?, ?> method) {
+            return method.getAnnotation(Endpoint.class) != null;
+        }
+        return false;
     }
 
     /**
