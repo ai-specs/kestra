@@ -23,7 +23,13 @@ public class OidcConfiguration {
     private boolean enabled = true;
     private String issuer = "http://localhost:18080";
     private String externalBaseUrl = "http://localhost:18080";
-    private List<String> defaultRoles = List.of("admin");
+    /**
+     * Roles granted to a human subject the directory has no entry for. Deliberately the
+     * least-privilege {@code user}（2026-09-29 安全评审 P0-B：原默认 {@code admin} 意味着
+     * 生产接入真实 IdP 后任何未映射用户即全权——含 flow 写 → 宿主机 RCE 链；DshNativeEndpointGuard
+     * 已将原生管理面收紧为 admin-only，default-roles 同步收敛到与目录普通用户同级的 user）。
+     */
+    private List<String> defaultRoles = List.of("user");
     private Duration authorizationCodeTtl = Duration.ofMinutes(5);
     private Duration accessTokenTtl = Duration.ofHours(1);
     private Duration refreshTokenTtl = Duration.ofDays(30);

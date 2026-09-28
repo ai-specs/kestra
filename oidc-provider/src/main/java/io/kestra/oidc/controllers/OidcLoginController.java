@@ -259,9 +259,9 @@ public class OidcLoginController {
                 .ifPresent(sessionService::revoke);
             response.cookie(clearCookie(OidcSessionService.SESSION_COOKIE_NAME, request.isSecure()));
         }
-        // Kestra UI 的 JWT cookie 角色必须与该账号在 IdP 的角色一致（bySubject：
-        // kestra.oidc.users 里的角色；管理员/未知主体回落 defaultRoles）——
-        // 否则普通用户登录后会被当成 admin。
+        // Kestra UI 的 JWT cookie 角色必须与该账号在 IdP 的角色一致（bySubject：目录
+        // 内=目录角色；未知主体回落 defaultRoles（2026-09-29 起为 user，不再默认
+        // admin））——否则普通用户登录后会被当成 admin。
         // OAuth2 令牌模型：JWT 只是【短期访问令牌】（exp/Max-Age = accessTokenTtl，默认 1h）；
         // 续期一律凭长命刷新令牌（oidc_refresh cookie，DB 持久化、轮换、可撤销）走 /oidc/refresh。
         jwtTokenGenerator.ifPresent(generator -> generator

@@ -73,7 +73,7 @@ public class OidcUserService {
      * authenticated by the IdP but carries no authorisation (mirrors ZITADEL's implicit
      * {@code authenticated} role, made explicit here so it is visible and manageable in the
      * directory). Machine identities default to it instead of falling back to
-     * {@code default-roles} ({@code admin}) so a new service account is least-privilege by
+     * {@code default-roles} so a new service account is least-privilege by
      * default; a consumer that really needs elevated rights (e.g. the dsh service reading the
      * full observation centre, or Nacos mapping the {@code roles} claim to its own admin) is
      * granted {@code admin} explicitly.
