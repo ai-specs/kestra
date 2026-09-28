@@ -103,6 +103,10 @@
         const root: TreeNode = {path: "", size: 0, directory: true, label: "", children: []}
         const index = new Map<string, TreeNode>([["", root]])
         for (const row of rows.value) {
+            // 物理列举不过滤约定结构：意外目录/畸形文件同样显示；仅跳过无意义的空路径
+            if (!row.path) {
+                continue
+            }
             const segments = row.path.split("/")
             const label = segments[segments.length - 1]
             const parentPath = segments.slice(0, -1).join("/")

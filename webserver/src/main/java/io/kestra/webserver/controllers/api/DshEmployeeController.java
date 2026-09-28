@@ -239,18 +239,40 @@ public class DshEmployeeController {
         }
     }
 
+    /**
+     * 单条目目录判定（防畸形条目炸整棵树）：LocalFileAttributes.getType() 对
+     * 非文件非目录（符号链接等）直接抛 RuntimeException——排障浏览面的原则是
+     * 「父目录下有什么就显示什么」，未知类型按普通文件展示、不中断列举。
+     */
+    private static boolean safeIsDirectory(io.kestra.core.storages.FileAttributes attr) {
+        try {
+            return attr.getType() == io.kestra.core.storages.FileAttributes.FileType.Directory;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static long safeSize(io.kestra.core.storages.FileAttributes attr) {
+        try {
+            return attr.getSize();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     private void collectTree(String tenant, String namespace, String dirPath, List<Map<String, Object>> out, int depth) throws java.io.IOException {
         if (depth > MAX_LIST_DEPTH) {
             return;
         }
         for (io.kestra.core.storages.FileAttributes attr : storageInterface.list(tenant, namespace, storageUri(namespace, dirPath))) {
             String child = dirPath + attr.getFileName();
+            boolean isDir = safeIsDirectory(attr);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("path", child);
-            row.put("size", attr.getSize());
-            row.put("directory", attr.getType() == io.kestra.core.storages.FileAttributes.FileType.Directory);
+            row.put("size", safeSize(attr));
+            row.put("directory", isDir);
             out.add(row);
-            if (attr.getType() == io.kestra.core.storages.FileAttributes.FileType.Directory) {
+            if (isDir) {
                 collectTree(tenant, namespace, child + "/", out, depth + 1);
             }
         }
@@ -364,7 +386,7 @@ public class DshEmployeeController {
         }
         for (io.kestra.core.storages.FileAttributes attr : storageInterface.list(tenant, namespace, storageUri(namespace, dirPath))) {
             String child = dirPath + attr.getFileName();
-            if (attr.getType() == io.kestra.core.storages.FileAttributes.FileType.Directory) {
+            if (safeIsDirectory(attr)) {
                 collectFiles(tenant, namespace, child + "/", out, depth + 1);
             } else {
                 out.add(child);
@@ -372,9 +394,18 @@ public class DshEmployeeController {
         }
     }
 
-    /** 员工命名空间文件的物理存储 URI：kestra:///{ns 点转斜杠}/_files/{path}。 */
+    /**
+     * 员工命名空间文件的物理存储 URI：kestra:///{ns 点转斜杠}/_files/{path}。
+     * 用多参数 URI 构造器（与上游 NamespaceFile.of 同款）：path 中的 URI 非法字符
+     * （空格、`#`、`%` 等——畸形文件名排障也要能看）按百分号编码传入，而不是被
+     * URI.create 当 fragment/截断。
+     */
     private static java.net.URI storageUri(String namespace, String filePath) {
-        return java.net.URI.create("kestra:///" + namespace.replace(".", "/") + "/_files/" + filePath);
+        try {
+            return new java.net.URI("kestra", "", "/" + namespace.replace(".", "/") + "/_files/" + filePath, null);
+        } catch (java.net.URISyntaxException e) {
+            throw new IllegalArgumentException("Invalid namespace file path: " + filePath, e);
+        }
     }
 
     private static String normalizePath(String raw) {
