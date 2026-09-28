@@ -66,6 +66,10 @@ public class DshEmployeeController {
     @Get(uri = "/list")
     @Operation(summary = "List dsh employee namespaces with session stats (Kestra UI employee page)")
     public HttpResponse<List<Map<String, Object>>> list(HttpRequest<?> request) {
+        if (!isAdminCaller(request)) {
+            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
+                .body(List.of(Map.of("error", "admin role is required")));
+        }
         String tenant = tenantService.resolveTenant();
         List<Map<String, Object>> result = new ArrayList<>();
         for (String sub : activeHumanUsers()) {
@@ -74,11 +78,11 @@ public class DshEmployeeController {
             try {
                 sessions = listSessions(tenant, namespace);
             } catch (Exception e) {
-                continue;
+                // 空/新建命名空间可能因元数据缺失异常——按零会话列出而非跳过（管理员全景）
+                log.debug("dsh-employee: listing sessions failed for {} (treated as empty): {}", namespace, e.getMessage());
+                sessions = List.of();
             }
-            if (sessions.isEmpty() && !hasAnyFile(tenant, namespace)) {
-                continue;
-            }
+            // 用户裁定：管理员全景——不按存储过滤
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("namespace", namespace);
             row.put("sub", sub);
@@ -92,6 +96,10 @@ public class DshEmployeeController {
     @Get(uri = "/{namespace}/sessions")
     @Operation(summary = "List sessions under one employee namespace")
     public HttpResponse<?> sessions(HttpRequest<?> request, String namespace) {
+        if (!isAdminCaller(request)) {
+            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
+                .body(List.of(Map.of("error", "admin role is required")));
+        }
         if (!namespace.startsWith(EMPLOYEE_PREFIX)) {
             return HttpResponse.badRequest(Map.of("error", "not an employee namespace"));
         }
@@ -120,6 +128,10 @@ public class DshEmployeeController {
         String namespace,
         @QueryValue String path
     ) {
+        if (!isAdminCaller(request)) {
+            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "admin role is required"));
+        }
         if (!namespace.startsWith(EMPLOYEE_PREFIX)) {
             return HttpResponse.badRequest(Map.of("error", "not an employee namespace"));
         }
@@ -148,6 +160,41 @@ public class DshEmployeeController {
             log.warn("dsh-employee file read failed {} {}", namespace, normalized, e);
             return HttpResponse.serverError(Map.of("error", "file read failed"));
         }
+    }
+
+
+    /** Parses the JWT cookie payload (middle segment, base64url) to read sub/roles claims. */
+    private static java.util.Map<String, Object> jwtPayload(HttpRequest<?> request) {
+        var cookies = request.getCookies();
+        if (cookies == null) {
+            return Map.of();
+        }
+        var jwt = cookies.findCookie(io.kestra.webserver.services.BasicAuthService.BASIC_AUTH_COOKIE_NAME)
+            .or(() -> cookies.findCookie("JWT"));
+        if (jwt.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            String[] parts = jwt.get().getValue().split("\\.");
+            if (parts.length != 3) {
+                return Map.of();
+            }
+            byte[] json = java.util.Base64.getUrlDecoder().decode(parts[1]);
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                .readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {});
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    /** 用户裁定（2026-09-28）：此页为管理员专属——非 admin 一律 403。 */
+    private static boolean isAdminCaller(HttpRequest<?> request) {
+        var claims = jwtPayload(request);
+        Object roles = claims.get("roles");
+        if (roles instanceof List<?> list) {
+            return list.stream().map(String::valueOf).anyMatch("admin"::equals);
+        }
+        return false;
     }
 
     private List<String> activeHumanUsers() {
