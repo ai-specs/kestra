@@ -2761,7 +2761,8 @@
         "truncated": "File is {size} bytes; showing the last 64KB",
         "no_content": "No content (file missing or empty)",
         "user": "User",
-        "session_count": "Sessions"
+        "session_count": "Sessions",
+        "session_list": "Sessions"
       }
     }
   }

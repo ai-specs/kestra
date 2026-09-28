@@ -2761,7 +2761,8 @@
         "truncated": "文件共 {size} 字节，显示末尾 64KB",
         "no_content": "无内容（文件不存在或为空）",
         "user": "用户",
-        "session_count": "会话数"
+        "session_count": "会话数",
+        "session_list": "会话列表"
       }
     }
   },
