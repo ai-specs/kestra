@@ -2664,6 +2664,28 @@
         "roles": "Roles",
         "notLoggedIn": "Not signed in"
       },
+      "employee": {
+        "label": "Pracownicy",
+        "empty": "Brak przestrzeni nazw pracowników (użytkownicy, którzy nigdy nie używali trybu cloud computer)",
+        "no_sessions": "Brak sesji",
+        "reply": "Odpowiedź",
+        "stderr": "Stderr",
+        "user": "Użytkownik",
+        "session_count": "Sesje",
+        "tab_sessions": "Sesje",
+        "tab_files": "Pliki",
+        "file_count": "Pliki",
+        "uploads": "Przesłane",
+        "browse_files": "Przeglądaj pliki",
+        "forbidden": "Wymagana rola administratora do przeglądania przestrzeni nazw pracowników",
+        "not_found": "Nie znaleziono przestrzeni nazw pracownika",
+        "back_to_list": "Wróć do pracowników",
+        "no_files": "Brak plików w tej przestrzeni nazw",
+        "filter_files": "Filtruj pliki",
+        "truncated": "pokazano ostatnie 64 KB",
+        "binary_hint": "Plik binarny — podgląd tekstu nieobsługiwany",
+        "no_selection": "Wybierz plik do podglądu"
+      },
       "users": {
         "title": "Users",
         "add": "New user",

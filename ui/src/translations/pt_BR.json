@@ -2664,6 +2664,28 @@
         "roles": "Roles",
         "notLoggedIn": "Not signed in"
       },
+      "employee": {
+        "label": "Funcionários",
+        "empty": "Sem namespaces de funcionários (usuários que nunca usaram o modo computador em nuvem)",
+        "no_sessions": "Sem sessões",
+        "reply": "Resposta",
+        "stderr": "Stderr",
+        "user": "Usuário",
+        "session_count": "Sessões",
+        "tab_sessions": "Sessões",
+        "tab_files": "Arquivos",
+        "file_count": "Arquivos",
+        "uploads": "Envios",
+        "browse_files": "Navegar arquivos",
+        "forbidden": "Papel de administrador necessário para navegar em namespaces de funcionários",
+        "not_found": "Namespace de funcionário não encontrado",
+        "back_to_list": "Voltar aos funcionários",
+        "no_files": "Sem arquivos neste namespace",
+        "filter_files": "Filtrar arquivos",
+        "truncated": "mostrando os últimos 64 KB",
+        "binary_hint": "Arquivo binário — visualização de texto não suportada",
+        "no_selection": "Selecione um arquivo para visualizar"
+      },
       "users": {
         "title": "Users",
         "add": "New user",

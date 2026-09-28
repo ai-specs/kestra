@@ -2664,6 +2664,28 @@
         "roles": "Roles",
         "notLoggedIn": "Not signed in"
       },
+      "employee": {
+        "label": "Dipendenti",
+        "empty": "Nessun namespace dipendente (utenti che non hanno mai usato la modalità cloud computer)",
+        "no_sessions": "Nessuna sessione",
+        "reply": "Risposta",
+        "stderr": "Stderr",
+        "user": "Utente",
+        "session_count": "Sessioni",
+        "tab_sessions": "Sessioni",
+        "tab_files": "File",
+        "file_count": "File",
+        "uploads": "Caricamenti",
+        "browse_files": "Sfoglia file",
+        "forbidden": "Richiesto ruolo amministratore per sfogliare i namespace dipendenti",
+        "not_found": "Namespace dipendente non trovato",
+        "back_to_list": "Torna ai dipendenti",
+        "no_files": "Nessun file in questo namespace",
+        "filter_files": "Filtra file",
+        "truncated": "mostrando gli ultimi 64 KB",
+        "binary_hint": "File binario: anteprima testo non supportata",
+        "no_selection": "Seleziona un file per l'anteprima"
+      },
       "users": {
         "title": "Users",
         "add": "New user",

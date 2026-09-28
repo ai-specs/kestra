@@ -2664,6 +2664,28 @@
         "roles": "Roles",
         "notLoggedIn": "Not signed in"
       },
+      "employee": {
+        "label": "Mitarbeiter",
+        "empty": "Keine Mitarbeiter-Namespaces (Nutzer, die den Cloud-Computer-Modus nie genutzt haben)",
+        "no_sessions": "Keine Sitzungen",
+        "reply": "Antwort",
+        "stderr": "Stderr",
+        "user": "Benutzer",
+        "session_count": "Sitzungen",
+        "tab_sessions": "Sitzungen",
+        "tab_files": "Dateien",
+        "file_count": "Dateien",
+        "uploads": "Uploads",
+        "browse_files": "Dateien durchsuchen",
+        "forbidden": "Administratorrolle erforderlich, um Mitarbeiter-Namespaces zu durchsuchen",
+        "not_found": "Mitarbeiter-Namespace nicht gefunden",
+        "back_to_list": "Zurück zu Mitarbeitern",
+        "no_files": "Keine Dateien in diesem Namespace",
+        "filter_files": "Dateien filtern",
+        "truncated": "letzte 64 KB werden angezeigt",
+        "binary_hint": "Binärdatei – Textvorschau nicht unterstützt",
+        "no_selection": "Datei zur Vorschau auswählen"
+      },
       "users": {
         "title": "Users",
         "add": "New user",

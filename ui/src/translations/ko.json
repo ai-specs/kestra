@@ -2664,6 +2664,28 @@
         "roles": "역할",
         "notLoggedIn": "로그인되지 않음"
       },
+      "employee": {
+        "label": "직원",
+        "empty": "직원 네임스페이스가 없습니다 (클라우드 컴퓨터 모드를 사용한 적 없는 사용자)",
+        "no_sessions": "세션 없음",
+        "reply": "응답",
+        "stderr": "표준 오류 출력 (stderr)",
+        "user": "사용자",
+        "session_count": "세션",
+        "tab_sessions": "세션",
+        "tab_files": "파일",
+        "file_count": "파일 수",
+        "uploads": "업로드",
+        "browse_files": "파일 찾아보기",
+        "forbidden": "직원 네임스페이스를 보려면 관리자 역할이 필요합니다",
+        "not_found": "직원 네임스페이스를 찾을 수 없습니다",
+        "back_to_list": "직원 목록으로 돌아가기",
+        "no_files": "이 네임스페이스에 파일이 없습니다",
+        "filter_files": "파일 필터링",
+        "truncated": "마지막 64KB 표시 중",
+        "binary_hint": "바이너리 파일 — 텍스트 미리보기 미지원",
+        "no_selection": "미리 볼 파일을 선택하세요"
+      },
       "users": {
         "title": "사용자",
         "add": "새 사용자",

@@ -2664,6 +2664,28 @@
         "roles": "Roles",
         "notLoggedIn": "Not signed in"
       },
+      "employee": {
+        "label": "Employés",
+        "empty": "Aucun namespace employé (utilisateurs n'ayant jamais utilisé le mode cloud computer)",
+        "no_sessions": "Aucune session",
+        "reply": "Réponse",
+        "stderr": "Stderr",
+        "user": "Utilisateur",
+        "session_count": "Sessions",
+        "tab_sessions": "Sessions",
+        "tab_files": "Fichiers",
+        "file_count": "Fichiers",
+        "uploads": "Téléversements",
+        "browse_files": "Parcourir les fichiers",
+        "forbidden": "Le rôle administrateur est requis pour parcourir les namespaces employés",
+        "not_found": "Namespace employé introuvable",
+        "back_to_list": "Retour aux employés",
+        "no_files": "Aucun fichier dans ce namespace",
+        "filter_files": "Filtrer les fichiers",
+        "truncated": "affichage des 64 derniers Ko",
+        "binary_hint": "Fichier binaire — aperçu texte non pris en charge",
+        "no_selection": "Sélectionnez un fichier à prévisualiser"
+      },
       "users": {
         "title": "Users",
         "add": "New user",

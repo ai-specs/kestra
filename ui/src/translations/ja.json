@@ -2664,6 +2664,28 @@
         "roles": "ロール",
         "notLoggedIn": "未ログイン"
       },
+      "employee": {
+        "label": "従業員",
+        "empty": "従業員ネームスペースがありません（クラウドコンピュータモードを一度も使っていないユーザー）",
+        "no_sessions": "セッションなし",
+        "reply": "返信",
+        "stderr": "標準エラー出力（stderr）",
+        "user": "ユーザー",
+        "session_count": "セッション",
+        "tab_sessions": "セッション",
+        "tab_files": "ファイル",
+        "file_count": "ファイル数",
+        "uploads": "アップロード",
+        "browse_files": "ファイルを閲覧",
+        "forbidden": "従業員ネームスペースの閲覧には管理者ロールが必要です",
+        "not_found": "従業員ネームスペースが見つかりません",
+        "back_to_list": "従業員一覧に戻る",
+        "no_files": "このネームスペースにファイルはありません",
+        "filter_files": "ファイルを絞り込む",
+        "truncated": "末尾 64KB を表示中",
+        "binary_hint": "バイナリファイル — テキストプレビューは未対応",
+        "no_selection": "プレビューするファイルを選択"
+      },
       "users": {
         "title": "ユーザー",
         "add": "新しいユーザー",
