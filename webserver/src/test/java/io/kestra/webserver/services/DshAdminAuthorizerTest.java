@@ -41,6 +41,20 @@ class DshAdminAuthorizerTest {
         assertThat(authorizer.isAdmin(HttpRequest.GET("/api/v1/oidc/users")), is(false));
     }
 
+    @Test
+    void forgedAdminTokenWithoutPrincipalNeverAdmin() {
+        // 历史缺陷的判别性用例（2026-09-29 独立审计 F2）：请求**携带**伪造
+        // roles=[admin] 的 JWT cookie、但无 PRINCIPAL——旧版自解析实现在此返回 true
+        //（匿名面漏洞本体），修复版必须返回 false。裸请求用例区分不出新旧实现。
+        String forged = "eyJhbGciOiJIUzI1NiJ9."
+            + java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("{\"sub\":\"attacker\",\"roles\":[\"admin\"]}".getBytes())
+            + ".AAAAforgedsignature";
+        HttpRequest<?> request = HttpRequest.GET("/api/v1/oidc/users")
+            .cookie(io.micronaut.http.cookie.Cookie.of("JWT", forged));
+        assertThat(authorizer.isAdmin(request), is(false));
+    }
+
     private static HttpRequest<?> withPrincipal(Authentication authentication) {
         HttpRequest<?> request = HttpRequest.GET("/x");
         request.setAttribute(HttpAttributes.PRINCIPAL, authentication);

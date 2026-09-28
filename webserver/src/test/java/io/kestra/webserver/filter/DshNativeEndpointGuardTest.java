@@ -43,8 +43,9 @@ class DshNativeEndpointGuardTest {
         assertThat(DshNativeEndpointGuard.isNonAdminAllowedSurface("/api/v1/main/mcp/sse"), is(true));
         // mcp-servers 管理面不在此列
         assertThat(DshNativeEndpointGuard.isNonAdminAllowedSurface("/api/v1/main/mcp-servers"), is(false));
+        // /health 精确口径（F4：与 intercept-url-map 对齐；liveness/readiness 不放行）
         assertThat(DshNativeEndpointGuard.isNonAdminAllowedSurface("/health"), is(true));
-        assertThat(DshNativeEndpointGuard.isNonAdminAllowedSurface("/health/liveness"), is(true));
+        assertThat(DshNativeEndpointGuard.isNonAdminAllowedSurface("/health/liveness"), is(false));
         assertThat(DshNativeEndpointGuard.isNonAdminAllowedSurface("/prometheus"), is(true));
     }
 

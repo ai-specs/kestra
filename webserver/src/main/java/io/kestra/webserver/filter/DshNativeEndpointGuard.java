@@ -75,8 +75,12 @@ import reactor.core.publisher.Mono;
 @Requires(property = "kestra.server-type", pattern = "(WEBSERVER|STANDALONE)")
 public class DshNativeEndpointGuard implements HttpServerFilter {
 
-    @Inject
-    private DshAdminAuthorizer adminAuthorizer;
+    private final DshAdminAuthorizer adminAuthorizer;
+
+    /** 构造注入（可测性：doFilter 级单测直接实例化；生产由 Micronaut 调用）。 */
+    DshNativeEndpointGuard(DshAdminAuthorizer adminAuthorizer) {
+        this.adminAuthorizer = adminAuthorizer;
+    }
 
     @Override
     public int getOrder() {
@@ -114,10 +118,10 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
         if (raw == null || raw.startsWith("/api/") || (decoded != null && decoded.startsWith("/api/"))) {
             return Mono.just(HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
                 .body(Map.of(
+                    // body 不枚举白名单（独立审计 F3：清单可被用于测绘；完整清单以
+                    // isolation-boundaries.md #4 为准）
                     "error", "forbidden",
-                    "error_description", "kestra ui and native apis are admin-only"
-                        + " (dsh ruling 2026-09-29); non-admin surfaces:"
-                        + " /oidc/**, /api/v1/dsh/**, /api/v1/executions/dsh/**, /api/v1/{tenant}/mcp/**")));
+                    "error_description", "kestra ui and native apis are admin-only (dsh ruling 2026-09-29)")));
         }
         return Mono.just(HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
             .contentType(io.micronaut.http.MediaType.TEXT_PLAIN_TYPE)
@@ -136,7 +140,18 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
      * OidcBearerAuthFilter 的 raw 匹配 401 兜住，但 %64sh 编码变体同时躲开 Bearer
      * filter（raw 不匹配）与宽前缀守卫（decoded 命中），一路穿到原生 Controller，
      * 仅被 OSS 单租户校验 400 兜底）。枚举后 {@code /api/v1/dsh/executions} 不在
-     * 放行集 → 守卫 403，不再依赖任何下游巧合。
+     * 放行集 → 守卫 403。
+     *
+     * <p>
+     * <b>相位事实（2026-09-29 独立审计 F1，修正旧 javadoc 的过度声明）</b>：
+     * {@code TenantValidationFilter}（上游 OSS，@RequestFilter）在 ROUTING 相位——
+     * 早于本守卫（SECURITY+10）与 SecurityFilter。凡路由命中 {@code {tenant}} 变量
+     * 且 tenant≠main 的路径（含 %64sh 编码变体），上游 400 短路在前，本守卫对该类
+     * 请求**不评估**；无 {@code {tenant}} 变量匹配的路径（如 /api/v1/%64sh/exec/run）
+     * 本守卫照常双视角 403。当前语义：非 admin 被上游 400 拦截（无数据暴露）；
+     * 多租户化后 400 消失、本守卫恢复评估并 403——授权不因多租户失效，但「该类
+     * 路径不依赖下游巧合」的旧声明不成立，实为双层分工：ROUTING 拦非法租户、
+     * SECURITY+10 拦非 admin。
      */
     static boolean isNonAdminAllowedSurface(String path) {
         return hasPrefix(path, "/oidc")
@@ -151,7 +166,9 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
             // 可泄配置与线程转储）静默开放给全部已认证非 admin。/health 用前缀匹配以
             // 覆盖 liveness/readiness 子路径；/prometheus 精确匹配。启用新 management
             // 端点前必须先在此处显式放行（见 isolation-boundaries.md #4）。
-            || hasPrefix(path, "/health")
+            // /health 精确口径与 intercept-url-map 对齐（独立审计 F4：前缀匹配使
+            // /health/liveness 对已认证非 admin 可达而匿名 401，两侧漂移）
+            || path.equals("/health")
             || path.equals("/prometheus");
     }
 
