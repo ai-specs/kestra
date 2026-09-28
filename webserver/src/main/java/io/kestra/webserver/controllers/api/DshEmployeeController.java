@@ -490,16 +490,31 @@ public class DshEmployeeController {
      * 用多参数 URI 构造器（与上游 NamespaceFile.of 同款）：path 中的 URI 非法字符
      * （空格、`#`、`%` 等——畸形文件名排障也要能看）按百分号编码传入，而不是被
      * URI.create 当 fragment/截断。
+     *
+     * <p>
+     * 显式边界断言（纵深防御）：可达范围被钉死在 {@code /employee/**} 下且路径中
+     * 不得出现 {@code ..} 段——normalizePath 已在上游保证，这里防未来重构无意
+     * 破坏边界（违反即 IllegalArgumentException，视为代码缺陷而非用户输入问题）。
      */
-    private static java.net.URI storageUri(String namespace, String filePath) {
+    static java.net.URI storageUri(String namespace, String filePath) {
+        String path = "/" + namespace.replace(".", "/") + "/_files/" + filePath;
+        if (!path.startsWith("/employee/") || path.contains("/../") || path.endsWith("/..")
+            || path.contains("\\")) {
+            throw new IllegalArgumentException("path escapes employee namespace storage: " + filePath);
+        }
         try {
-            return new java.net.URI("kestra", "", "/" + namespace.replace(".", "/") + "/_files/" + filePath, null);
+            return new java.net.URI("kestra", "", path, null);
         } catch (java.net.URISyntaxException e) {
             throw new IllegalArgumentException("Invalid namespace file path: " + filePath, e);
         }
     }
 
-    private static String normalizePath(String raw) {
+    /**
+     * 归一并校验用户传入的文件路径（带前导斜杠），非法返回 null：
+     * 折叠重复斜杠；穿越按「段」判（{@code ..}/{@code .} 段拒绝，a..b.txt 合法）；
+     * 反斜杠与 ISO 控制字符拒绝。配合 {@link #storageUri} 的边界断言构成双防线。
+     */
+    static String normalizePath(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;
         }
@@ -508,8 +523,6 @@ public class DshEmployeeController {
         while (value.contains("//")) {
             value = value.replace("//", "/");
         }
-        // 路径穿越按「段」判：a..b.txt 这类合法文件名不该被 contains("..") 误伤；
-        // 反斜杠在本面无合法用途（存储层会转成 / 再判穿越，这里提前 400）
         for (String segment : value.split("/")) {
             if (segment.equals("..") || segment.equals(".")) {
                 return null;
