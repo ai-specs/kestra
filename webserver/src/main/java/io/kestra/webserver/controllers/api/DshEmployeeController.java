@@ -2,9 +2,10 @@ package io.kestra.webserver.controllers.api;
 
 import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.tenant.TenantService;
-import io.micronaut.http.HttpRequest;
+import io.kestra.webserver.services.DshAdminAuthorizer;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.MediaType;
+import io.micronaut.security.annotation.Secured;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.QueryValue;
@@ -43,6 +44,7 @@ import java.util.Map;
  * OidcBearerAuthFilter 的 Bearer 面）。本面只读不写。
  */
 @Controller("/api/v1/{tenant}/dsh-employee")
+@Secured(DshAdminAuthorizer.ROLE_ADMIN)
 @ExecuteOn(TaskExecutors.IO)
 @Slf4j
 public class DshEmployeeController {
@@ -65,11 +67,7 @@ public class DshEmployeeController {
     /** 列出全部员工命名空间（用户目录推导 + 存储非空过滤）+ 会话统计。 */
     @Get(uri = "/list")
     @Operation(summary = "List dsh employee namespaces with session stats (Kestra UI employee page)")
-    public HttpResponse<List<Map<String, Object>>> list(HttpRequest<?> request) {
-        if (!isAdminCaller(request)) {
-            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
-                .body(List.of(Map.of("error", "admin role is required")));
-        }
+    public HttpResponse<List<Map<String, Object>>> list() {
         String tenant = tenantService.resolveTenant();
         List<Map<String, Object>> result = new ArrayList<>();
         for (String sub : activeHumanUsers()) {
@@ -95,11 +93,7 @@ public class DshEmployeeController {
     /** 员工详情（详情页头部：sub 反查 + 会话统计）。 */
     @Get(uri = "/{namespace}")
     @Operation(summary = "Employee namespace details (sub, session count)")
-    public HttpResponse<Map<String, Object>> detail(HttpRequest<?> request, String namespace) {
-        if (!isAdminCaller(request)) {
-            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
-                .body(Map.of("error", "admin role is required"));
-        }
+    public HttpResponse<Map<String, Object>> detail(String namespace) {
         if (!namespace.startsWith(EMPLOYEE_PREFIX)) {
             return HttpResponse.badRequest(Map.of("error", "not an employee namespace"));
         }
@@ -124,11 +118,7 @@ public class DshEmployeeController {
     /** 某员工命名空间的会话列表（一次全量列举聚合：文件数 / 上传 / 回复 / 错误日志标记）。 */
     @Get(uri = "/{namespace}/sessions")
     @Operation(summary = "List sessions under one employee namespace")
-    public HttpResponse<?> sessions(HttpRequest<?> request, String namespace) {
-        if (!isAdminCaller(request)) {
-            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
-                .body(List.of(Map.of("error", "admin role is required")));
-        }
+    public HttpResponse<?> sessions(String namespace) {
         if (!namespace.startsWith(EMPLOYEE_PREFIX)) {
             return HttpResponse.badRequest(Map.of("error", "not an employee namespace"));
         }
@@ -170,11 +160,7 @@ public class DshEmployeeController {
     /** 命名空间全量文件树（物理存储递归列举：path/size/directory，供文件浏览 tab 建树）。 */
     @Get(uri = "/{namespace}/tree")
     @Operation(summary = "List all physical files under one employee namespace (raw storage, admin-only)")
-    public HttpResponse<?> tree(HttpRequest<?> request, String namespace) {
-        if (!isAdminCaller(request)) {
-            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
-                .body(List.of(Map.of("error", "admin role is required")));
-        }
+    public HttpResponse<?> tree(String namespace) {
         if (!namespace.startsWith(EMPLOYEE_PREFIX)) {
             return HttpResponse.badRequest(Map.of("error", "not an employee namespace"));
         }
@@ -193,11 +179,10 @@ public class DshEmployeeController {
     @Get(uri = "/{namespace}/file")
     @Operation(summary = "Read one file under an employee namespace (raw storage, tail-capped)")
     public HttpResponse<?> file(
-        HttpRequest<?> request,
         String namespace,
         @QueryValue String path
     ) {
-        HttpResponse<?> guard = fileGuard(request, namespace, path);
+        HttpResponse<?> guard = fileGuard(namespace, path);
         if (guard != null) {
             return guard;
         }
@@ -264,11 +249,10 @@ public class DshEmployeeController {
     @Get(uri = "/{namespace}/file/download")
     @Operation(summary = "Download one file under an employee namespace (raw storage, full stream)")
     public HttpResponse<?> download(
-        HttpRequest<?> request,
         String namespace,
         @QueryValue String path
     ) {
-        HttpResponse<?> guard = fileGuard(request, namespace, path);
+        HttpResponse<?> guard = fileGuard(namespace, path);
         if (guard != null) {
             return guard;
         }
@@ -315,12 +299,12 @@ public class DshEmployeeController {
         }
     }
 
-    /** file/download 共用的入参守卫（admin + employee 前缀 + path 归一），非空即拒绝响应。 */
-    private HttpResponse<?> fileGuard(HttpRequest<?> request, String namespace, String path) {
-        if (!isAdminCaller(request)) {
-            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
-                .body(Map.of("error", "admin role is required"));
-        }
+    /**
+     * file/download 共用的入参守卫（employee 前缀 + path 归一），非空即拒绝响应。
+     * 角色控制不在本层——类级 {@code @Secured(DshAdminAuthorizer.ROLE_ADMIN)} 已在
+     * SecurityFilter 相位拒绝非 admin（框架原生，先于路由调用）。
+     */
+    private HttpResponse<?> fileGuard(String namespace, String path) {
         if (!namespace.startsWith(EMPLOYEE_PREFIX)) {
             return HttpResponse.badRequest(Map.of("error", "not an employee namespace"));
         }
@@ -388,42 +372,7 @@ public class DshEmployeeController {
         return suspicious * 10 < check;
     }
 
-
-    /** Parses the JWT cookie payload (middle segment, base64url) to read sub/roles claims. */
-    private static java.util.Map<String, Object> jwtPayload(HttpRequest<?> request) {
-        var cookies = request.getCookies();
-        if (cookies == null) {
-            return Map.of();
-        }
-        var jwt = cookies.findCookie(io.kestra.webserver.services.BasicAuthService.BASIC_AUTH_COOKIE_NAME)
-            .or(() -> cookies.findCookie("JWT"));
-        if (jwt.isEmpty()) {
-            return Map.of();
-        }
-        try {
-            String[] parts = jwt.get().getValue().split("\\.");
-            if (parts.length != 3) {
-                return Map.of();
-            }
-            byte[] json = java.util.Base64.getUrlDecoder().decode(parts[1]);
-            return new com.fasterxml.jackson.databind.ObjectMapper()
-                .readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {});
-        } catch (Exception e) {
-            return Map.of();
-        }
-    }
-
-    /** 用户裁定（2026-09-28）：此页为管理员专属——非 admin 一律 403。 */
-    private static boolean isAdminCaller(HttpRequest<?> request) {
-        var claims = jwtPayload(request);
-        Object roles = claims.get("roles");
-        if (roles instanceof List<?> list) {
-            return list.stream().map(String::valueOf).anyMatch("admin"::equals);
-        }
-        return false;
-    }
-
-    private List<String> activeHumanUsers() {
+        private List<String> activeHumanUsers() {
         List<String> subs = new ArrayList<>();
         try (Connection c = open(); PreparedStatement ps = c.prepareStatement(
             "SELECT username FROM oidc_user WHERE user_state = 'ACTIVE' AND (type IS NULL OR type = 'human')")) {

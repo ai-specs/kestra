@@ -12,10 +12,9 @@ import io.micronaut.http.annotation.Filter;
 import io.micronaut.http.filter.HttpServerFilter;
 import io.micronaut.http.filter.ServerFilterChain;
 import io.micronaut.http.filter.ServerFilterPhase;
-import io.micronaut.management.endpoint.annotation.Endpoint;
-import io.micronaut.web.router.MethodBasedRouteMatch;
-import io.micronaut.web.router.RouteMatch;
-import io.micronaut.web.router.RouteMatchUtils;
+import io.kestra.webserver.services.DshAdminAuthorizer;
+
+import jakarta.inject.Inject;
 
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
@@ -47,8 +46,10 @@ import reactor.core.publisher.Mono;
  *   <li>{@code /api/v1/{tenant}/mcp/**}——MCP 协议端点（Streamable HTTP/SSE 传输，
  *       OidcMcpBearerAuthFilter 验 Bearer；{@code mcp-servers} 管理面不在此列，仍
  *       admin-only）；</li>
- *   <li>{@code /health}、{@code /prometheus} 与 @Endpoint 管理端点——容器 healthcheck /
- *       Prometheus 抓取（compose intercept-url-map 同样匿名）。</li>
+ *   <li>{@code /health/**}（含 liveness/readiness 子路径）、{@code /prometheus}——容器
+ *       healthcheck / Prometheus 抓取（compose intercept-url-map 同样匿名）。管理端点
+ *       按名枚举，不按 @Endpoint 注解整类放行（2026-09-29 查漏收窄——整类放行会把未来
+ *       启用的 /env、/heapdump 等静默开放给已认证非 admin）。</li>
  * </ul>
  *
  * <p>
@@ -64,7 +65,7 @@ import reactor.core.publisher.Mono;
  * "Tenant must be main" 校验兜底）；反之只看 raw 则防不住已解码到达的形态。HEAD 与
  * 写方法同等对待（Micronaut 将 HEAD 路由到 GET 处理器真实执行，仅剥 body）。
  * 角色来源：JWT cookie 或 Authorization Bearer（均已被 Micronaut SecurityFilter 在更早
- * order 验签——伪造签名 JWT 实测 401，不会到达本 filter 的 isAdminCaller；Bearer 通道
+ * order 验签——伪造签名 JWT 实测 401，不会到达本 filter 的 admin 判定；Bearer 通道
  * 供 init:flows 等脚本客户端使用）。未登录请求已被上游拦截（浏览器 307 到
  * /oidc/login，API 401），不会到达本 filter。
  */
@@ -72,8 +73,8 @@ import reactor.core.publisher.Mono;
 @Requires(property = "kestra.server-type", pattern = "(WEBSERVER|STANDALONE)")
 public class DshNativeEndpointGuard implements HttpServerFilter {
 
-    private static final String JWT_COOKIE = "JWT";
-    private static final String ADMIN_ROLE = "admin";
+    @Inject
+    private DshAdminAuthorizer adminAuthorizer;
 
     @Override
     public int getOrder() {
@@ -91,7 +92,7 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
             return chain.proceed(request);
         }
 
-        if (isAdminCaller(request)) {
+        if (adminAuthorizer.isAdmin(request)) {
             return chain.proceed(request);
         }
 
@@ -143,9 +144,13 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
             || hasPrefix(path, "/api/v1/dsh/metrics")
             || hasPrefix(path, "/api/v1/executions/dsh")
             || path.matches("^/api/v1/[^/]+/mcp(/.*|$)")
-            || path.equals("/health")
-            || path.equals("/prometheus")
-            || isManagementEndpoint(request);
+            // 管理端点**显式枚举**而非按 @Endpoint 注解整类放行（2026-09-29 查漏收窄）：
+            // 整类放行会把未来任何被启用的 management 端点（/env、/heapdump、/loggers…
+            // 可泄配置与线程转储）静默开放给全部已认证非 admin。/health 用前缀匹配以
+            // 覆盖 liveness/readiness 子路径；/prometheus 精确匹配。启用新 management
+            // 端点前必须先在此处显式放行（见 isolation-boundaries.md #4）。
+            || hasPrefix(path, "/health")
+            || path.equals("/prometheus");
     }
 
     /** {@code path == prefix} or {@code path starts with prefix + "/"}（段边界，不放走 /oidc-evil）。 */
@@ -195,54 +200,4 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
         }
     }
 
-    @SuppressWarnings("rawtypes")
-    private static boolean isManagementEndpoint(HttpRequest<?> request) {
-        Optional<RouteMatch> routeMatch = RouteMatchUtils.findRouteMatch(request);
-        if (routeMatch.isPresent() && routeMatch.get() instanceof MethodBasedRouteMatch<?, ?> method) {
-            return method.getAnnotation(Endpoint.class) != null;
-        }
-        return false;
-    }
-
-    /**
-     * Parses the JWT payload (cookie or Authorization Bearer header) to check the admin role.
-     * Signature trust: Micronaut SecurityFilter（intercept-url-map isAuthenticated）已在更早
-     * 的 order 验签并拒绝无效 token——到达本 filter 的 JWT 均为共享密钥签发的有效令牌，
-     * 这里只读 roles claim（与 DshEmployeeController 同款逻辑；Bearer 通道供
-     * init:flows 等脚本客户端使用，其 token 同样经 Micronaut 验签）。
-     */
-    private static boolean isAdminCaller(HttpRequest<?> request) {
-        String token = null;
-        var cookies = request.getCookies();
-        if (cookies != null) {
-            var jwt = cookies.findCookie(JWT_COOKIE);
-            if (jwt.isPresent()) {
-                token = jwt.get().getValue();
-            }
-        }
-        if (token == null) {
-            token = request.getHeaders().getAuthorization()
-                .filter(authorization -> authorization.startsWith("Bearer "))
-                .map(authorization -> authorization.substring("Bearer ".length()))
-                .orElse(null);
-        }
-        if (token == null) {
-            return false;
-        }
-        try {
-            String[] parts = token.split("\\.");
-            if (parts.length != 3) {
-                return false;
-            }
-            byte[] json = java.util.Base64.getUrlDecoder().decode(parts[1]);
-            @SuppressWarnings("unchecked")
-            Map<String, Object> claims = new com.fasterxml.jackson.databind.ObjectMapper()
-                .readValue(json, Map.class);
-            Object roles = claims.get("roles");
-            return roles instanceof List<?> list
-                && list.stream().map(String::valueOf).anyMatch(ADMIN_ROLE::equals);
-        } catch (Exception e) {
-            return false;
-        }
-    }
 }
