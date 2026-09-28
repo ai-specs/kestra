@@ -1,7 +1,7 @@
 <template>
     <TopNavBar :title="routeInfo.title">
         <template #actions>
-            <KsButton :icon="RefreshIcon" @click="loadData">{{ t("refresh") }}</KsButton>
+            <KsButton :icon="RefreshIcon" @click="loadData">{{ $t("refresh") }}</KsButton>
         </template>
     </TopNavBar>
 
@@ -10,7 +10,7 @@
     </section>
 
     <section v-else-if="employees.length === 0" class="full-container p-4">
-        <span class="text-muted">{{ t("dsh.employee.empty") }}</span>
+        <span class="text-muted">{{ $t("dsh.employee.empty") }}</span>
     </section>
 
     <section v-else class="full-container p-4">
@@ -20,7 +20,7 @@
             class="employee-table"
             @row-click="openEmployee"
         >
-            <KsTableColumn prop="sub" :label="t('dsh.employee.user')" :minWidth="180">
+            <KsTableColumn prop="sub" :label="$t('dsh.employee.user')" :minWidth="180">
                 <template #default="{row}">
                     <div class="d-flex align-items-center">
                         <AccountGroupOutline class="me-2" style="font-size: 18px" />
@@ -33,7 +33,7 @@
                     <code class="ns-code">{{ row.namespace }}</code>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.employee.session_count')" width="110" align="center">
+            <KsTableColumn :label="$t('dsh.employee.session_count')" width="110" align="center">
                 <template #default="{row}">
                     <span v-if="row.sessionCount > 0" class="session-badge">{{ row.sessionCount }}</span>
                     <span v-else class="text-muted">—</span>
@@ -101,20 +101,20 @@
 <style scoped>
     .ns-code {
         font-size: 0.85em;
-        color: var(--ks-content-secondary, #888);
+        color: var(--ks-text-secondary);
     }
     .session-badge {
         display: inline-block;
         padding: 2px 8px;
         border-radius: 10px;
         font-size: 0.85em;
-        background: var(--ks-background-inverted, #eee);
+        background: var(--ks-bg-badge);
     }
     .text-muted {
-        color: var(--ks-content-secondary, #999);
+        color: var(--ks-text-muted);
     }
     .row-hint {
-        color: var(--ks-content-secondary, #999);
+        color: var(--ks-icon-muted);
         font-size: 0.9em;
     }
     .employee-table :deep(tbody tr) {

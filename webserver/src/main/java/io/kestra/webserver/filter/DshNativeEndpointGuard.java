@@ -70,9 +70,18 @@ import reactor.core.publisher.Mono;
  * roles=[admin] 的无效 token 骗过，已实测复现并修复）；Bearer 通道
  * 供 init:flows 等脚本客户端使用）。未登录请求已被上游拦截（浏览器 307 到
  * /oidc/login，API 401），不会到达本 filter。
+ *
+ * <p>
+ * 生效条件（2026-09-28 CI 修复）：除 server-type 外，另要求
+ * {@code micronaut.security.filter.enabled} 非 false。本守卫的 admin 判定依赖
+ * SecurityFilter 注入的已验签 PRINCIPAL；SecurityFilter 被显式禁用时（webserver 单测
+ * 上下文 application-test.yml），不存在认证语义，守卫默认全拒会误伤上游无认证 API
+ * 测试（CI 曾致 576 失败）。生产 compose 不设此项（micronaut-security 默认 true），
+ * 守卫照常生效。
  */
 @Filter(Filter.MATCH_ALL_PATTERN)
 @Requires(property = "kestra.server-type", pattern = "(WEBSERVER|STANDALONE)")
+@Requires(property = "micronaut.security.filter.enabled", notEquals = "false")
 public class DshNativeEndpointGuard implements HttpServerFilter {
 
     private final DshAdminAuthorizer adminAuthorizer;

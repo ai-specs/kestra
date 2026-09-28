@@ -5,7 +5,7 @@
         </div>
 
         <div v-else-if="rows.length === 0" class="p-4">
-            <span class="text-muted">{{ t("dsh.employee.no_files") }}</span>
+            <span class="text-muted">{{ $t("dsh.employee.no_files") }}</span>
         </div>
 
         <div v-else class="file-splitter plain">
@@ -15,7 +15,7 @@
                         v-model="filter"
                         size="small"
                         clearable
-                        :placeholder="t('dsh.employee.filter_files')"
+                        :placeholder="$t('dsh.employee.filter_files')"
                         class="tree-filter"
                     />
                     <KsTree
@@ -45,23 +45,23 @@
                             <code class="file-path">{{ preview.path }}</code>
                             <span class="text-muted file-meta">{{ humanFileSize(preview.size) }}</span>
                             <span v-if="preview.truncated" class="truncated-badge">
-                                {{ t("dsh.employee.truncated") }}
+                                {{ $t("dsh.employee.truncated") }}
                             </span>
                             <span class="flex-fill"></span>
                             <KsButton
                                 size="small"
                                 :icon="DownloadIcon"
                                 @click="downloadFile(preview.path)"
-                            >{{ t("download") }}</KsButton>
+                            >{{ $t("download") }}</KsButton>
                         </div>
                         <div v-if="preview.binary" class="binary-hint">
-                            {{ t("dsh.employee.binary_hint") }}
+                            {{ $t("dsh.employee.binary_hint") }}
                         </div>
                         <pre v-else class="file-content">{{ preview.content }}</pre>
                     </template>
                     <div v-else class="no-selection">
                         <FileDocumentOutline :size="28" />
-                        <span>{{ t("dsh.employee.no_selection") }}</span>
+                        <span>{{ $t("dsh.employee.no_selection") }}</span>
                     </div>
                 </div>
             </div>
@@ -72,7 +72,6 @@
 <script setup lang="ts">
     import {computed, nextTick, onMounted, ref, watch} from "vue"
     import {useRoute} from "vue-router"
-    import {useI18n} from "vue-i18n"
     import FolderOutline from "vue-material-design-icons/FolderOutline.vue"
     import FileDocumentOutline from "vue-material-design-icons/FileDocumentOutline.vue"
     import DownloadIcon from "vue-material-design-icons/Download.vue"
@@ -97,7 +96,6 @@
     }>()
 
     const route = useRoute()
-    const {t} = useI18n({useScope: "global"})
 
     const loading = ref(false)
     const rows = ref<TreeRow[]>([])
@@ -275,7 +273,7 @@
     }
     .file-splitter.plain {
         margin: 1rem;
-        border: 1px solid var(--ks-border-default, #ddd);
+        border: 1px solid var(--ks-border-default);
         border-radius: var(--ks-radius-lg, 8px);
         flex: 1;
         min-height: 0;
@@ -290,7 +288,7 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        border-right: 1px solid var(--ks-border-default, #eee);
+        border-right: 1px solid var(--ks-border-default);
     }
     .preview-side {
         flex: 1;
@@ -316,10 +314,10 @@
 
         .tree-icon {
             flex-shrink: 0;
-            color: var(--ks-icon-muted, #999);
+            color: var(--ks-icon-muted);
 
             &.folder {
-                color: var(--ks-icon-primary, #4f7cff);
+                color: var(--ks-icon-default);
             }
         }
         .tree-label {
@@ -339,7 +337,7 @@
         align-items: center;
         gap: 8px;
         padding: 0.5rem 0.75rem;
-        border-bottom: 1px solid var(--ks-border-default, #eee);
+        border-bottom: 1px solid var(--ks-border-default);
         flex-wrap: wrap;
 
         .flex-fill {
@@ -348,7 +346,7 @@
     }
     .file-path {
         font-size: 0.85em;
-        color: var(--ks-content-secondary, #666);
+        color: var(--ks-text-secondary);
     }
     .file-meta {
         font-size: 0.8em;
@@ -357,8 +355,8 @@
         font-size: 0.75em;
         padding: 1px 8px;
         border-radius: 8px;
-        background: var(--ks-background-inverted, #eee);
-        color: var(--ks-content-secondary, #666);
+        background: var(--ks-bg-badge);
+        color: var(--ks-text-secondary);
     }
     .file-content {
         flex: 1;
@@ -371,7 +369,7 @@
     }
     .binary-hint {
         padding: 1rem;
-        color: var(--ks-content-secondary, #999);
+        color: var(--ks-text-secondary);
     }
     .no-selection {
         height: 100%;
@@ -380,9 +378,9 @@
         align-items: center;
         justify-content: center;
         gap: 8px;
-        color: var(--ks-icon-muted, #999);
+        color: var(--ks-icon-muted);
     }
     .text-muted {
-        color: var(--ks-content-secondary, #999);
+        color: var(--ks-text-muted);
     }
 </style>

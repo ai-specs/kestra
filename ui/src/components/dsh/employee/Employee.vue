@@ -2,14 +2,14 @@
     <TopNavBar :title="employee?.sub ?? namespace" :breadcrumb="breadcrumb">
         <template #actions>
             <code v-if="employee" class="ns-code me-2 align-self-center">{{ employee.namespace }}</code>
-            <KsButton :icon="RefreshIcon" @click="loadDetail">{{ t("refresh") }}</KsButton>
+            <KsButton :icon="RefreshIcon" @click="loadDetail">{{ $t("refresh") }}</KsButton>
         </template>
     </TopNavBar>
 
     <section v-if="error" class="full-container p-4">
-        <KsAlert :title="t(error)" type="error" />
+        <KsAlert :title="$t(error)" type="error" />
         <KsButton class="mt-3" :icon="ArrowLeftIcon" @click="router.push({name: 'employees/list'})">
-            {{ t("dsh.employee.back_to_list") }}
+            {{ $t("dsh.employee.back_to_list") }}
         </KsButton>
     </section>
 
@@ -88,6 +88,6 @@
 <style scoped>
     .ns-code {
         font-size: 0.85em;
-        color: var(--ks-content-secondary, #888);
+        color: var(--ks-text-secondary);
     }
 </style>

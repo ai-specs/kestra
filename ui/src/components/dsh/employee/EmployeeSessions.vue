@@ -4,7 +4,7 @@
             <KsSkeleton :rows="4" animated />
         </div>
 
-        <span v-else-if="sessions.length === 0" class="text-muted">{{ t("dsh.employee.no_sessions") }}</span>
+        <span v-else-if="sessions.length === 0" class="text-muted">{{ $t("dsh.employee.no_sessions") }}</span>
 
         <KsTable v-else :data="sessions" :fit="true" class="session-table">
             <KsTableColumn prop="sessionId" label="sessionId" :minWidth="300">
@@ -12,22 +12,22 @@
                     <code>{{ row.sessionId }}</code>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.employee.file_count')" width="100" align="center">
+            <KsTableColumn :label="$t('dsh.employee.file_count')" width="100" align="center">
                 <template #default="{row}">
                     <span class="session-badge">{{ row.fileCount }}</span>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.employee.uploads')" width="90" align="center">
+            <KsTableColumn :label="$t('dsh.employee.uploads')" width="90" align="center">
                 <template #default="{row}">
                     <span :class="row.hasUploads ? 'ok-mark' : 'text-muted'">{{ row.hasUploads ? "✓" : "—" }}</span>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.employee.reply')" width="90" align="center">
+            <KsTableColumn :label="$t('dsh.employee.reply')" width="90" align="center">
                 <template #default="{row}">
                     <span :class="row.hasReply ? 'ok-mark' : 'text-muted'">{{ row.hasReply ? "✓" : "—" }}</span>
                 </template>
             </KsTableColumn>
-            <KsTableColumn :label="t('dsh.employee.stderr')" width="90" align="center">
+            <KsTableColumn :label="$t('dsh.employee.stderr')" width="90" align="center">
                 <template #default="{row}">
                     <span :class="row.hasStderr ? 'warn-mark' : 'text-muted'">{{ row.hasStderr ? "✓" : "—" }}</span>
                 </template>
@@ -37,7 +37,7 @@
                     <KsButton
                         size="small"
                         @click.stop="browseFiles(row.sessionId)"
-                    >{{ t("dsh.employee.browse_files") }}</KsButton>
+                    >{{ $t("dsh.employee.browse_files") }}</KsButton>
                 </template>
             </KsTableColumn>
         </KsTable>
@@ -47,7 +47,6 @@
 <script setup lang="ts">
     import {onMounted, ref, watch} from "vue"
     import {useRoute, useRouter} from "vue-router"
-    import {useI18n} from "vue-i18n"
     import {KsButton, KsSkeleton} from "@kestra-io/design-system"
 
     interface SessionRow {
@@ -64,7 +63,6 @@
 
     const route = useRoute()
     const router = useRouter()
-    const {t} = useI18n({useScope: "global"})
 
     const loading = ref(false)
     const sessions = ref<SessionRow[]>([])
@@ -99,15 +97,15 @@
 
 <style scoped>
     .text-muted {
-        color: var(--ks-content-secondary, #999);
+        color: var(--ks-text-muted);
     }
     .session-badge {
         display: inline-block;
         padding: 2px 8px;
         border-radius: 10px;
         font-size: 0.85em;
-        background: var(--ks-background-inverted, #eee);
+        background: var(--ks-bg-badge);
     }
-    .ok-mark { color: var(--ks-color-success, #4caf50); }
-    .warn-mark { color: var(--ks-color-warning, #ff9800); }
+    .ok-mark { color: var(--ks-text-success); }
+    .warn-mark { color: var(--ks-text-warning); }
 </style>
