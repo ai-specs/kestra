@@ -2746,6 +2746,20 @@
         "searchMember": "搜索成员…",
         "name": "名称",
         "description": "描述"
+      },
+      "employee": {
+        "label": "员工",
+        "empty": "暂无员工命名空间（未使用过云电脑模式的用户不在此列）",
+        "sessions": "{count} 个会话",
+        "show_sessions": "查看会话",
+        "hide_sessions": "收起会话",
+        "no_sessions": "暂无会话",
+        "reply": "回复",
+        "stderr": "错误日志",
+        "view_reply": "回复",
+        "view_stderr": "错误日志",
+        "truncated": "文件共 {size} 字节，显示末尾 64KB",
+        "no_content": "无内容（文件不存在或为空）"
       }
     }
   },

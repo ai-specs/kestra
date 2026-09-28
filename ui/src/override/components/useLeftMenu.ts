@@ -197,6 +197,18 @@ export function useLeftMenu() {
                         },
                     },
                     {
+                        // dsh fork：员工命名空间（云电脑模式，只有文件无 flow 的命名空间）
+                        id: "employees",
+                        title: t("dsh.employee.label"),
+                        routes: routeStartWith("employees"),
+                        href: {
+                            name: "employees/list",
+                        },
+                        icon: {
+                            element: AccountGroupOutline,
+                        },
+                    },
+                    {
                         id: "assets",
                         title: t("demos.assets.label"),
                         routes: routeStartWith("assets"),

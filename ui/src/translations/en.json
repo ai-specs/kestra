@@ -2746,6 +2746,20 @@
         "searchMember": "Search members…",
         "name": "Name",
         "description": "Description"
+      },
+      "employee": {
+        "label": "Employees",
+        "empty": "No employee namespaces (users who never used cloud computer mode)",
+        "sessions": "{count} sessions",
+        "show_sessions": "Sessions",
+        "hide_sessions": "Hide sessions",
+        "no_sessions": "No sessions",
+        "reply": "Reply",
+        "stderr": "Stderr",
+        "view_reply": "Reply",
+        "view_stderr": "Stderr",
+        "truncated": "File is {size} bytes; showing the last 64KB",
+        "no_content": "No content (file missing or empty)"
       }
     }
   }

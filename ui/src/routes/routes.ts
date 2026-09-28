@@ -70,6 +70,9 @@ const routes: KestraRouteRecord[] = [
 
     //Namespaces
     {name: "namespaces/list", path: "/:tenant?/namespaces", component: () => import("override/components/namespaces/Namespaces.vue")},
+
+    // dsh employees (fork: Resources→employee 员工命名空间浏览)
+    {name: "employees/list", path: "/:tenant?/employee", component: () => import("../components/dsh/employee/Employees.vue")},
     {
         name: NAMESPACE_PARENT_ROUTE,
         path: "/:tenant?/namespaces/edit/:id",
