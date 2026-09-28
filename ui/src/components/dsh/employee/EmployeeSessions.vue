@@ -33,10 +33,10 @@
                 </template>
             </KsTableColumn>
             <KsTableColumn width="140" align="center">
-                <template #default>
+                <template #default="{row}">
                     <KsButton
                         size="small"
-                        @click.stop="browseFiles"
+                        @click.stop="browseFiles(row.sessionId)"
                     >{{ t("dsh.employee.browse_files") }}</KsButton>
                 </template>
             </KsTableColumn>
@@ -84,9 +84,13 @@
         }
     }
 
-    // 会话与文件同属一个命名空间存储——切到文件 tab 即可按 sessions/{id}/ 目录浏览
-    const browseFiles = () => {
-        router.push({name: "employees/update/files", params: {namespace: props.namespace}})
+    // 深链到文件 tab 并定位该会话目录（?path=/sessions/{id}，文件树展开并高亮）
+    const browseFiles = (sessionId: string) => {
+        router.push({
+            name: "employees/update/files",
+            params: {namespace: props.namespace},
+            query: {path: `/sessions/${sessionId}`},
+        })
     }
 
     watch(() => props.namespace, loadSessions)

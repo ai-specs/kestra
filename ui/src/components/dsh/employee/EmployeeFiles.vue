@@ -19,6 +19,7 @@
                         class="tree-filter"
                     />
                     <KsTree
+                        ref="treeRef"
                         :data="visibleNodes"
                         nodeKey="path"
                         :default-expanded-keys="defaultExpanded"
@@ -63,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-    import {computed, onMounted, ref, watch} from "vue"
+    import {computed, nextTick, onMounted, ref, watch} from "vue"
     import {useRoute} from "vue-router"
     import {useI18n} from "vue-i18n"
     import FolderOutline from "vue-material-design-icons/FolderOutline.vue"
@@ -163,12 +164,57 @@
         return acc
     }
 
+    /** 深链目标路径（?path=，归一去首尾斜杠）；非法/不存在时各环节静默降级。 */
+    const targetPath = computed(() => {
+        const raw = route.query.path
+        if (typeof raw !== "string" || !raw.trim()) {
+            return ""
+        }
+        return raw.replace(/^\/+|\/+$/g, "")
+    })
+
     const defaultExpanded = computed(() => {
         const query = filter.value.trim()
         if (query) {
             return collectDirPaths(visibleNodes.value)
         }
+        // 深链（?path=/sessions/{id}）：展开目标目录的全部祖先 + 目标自身并高亮
+        if (targetPath.value) {
+            const segments = targetPath.value.split("/").filter(Boolean)
+            if (segments.length > 0) {
+                return segments.map((_, i) => segments.slice(0, i + 1).join("/"))
+            }
+        }
         return rows.value.some(r => r.path === "sessions") ? ["sessions"] : []
+    })
+
+    const treeRef = ref<{setCurrentKey: (key: unknown) => void}>()
+
+    /** 数据就绪后高亮深链目标节点并滚入视野（best-effort：不存在则跳过）。 */
+    const focusTarget = async () => {
+        if (!targetPath.value || loading.value) {
+            return
+        }
+        await nextTick()
+        try {
+            treeRef.value?.setCurrentKey(targetPath.value)
+        } catch {
+            // 目标节点不存在（路径已删/拼错）——树保持默认展开即可
+        }
+        setTimeout(() => {
+            try {
+                document.querySelector(".employee-files .kel-tree-node.is-current")
+                    ?.scrollIntoView({block: "center"})
+            } catch {
+                // 忽略滚动失败
+            }
+        }, 150)
+    }
+
+    watch([() => route.query.path, loading], ([, isLoading]) => {
+        if (!isLoading) {
+            focusTarget()
+        }
     })
 
     const loadTree = async () => {
