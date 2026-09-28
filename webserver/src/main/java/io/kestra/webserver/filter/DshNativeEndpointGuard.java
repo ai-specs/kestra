@@ -65,7 +65,9 @@ import reactor.core.publisher.Mono;
  * "Tenant must be main" 校验兜底）；反之只看 raw 则防不住已解码到达的形态。HEAD 与
  * 写方法同等对待（Micronaut 将 HEAD 路由到 GET 处理器真实执行，仅剥 body）。
  * 角色来源：JWT cookie 或 Authorization Bearer（均已被 Micronaut SecurityFilter 在更早
- * order 验签——伪造签名 JWT 实测 401，不会到达本 filter 的 admin 判定；Bearer 通道
+ * order 验签。admin 判定只读 SecurityFilter 注入的已验签 Authentication（见
+ * DshAdminAuthorizer——2026-09-29 缺口审计：旧版自解析 payload 在匿名面可被伪造
+ * roles=[admin] 的无效 token 骗过，已实测复现并修复）；Bearer 通道
  * 供 init:flows 等脚本客户端使用）。未登录请求已被上游拦截（浏览器 307 到
  * /oidc/login，API 401），不会到达本 filter。
  */
@@ -104,8 +106,8 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
         String raw = rawPath(request);
         String decoded = normalizedPath(request);
         if (raw != null && decoded != null
-            && isNonAdminAllowedSurface(raw, request)
-            && isNonAdminAllowedSurface(decoded, request)) {
+            && isNonAdminAllowedSurface(raw)
+            && isNonAdminAllowedSurface(decoded)) {
             return chain.proceed(request);
         }
 
@@ -136,7 +138,7 @@ public class DshNativeEndpointGuard implements HttpServerFilter {
      * 仅被 OSS 单租户校验 400 兜底）。枚举后 {@code /api/v1/dsh/executions} 不在
      * 放行集 → 守卫 403，不再依赖任何下游巧合。
      */
-    private static boolean isNonAdminAllowedSurface(String path, HttpRequest<?> request) {
+    static boolean isNonAdminAllowedSurface(String path) {
         return hasPrefix(path, "/oidc")
             || hasPrefix(path, "/.well-known")
             || hasPrefix(path, "/api/v1/dsh/exec")
