@@ -2750,19 +2750,24 @@
       "employee": {
         "label": "员工",
         "empty": "暂无员工命名空间（未使用过云电脑模式的用户不在此列）",
-        "sessions": "{count} 个会话",
-        "show_sessions": "查看会话",
-        "hide_sessions": "收起会话",
         "no_sessions": "暂无会话",
         "reply": "回复",
         "stderr": "错误日志",
-        "view_reply": "回复",
-        "view_stderr": "错误日志",
-        "truncated": "文件共 {size} 字节，显示末尾 64KB",
-        "no_content": "无内容（文件不存在或为空）",
         "user": "用户",
         "session_count": "会话数",
-        "session_list": "会话列表"
+        "tab_sessions": "会话",
+        "tab_files": "文件",
+        "file_count": "文件数",
+        "uploads": "上传文件",
+        "browse_files": "浏览文件",
+        "forbidden": "需要管理员权限才能浏览员工命名空间",
+        "not_found": "员工命名空间不存在",
+        "back_to_list": "返回员工列表",
+        "no_files": "该命名空间暂无文件",
+        "filter_files": "过滤文件",
+        "truncated": "显示末尾 64KB",
+        "binary_hint": "二进制文件，不支持文本预览",
+        "no_selection": "选择文件以预览"
       }
     }
   },

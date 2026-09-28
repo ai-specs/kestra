@@ -74,6 +74,21 @@ const routes: KestraRouteRecord[] = [
     // dsh employees (fork: Resources→employee 员工命名空间浏览)
     {name: "employees/list", path: "/:tenant?/employee", component: () => import("../components/dsh/employee/Employees.vue")},
     {
+        name: "employees/update",
+        path: "/:tenant?/employee/edit/:namespace",
+        component: () => import("../components/dsh/employee/Employee.vue"),
+        // Same no-component child records as createNamespaceTabRoutes: tabs render through
+        // Tabs.vue's TabBody (vertical sidebar), children only give each tab a real URL.
+        redirect: (to) => {
+            const tab = (to.params.tab as string) || "sessions"
+            return {name: `employees/update/${tab}`, params: to.params, query: to.query}
+        },
+        children: [
+            {name: "employees/update/sessions", path: "sessions", meta: {tab: "sessions"}},
+            {name: "employees/update/files", path: "files", meta: {tab: "files"}},
+        ] as unknown as KestraRouteRecord[],
+    },
+    {
         name: NAMESPACE_PARENT_ROUTE,
         path: "/:tenant?/namespaces/edit/:id",
         component: () => import("../components/namespaces/Namespace.vue"),

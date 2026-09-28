@@ -2750,19 +2750,24 @@
       "employee": {
         "label": "Employees",
         "empty": "No employee namespaces (users who never used cloud computer mode)",
-        "sessions": "{count} sessions",
-        "show_sessions": "Sessions",
-        "hide_sessions": "Hide sessions",
         "no_sessions": "No sessions",
         "reply": "Reply",
         "stderr": "Stderr",
-        "view_reply": "Reply",
-        "view_stderr": "Stderr",
-        "truncated": "File is {size} bytes; showing the last 64KB",
-        "no_content": "No content (file missing or empty)",
         "user": "User",
         "session_count": "Sessions",
-        "session_list": "Sessions"
+        "tab_sessions": "Sessions",
+        "tab_files": "Files",
+        "file_count": "Files",
+        "uploads": "Uploads",
+        "browse_files": "Browse files",
+        "forbidden": "Admin role is required to browse employee namespaces",
+        "not_found": "Employee namespace not found",
+        "back_to_list": "Back to employees",
+        "no_files": "No files in this namespace",
+        "filter_files": "Filter files",
+        "truncated": "showing last 64KB",
+        "binary_hint": "Binary file — text preview not supported",
+        "no_selection": "Select a file to preview"
       }
     }
   }
