@@ -7,66 +7,81 @@
 
     <KsRow class="row-padding">
         <KsCol v-if="loading" class="p-3"><el-skeleton :rows="3" animated /></KsCol>
+
         <KsCol v-else-if="employees.length === 0" class="p-3">
-            <span>{{ $t("dsh.employee.empty") }}</span>
+            <el-empty :description="$t('dsh.employee.empty')" />
         </KsCol>
 
-        <KsCol v-for="emp in employees" :key="emp.namespace" class="p-2">
-            <el-card shadow="never" class="employee-card">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div class="d-flex align-items-center">
-                        <AccountGroupOutline class="me-2 icon" />
-                        <div>
-                            <div class="employee-sub">{{ emp.sub }}</div>
-                            <code class="employee-ns">{{ emp.namespace }}</code>
+        <KsCol v-else :span="24">
+            <el-table :data="employees" stripe border>
+                <el-table-column prop="sub" :label="$t('dsh.employee.user')" min-width="200">
+                    <template #default="{row}">
+                        <div class="d-flex align-items-center">
+                            <AccountGroupOutline class="me-2 icon" />
+                            <span>{{ row.sub }}</span>
                         </div>
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
-                        <el-tag size="small">{{ $t("dsh.employee.sessions", {count: emp.sessionCount}) }}</el-tag>
-                        <el-button size="small" @click="toggleSessions(emp)">
-                            {{ expanded === emp.namespace ? $t("dsh.employee.hide_sessions") : $t("dsh.employee.show_sessions") }}
+                    </template>
+                </el-table-column>
+                <el-table-column prop="namespace" label="Namespace" min-width="280">
+                    <template #default="{row}">
+                        <code class="employee-ns">{{ row.namespace }}</code>
+                    </template>
+                </el-table-column>
+                <el-table-column :label="$t('dsh.employee.session_count')" width="120" align="center">
+                    <template #default="{row}">
+                        <el-tag v-if="row.sessionCount > 0" size="small" type="info">{{ row.sessionCount }}</el-tag>
+                        <span v-else class="text-muted">—</span>
+                    </template>
+                </el-table-column>
+                <el-table-column :label="$t('actions')" width="120" align="center">
+                    <template #default="{row}">
+                        <el-button
+                            v-if="row.sessionCount > 0"
+                            size="small"
+                            @click="toggleSessions(row)"
+                        >
+                            {{ expanded === row.namespace ? $t("dsh.employee.hide_sessions") : $t("dsh.employee.show_sessions") }}
                         </el-button>
-                    </div>
-                </div>
+                    </template>
+                </el-table-column>
+            </el-table>
 
-                <div v-if="expanded === emp.namespace" class="mt-3">
-                    <el-table
-                        v-if="sessions(emp.namespace).length > 0"
-                        :data="sessions(emp.namespace)"
-                        size="small"
-                        border
-                    >
-                        <el-table-column prop="sessionId" label="sessionId" min-width="280">
-                            <template #default="{row}">
-                                <code>{{ row.sessionId }}</code>
-                            </template>
-                        </el-table-column>
-                        <el-table-column :label="$t('dsh.employee.reply')" width="90">
-                            <template #default="{row}">
-                                <el-tag v-if="row.hasReply" size="small" type="success">✓</el-tag>
-                                <el-tag v-else size="small" type="info">—</el-tag>
-                            </template>
-                        </el-table-column>
-                        <el-table-column :label="$t('dsh.employee.stderr')" width="90">
-                            <template #default="{row}">
-                                <el-tag v-if="row.hasStderr" size="small" type="warning">✓</el-tag>
-                                <el-tag v-else size="small" type="info">—</el-tag>
-                            </template>
-                        </el-table-column>
-                        <el-table-column :label="$t('actions')" width="200">
-                            <template #default="{row}">
-                                <el-button size="small" @click="viewFile(emp.namespace, `/sessions/${row.sessionId}/reply.txt`)">
-                                    {{ $t("dsh.employee.view_reply") }}
-                                </el-button>
-                                <el-button size="small" @click="viewFile(emp.namespace, `/sessions/${row.sessionId}/stderr.log`)">
-                                    {{ $t("dsh.employee.view_stderr") }}
-                                </el-button>
-                            </template>
-                        </el-table-column>
-                    </el-table>
-                    <span v-else class="text-muted">{{ $t("dsh.employee.no_sessions") }}</span>
-                </div>
-            </el-card>
+            <div v-if="expanded" class="mt-3">
+                <el-table
+                    v-if="sessions(expanded).length > 0"
+                    :data="sessions(expanded)"
+                    size="small"
+                    border
+                >
+                    <el-table-column prop="sessionId" label="sessionId" min-width="280">
+                        <template #default="{row}">
+                            <code>{{ row.sessionId }}</code>
+                        </template>
+                    </el-table-column>
+                    <el-table-column :label="$t('dsh.employee.reply')" width="80" align="center">
+                        <template #default="{row}">
+                            <el-tag v-if="row.hasReply" size="small" type="success">✓</el-tag>
+                            <el-tag v-else size="small" type="info">—</el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column :label="$t('dsh.employee.stderr')" width="80" align="center">
+                        <template #default="{row}">
+                            <el-tag v-if="row.hasStderr" size="small" type="warning">✓</el-tag>
+                            <el-tag v-else size="small" type="info">—</el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column :label="$t('actions')" width="180" align="center">
+                        <template #default="{row}">
+                            <el-button size="small" @click="viewReply(row.sessionId)">
+                                {{ $t("dsh.employee.view_reply") }}
+                            </el-button>
+                            <el-button size="small" @click="viewStderr(row.sessionId)">
+                                {{ $t("dsh.employee.view_stderr") }}
+                            </el-button>
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </div>
         </KsCol>
     </KsRow>
 
@@ -86,7 +101,7 @@
     import {computed, onMounted, ref} from "vue"
     import {useRoute} from "vue-router"
     import {useI18n} from "vue-i18n"
-    import {ElButton, ElCard, ElCol, ElDrawer, ElRow, ElSkeleton, ElTable, ElTableColumn, ElTag, ElAlert} from "element-plus"
+    import {ElAlert, ElButton, ElCol, ElDrawer, ElEmpty, ElRow, ElSkeleton, ElTable, ElTableColumn, ElTag} from "element-plus"
     import Refresh from "vue-material-design-icons/Refresh.vue"
     import AccountGroupOutline from "vue-material-design-icons/AccountGroupOutline.vue"
 
@@ -151,6 +166,9 @@
         }
     }
 
+    const viewReply = (sessionId: string) => viewFile(expanded.value, `/sessions/${sessionId}/reply.txt`)
+    const viewStderr = (sessionId: string) => viewFile(expanded.value, `/sessions/${sessionId}/stderr.log`)
+
     const viewFile = async (namespace: string, path: string) => {
         fileDrawer.value = true
         fileLoading.value = true
@@ -170,9 +188,10 @@
 </script>
 
 <style scoped>
-    .employee-card {width: 100%;}
-    .employee-sub {font-weight: 600;}
-    .employee-ns {font-size: 0.85em; color: var(--ks-content-secondary);}
+    .employee-ns {
+        font-size: 0.85em;
+        color: var(--ks-content-secondary);
+    }
     .file-content {
         white-space: pre-wrap;
         word-break: break-all;
@@ -180,5 +199,7 @@
         max-height: 70vh;
         overflow: auto;
     }
-    .gap-2 {gap: 8px;}
+    .text-muted {
+        color: var(--ks-content-secondary);
+    }
 </style>
