@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Deque;
 import java.util.Set;
 
 /**
@@ -268,11 +269,18 @@ public class DshExecController {
         }
         if (state.isFailed() || state == State.Type.KILLED) {
             result.put("error", "execution ended with state " + state);
+            // P1-1：失败原因可见——从员工命名空间读 flow 回写的 stderr.log 尾部
+            // 摘要（截 2KB），用户在手机端即可看到 LLM 报错/超时等真实原因
+            String stderrTail = readNamespaceFileTail(execution, "stderr.log", 2048);
+            if (stderrTail != null) {
+                result.put("errorDetail", stderrTail);
+            }
             result.put("sessionId", execution.getInputs().get("sessionId"));
             return HttpResponse.ok(result);
         }
-        // SUCCESS / WARNING：从员工 namespace 读 persist 回写的 reply.txt
-        String reply = readReply(execution);
+        // SUCCESS / WARNING：从员工 namespace 读 persist 回写的 reply.txt（尾部截 64KB，
+        // P2：防超长输出撑爆手机端渲染——回复全文仍完整存在于员工 namespace）
+        String reply = readNamespaceFileTail(execution, "reply.txt", 64 * 1024);
         if (reply == null) {
             result.put("error", "reply not found for finished execution");
         } else {
@@ -406,8 +414,8 @@ public class DshExecController {
         return execution.getLabels().stream().filter(l -> key.equals(l.key())).map(Label::value).findFirst().orElse(null);
     }
 
-    /** Reads the reply.txt persisted by the flow's persist task; null when absent/unreadable. */
-    private String readReply(Execution execution) {
+    /** Reads the tail (max limitBytes) of a small text file the flow persisted in the employee namespace; null when absent/unreadable. */
+    private String readNamespaceFileTail(Execution execution, String filename, int limitBytes) {
         Object sid = execution.getInputs().get("sessionId");
         String sub = labelValue(execution, LABEL_SUB);
         if (!(sid instanceof String sessionId) || sub == null) {
@@ -415,19 +423,41 @@ public class DshExecController {
         }
         try {
             Namespace namespaceStorage = namespaceFactory.of(execution.getTenantId(), DshEmployeeNamespace.of(sub), storageInterface);
-            Path path = Path.of("/sessions/" + sessionId + "/reply.txt");
+            Path path = Path.of("/sessions/" + sessionId + "/" + filename);
             if (!namespaceStorage.exists(path)) {
                 return null;
             }
             try (InputStream in = namespaceStorage.getFileContent(path); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                in.transferTo(out);
-                return out.toString(StandardCharsets.UTF_8);
+                byte[] buffer = new byte[8192];
+                long total = 0;
+                Deque<byte[]> chunks = new java.util.ArrayDeque<>();
+                int n;
+                while ((n = in.read(buffer)) > 0) {
+                    total += n;
+                    chunks.addLast(java.util.Arrays.copyOf(buffer, n));
+                }
+                if (total == 0) {
+                    return "";
+                }
+                // 只保留尾部 limitBytes（失败原因在末尾）
+                ByteArrayOutputStream tail = new ByteArrayOutputStream();
+                long skip = Math.max(0, total - limitBytes);
+                for (byte[] c : chunks) {
+                    if (skip >= c.length) {
+                        skip -= c.length;
+                    } else {
+                        tail.write(c, (int) skip, c.length - (int) skip);
+                        skip = 0;
+                    }
+                }
+                return tail.toString(StandardCharsets.UTF_8);
             }
         } catch (Exception e) {
-            log.warn("dsh exec reply read failed for execution {}", execution.getId(), e);
+            log.warn("dsh exec {} tail read failed for {}", filename, execution.getId(), e);
             return null;
         }
     }
+
 
     private static long uploadMaxBytes() {
         String raw = System.getenv("EXEC_UPLOAD_MAX_BYTES");
