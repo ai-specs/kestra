@@ -205,20 +205,46 @@ public class DshEmployeeController {
         String tenant = tenantService.resolveTenant();
         String relative = normalized.substring(1);
         try {
+            // stat 在 get 之前：目录路径直接 400，不先开流（存储层对目录 get 会抛 404）
+            io.kestra.core.storages.FileAttributes attr = statOrNull(tenant, namespace, storageUri(namespace, relative));
+            if (attr != null && safeIsDirectory(attr)) {
+                return HttpResponse.badRequest(Map.of("error", "path is a directory"));
+            }
             java.io.InputStream in = storageInterface.get(tenant, namespace, storageUri(namespace, relative));
             if (in == null) {
                 return HttpResponse.notFound(Map.of("error", "file not found"));
             }
-            byte[] all;
-            try (java.io.InputStream is = in) {
-                all = is.readAllBytes();
+            byte[] tail;
+            // 元数据可用时按 size 跳读尾部，超限文件不整读进内存（防御 OOM）；
+            // stat 失败（畸形条目等）退回整读——预览排障面优先可用性。
+            // truncated 以 stat 的 size 为准（skip 后恰好剩 MAX 字节，读长度判不出超限）
+            long size = attr == null ? -1 : safeSize(attr);
+            boolean truncated = size > MAX_FILE_BYTES;
+            if (truncated) {
+                try (java.io.InputStream is = in) {
+                    long toSkip = size - MAX_FILE_BYTES;
+                    while (toSkip > 0) {
+                        long skipped = is.skip(toSkip);
+                        if (skipped <= 0) {
+                            break;
+                        }
+                        toSkip -= skipped;
+                    }
+                    byte[] read = is.readNBytes(MAX_FILE_BYTES + 1);
+                    tail = read.length > MAX_FILE_BYTES
+                        ? java.util.Arrays.copyOfRange(read, 0, MAX_FILE_BYTES)
+                        : read;
+                }
+            } else {
+                try (java.io.InputStream is = in) {
+                    tail = is.readAllBytes();
+                }
+                truncated = tail.length > MAX_FILE_BYTES;
             }
-            int from = Math.max(0, all.length - MAX_FILE_BYTES);
-            byte[] tail = java.util.Arrays.copyOfRange(all, from, all.length);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("path", normalized);
-            result.put("size", all.length);
-            result.put("truncated", all.length > MAX_FILE_BYTES);
+            result.put("size", Math.max(size, tail.length));
+            result.put("truncated", truncated);
             if (isMostlyText(tail)) {
                 result.put("binary", false);
                 result.put("content", new String(tail, StandardCharsets.UTF_8));
@@ -235,7 +261,7 @@ public class DshEmployeeController {
     }
 
     /** 全量流式下载（不截断）：zstd/图片等二进制排障素材落地分析。 */
-    @Get(uri = "/{namespace}/file/download", produces = MediaType.APPLICATION_OCTET_STREAM)
+    @Get(uri = "/{namespace}/file/download")
     @Operation(summary = "Download one file under an employee namespace (raw storage, full stream)")
     public HttpResponse<?> download(
         HttpRequest<?> request,
@@ -250,6 +276,11 @@ public class DshEmployeeController {
         String tenant = tenantService.resolveTenant();
         String relative = normalized.substring(1);
         try {
+            // stat 在 get 之前：目录路径直接 400，不先开流（存储层对目录 get 会抛 404）
+            io.kestra.core.storages.FileAttributes attr = statOrNull(tenant, namespace, storageUri(namespace, relative));
+            if (attr != null && safeIsDirectory(attr)) {
+                return HttpResponse.badRequest(Map.of("error", "path is a directory"));
+            }
             java.io.InputStream in = storageInterface.get(tenant, namespace, storageUri(namespace, relative));
             if (in == null) {
                 return HttpResponse.notFound(Map.of("error", "file not found"));
@@ -258,15 +289,29 @@ public class DshEmployeeController {
             String fileName = normalized.substring(normalized.lastIndexOf('/') + 1);
             String asciiFallback = fileName.replaceAll("[^A-Za-z0-9._-]", "_");
             String encoded = java.net.URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
-            return HttpResponse.ok(new io.micronaut.http.server.types.files.StreamedFile(
-                    in, MediaType.APPLICATION_OCTET_STREAM_TYPE))
+            // 上游同款 no-cache；stat 可用时带上长度/最后修改时间（浏览器可显示进度）
+            io.micronaut.http.server.types.files.StreamedFile streamed = attr == null
+                ? new io.micronaut.http.server.types.files.StreamedFile(in, MediaType.APPLICATION_OCTET_STREAM_TYPE)
+                : new io.micronaut.http.server.types.files.StreamedFile(
+                    in, MediaType.APPLICATION_OCTET_STREAM_TYPE, attr.getLastModifiedTime(), safeSize(attr));
+            return HttpResponse.ok(streamed)
                 .header("Content-Disposition", "attachment; filename=\"" + asciiFallback
-                    + "\"; filename*=UTF-8''" + encoded);
+                    + "\"; filename*=UTF-8''" + encoded)
+                .header(io.micronaut.http.HttpHeaders.CACHE_CONTROL, "no-cache");
         } catch (java.io.FileNotFoundException e) {
             return HttpResponse.notFound(Map.of("error", "file not found"));
         } catch (Exception e) {
             log.warn("dsh-employee file download failed {} {}", namespace, normalized, e);
             return HttpResponse.serverError(Map.of("error", "file download failed"));
+        }
+    }
+
+    /** stat 元数据：不存在/读取失败（畸形条目等）返回 null，由调用方按可用性降级。 */
+    private io.kestra.core.storages.FileAttributes statOrNull(String tenant, String namespace, java.net.URI uri) {
+        try {
+            return storageInterface.getAttributes(tenant, namespace, uri);
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -463,7 +508,14 @@ public class DshEmployeeController {
         while (value.contains("//")) {
             value = value.replace("//", "/");
         }
-        if (value.contains("..") || value.chars().anyMatch(Character::isISOControl)) {
+        // 路径穿越按「段」判：a..b.txt 这类合法文件名不该被 contains("..") 误伤；
+        // 反斜杠在本面无合法用途（存储层会转成 / 再判穿越，这里提前 400）
+        for (String segment : value.split("/")) {
+            if (segment.equals("..") || segment.equals(".")) {
+                return null;
+            }
+        }
+        if (value.contains("\\") || value.chars().anyMatch(Character::isISOControl)) {
             return null;
         }
         return value;
