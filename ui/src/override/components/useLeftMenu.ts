@@ -20,6 +20,7 @@ import FlaskOutline from "vue-material-design-icons/FlaskOutline.vue"
 import PackageVariantClosed from "vue-material-design-icons/PackageVariantClosed.vue"
 import AlertCircleOutline from "vue-material-design-icons/AlertCircleOutline.vue"
 import FolderOpenOutline from "vue-material-design-icons/FolderOpenOutline.vue"
+import AccountGroupOutline from "vue-material-design-icons/AccountGroupOutline.vue"
 import PuzzleOutline from "vue-material-design-icons/PuzzleOutline.vue"
 import ShapePlusOutline from "vue-material-design-icons/ShapePlusOutline.vue"
 
