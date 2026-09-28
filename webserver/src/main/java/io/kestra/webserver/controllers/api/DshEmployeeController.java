@@ -4,6 +4,7 @@ import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.tenant.TenantService;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
+import io.micronaut.http.MediaType;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.QueryValue;
@@ -190,25 +191,19 @@ public class DshEmployeeController {
 
     /** 读取员工命名空间内的小文本文件（物理存储直读；尾部截 64KB；二进制返回标记）。 */
     @Get(uri = "/{namespace}/file")
-    @Operation(summary = "Read one text file under an employee namespace (raw storage, tail-capped)")
-    public HttpResponse<Map<String, Object>> file(
+    @Operation(summary = "Read one file under an employee namespace (raw storage, tail-capped)")
+    public HttpResponse<?> file(
         HttpRequest<?> request,
         String namespace,
         @QueryValue String path
     ) {
-        if (!isAdminCaller(request)) {
-            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
-                .body(Map.of("error", "admin role is required"));
-        }
-        if (!namespace.startsWith(EMPLOYEE_PREFIX)) {
-            return HttpResponse.badRequest(Map.of("error", "not an employee namespace"));
+        HttpResponse<?> guard = fileGuard(request, namespace, path);
+        if (guard != null) {
+            return guard;
         }
         String normalized = normalizePath(path);
-        if (normalized == null) {
-            return HttpResponse.badRequest(Map.of("error", "invalid path"));
-        }
         String tenant = tenantService.resolveTenant();
-        String relative = normalized.startsWith("/") ? normalized.substring(1) : normalized;
+        String relative = normalized.substring(1);
         try {
             java.io.InputStream in = storageInterface.get(tenant, namespace, storageUri(namespace, relative));
             if (in == null) {
@@ -237,6 +232,57 @@ public class DshEmployeeController {
             log.warn("dsh-employee file read failed {} {}", namespace, normalized, e);
             return HttpResponse.serverError(Map.of("error", "file read failed"));
         }
+    }
+
+    /** 全量流式下载（不截断）：zstd/图片等二进制排障素材落地分析。 */
+    @Get(uri = "/{namespace}/file/download", produces = MediaType.APPLICATION_OCTET_STREAM)
+    @Operation(summary = "Download one file under an employee namespace (raw storage, full stream)")
+    public HttpResponse<?> download(
+        HttpRequest<?> request,
+        String namespace,
+        @QueryValue String path
+    ) {
+        HttpResponse<?> guard = fileGuard(request, namespace, path);
+        if (guard != null) {
+            return guard;
+        }
+        String normalized = normalizePath(path);
+        String tenant = tenantService.resolveTenant();
+        String relative = normalized.substring(1);
+        try {
+            java.io.InputStream in = storageInterface.get(tenant, namespace, storageUri(namespace, relative));
+            if (in == null) {
+                return HttpResponse.notFound(Map.of("error", "file not found"));
+            }
+            // filename 双写：ASCII 回退名 + RFC 5987 UTF-8（畸形文件名也能正确落盘）
+            String fileName = normalized.substring(normalized.lastIndexOf('/') + 1);
+            String asciiFallback = fileName.replaceAll("[^A-Za-z0-9._-]", "_");
+            String encoded = java.net.URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
+            return HttpResponse.ok(new io.micronaut.http.server.types.files.StreamedFile(
+                    in, MediaType.APPLICATION_OCTET_STREAM_TYPE))
+                .header("Content-Disposition", "attachment; filename=\"" + asciiFallback
+                    + "\"; filename*=UTF-8''" + encoded);
+        } catch (java.io.FileNotFoundException e) {
+            return HttpResponse.notFound(Map.of("error", "file not found"));
+        } catch (Exception e) {
+            log.warn("dsh-employee file download failed {} {}", namespace, normalized, e);
+            return HttpResponse.serverError(Map.of("error", "file download failed"));
+        }
+    }
+
+    /** file/download 共用的入参守卫（admin + employee 前缀 + path 归一），非空即拒绝响应。 */
+    private HttpResponse<?> fileGuard(HttpRequest<?> request, String namespace, String path) {
+        if (!isAdminCaller(request)) {
+            return HttpResponse.status(io.micronaut.http.HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "admin role is required"));
+        }
+        if (!namespace.startsWith(EMPLOYEE_PREFIX)) {
+            return HttpResponse.badRequest(Map.of("error", "not an employee namespace"));
+        }
+        if (normalizePath(path) == null) {
+            return HttpResponse.badRequest(Map.of("error", "invalid path"));
+        }
+        return null;
     }
 
     /**
@@ -413,6 +459,10 @@ public class DshEmployeeController {
             return null;
         }
         String value = raw.startsWith("/") ? raw : "/" + raw;
+        // 归一重复前导斜杠（"//sessions/..." 双拼容错），内部 "//" 属畸形路径一并折叠
+        while (value.contains("//")) {
+            value = value.replace("//", "/");
+        }
         if (value.contains("..") || value.chars().anyMatch(Character::isISOControl)) {
             return null;
         }

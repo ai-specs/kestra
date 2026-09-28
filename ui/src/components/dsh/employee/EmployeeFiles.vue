@@ -47,6 +47,12 @@
                             <span v-if="preview.truncated" class="truncated-badge">
                                 {{ t("dsh.employee.truncated") }}
                             </span>
+                            <span class="flex-fill"></span>
+                            <KsButton
+                                size="small"
+                                :icon="DownloadIcon"
+                                @click="downloadFile(preview.path)"
+                            >{{ t("download") }}</KsButton>
                         </div>
                         <div v-if="preview.binary" class="binary-hint">
                             {{ t("dsh.employee.binary_hint") }}
@@ -69,7 +75,8 @@
     import {useI18n} from "vue-i18n"
     import FolderOutline from "vue-material-design-icons/FolderOutline.vue"
     import FileDocumentOutline from "vue-material-design-icons/FileDocumentOutline.vue"
-    import {KsInput, KsSkeleton} from "@kestra-io/design-system"
+    import DownloadIcon from "vue-material-design-icons/Download.vue"
+    import {KsButton, KsInput, KsSkeleton} from "@kestra-io/design-system"
     import {humanFileSize} from "../../../utils/utils"
 
     interface TreeRow {
@@ -244,6 +251,18 @@
         }
     }
 
+    // 全量下载（不截断）：二进制排障素材落地分析；attachment 头让浏览器直接落盘
+    const downloadFile = (path: string) => {
+        const withSlash = path.startsWith("/") ? path : "/" + path
+        const href = api(`/dsh-employee/${encodeURIComponent(props.namespace)}/file/download?path=${encodeURIComponent(withSlash)}`)
+        const a = document.createElement("a")
+        a.href = href
+        a.download = ""
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+    }
+
     watch(() => props.namespace, loadTree)
     onMounted(loadTree)
 </script>
@@ -322,6 +341,10 @@
         padding: 0.5rem 0.75rem;
         border-bottom: 1px solid var(--ks-border-default, #eee);
         flex-wrap: wrap;
+
+        .flex-fill {
+            flex: 1;
+        }
     }
     .file-path {
         font-size: 0.85em;
