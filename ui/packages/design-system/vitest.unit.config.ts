@@ -20,5 +20,9 @@ export default defineConfig({
                 inline: [/element-plus/, "@popperjs/core"],
             },
         },
+        coverage: {
+            reporter: ["text", "html", "lcov"],
+            include: ["src/**/*.{ts,vue}"],
+        },
     },
 })
