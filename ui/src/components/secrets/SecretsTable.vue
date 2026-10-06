@@ -106,10 +106,10 @@
             >
                 <template #default="scope">
                     <KsIconButton
-                        v-if="canUpdate(scope.row)"
+                        v-if="canUpdate(scope.row as NamespaceSecret & {namespace?: string})"
                         :tooltip="$t('update')"
                         placement="left"
-                        @click="updateSecretModal(scope.row)"
+                        @click="updateSecretModal(scope.row as NamespaceSecret)"
                     >
                         <FileDocumentEdit />
                     </KsIconButton>
@@ -123,10 +123,10 @@
             >
                 <template #default="scope">
                     <KsIconButton
-                        v-if="canDelete(scope.row)"
+                        v-if="canDelete(scope.row as NamespaceSecret & {namespace?: string})"
                         :tooltip="$t('delete')"
                         placement="left"
-                        @click="removeSecret(scope.row)"
+                        @click="removeListedSecret(scope.row as NamespaceSecret)"
                     >
                         <Delete />
                     </KsIconButton>
@@ -485,6 +485,11 @@
                 })
                 .then(() => dataTable.value?.reload())
         })
+    }
+
+    const removeListedSecret = (row: NamespaceSecret) => {
+        if (!row.namespace) return
+        removeSecret({key: row.key, namespace: row.namespace})
     }
 
     const isSecretValueUpdated = () => {

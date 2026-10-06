@@ -90,7 +90,7 @@
                     <KsIconButton
                         :tooltip="$t('delete')"
                         placement="left"
-                        @click="removeApp(scope.row)"
+                        @click="removeApp(scope.row as AppSummary)"
                     >
                         <Delete />
                     </KsIconButton>

@@ -5,8 +5,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import io.kestra.webserver.utils.RequestUtils;
+
 import io.micronaut.context.annotation.Replaces;
 import io.micronaut.context.annotation.Requires;
+import io.micronaut.context.annotation.Value;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.web.router.DefaultRouter;
 import io.micronaut.web.router.RouteBuilder;
@@ -26,9 +29,14 @@ public class TenantAliasingRooter extends DefaultRouter {
         Pattern.compile("/api/v1/configs/login")
     );
 
+    private final String contextPath;
+
     @Inject
-    public TenantAliasingRooter(Collection<RouteBuilder> builders) {
+    public TenantAliasingRooter(
+        Collection<RouteBuilder> builders,
+        @Value("${micronaut.server.context-path:}") String contextPath) {
         super(builders);
+        this.contextPath = RequestUtils.normalizeContextPath(contextPath);
     }
 
     @SneakyThrows
@@ -54,8 +62,9 @@ public class TenantAliasingRooter extends DefaultRouter {
             }
         }
 
-        boolean excluded = EXCLUDED_ROUTES.stream().anyMatch(route -> route.matcher(rawPath).matches());
-        if (rawPath.startsWith("/api/v1/") && !excluded) {
+        String apiPath = RequestUtils.stripContextPath(contextPath, rawPath);
+        boolean excluded = EXCLUDED_ROUTES.stream().anyMatch(route -> route.matcher(apiPath).matches());
+        if (apiPath.startsWith("/api/v1/") && !excluded) {
             // dsh: the tenant-less /api/v1/{a}/{b}[/{c}] form must resolve to the upstream tenant
             // routes (rewritten with the tenant segment) — the dsh catch-all controllers
             // (UiAppController /{namespace} and AppRouterController /api/v1/{ns}/{app}/{page})
@@ -63,7 +72,8 @@ public class TenantAliasingRooter extends DefaultRouter {
             // the upstream routes only (dsh catch-alls excluded — the rewritten URI still starts
             // with /api/v1, so they would match it too); on a miss fall back to the raw closest
             // match, which is how the dsh apps API (/api/v1/dsh.apps/hello/index) keeps resolving.
-            String rewrittenRawPath = rawPath.replaceFirst("^/api/v1", "/api/v1/" + getTenantId());
+            String strippedContextPath = rawPath.substring(0, rawPath.length() - apiPath.length());
+            String rewrittenRawPath = strippedContextPath + apiPath.replaceFirst("^/api/v1", "/api/v1/" + getTenantId());
             URI updatedUri = new URI(rebuildRawUri(request, rewrittenRawPath));
             UriRouteMatch<T, R> rewritten = findClosestUpstreamOnly(request.toMutableRequest().uri(updatedUri));
             if (rewritten != null) {

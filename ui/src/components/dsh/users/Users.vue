@@ -84,7 +84,7 @@
                         data-test="user-edit"
                         :tooltip="$t('edit')"
                         placement="left"
-                        @click.stop="openEdit(row)"
+                        @click.stop="openEdit(row as UserRow)"
                     >
                         <FileDocumentEdit />
                     </KsIconButton>
@@ -93,7 +93,7 @@
                         data-test="user-reset-password"
                         :tooltip="$t('dsh.users.resetPassword')"
                         placement="left"
-                        @click.stop="openResetPassword(row)"
+                        @click.stop="openResetPassword(row as UserRow)"
                     >
                         <LockReset />
                     </KsIconButton>
@@ -102,7 +102,7 @@
                         data-test="user-rotate-secret"
                         :tooltip="$t('dsh.users.rotateSecret')"
                         placement="left"
-                        @click.stop="openResetPassword(row)"
+                        @click.stop="openResetPassword(row as UserRow)"
                     >
                         <Key />
                     </KsIconButton>
@@ -110,7 +110,7 @@
                         data-test="user-delete"
                         :tooltip="$t('delete')"
                         placement="left"
-                        @click.stop="confirmRemove(row)"
+                        @click.stop="confirmRemove(row as UserRow)"
                     >
                         <Delete />
                     </KsIconButton>

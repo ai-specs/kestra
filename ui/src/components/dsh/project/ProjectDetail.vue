@@ -219,7 +219,7 @@
                                     <KsIconButton
                                         :tooltip="$t('dsh.roles.remove')"
                                         placement="left"
-                                        @click="confirmRemove(row)"
+                                        @click="confirmRemove(row as UserRow)"
                                     >
                                         <Delete />
                                     </KsIconButton>

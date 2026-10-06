@@ -368,7 +368,7 @@ public class DshExecController {
 
         String employeeNamespace = DshEmployeeNamespace.of(caller.sub());
         Path destination = Path.of("/sessions/" + sessionId.trim() + "/uploads/" + filename);
-        Namespace namespaceStorage = namespaceFactory.of(tenantService.resolveTenant(), employeeNamespace, storageInterface);
+        Namespace namespaceStorage = namespaceFactory.of(tenantService.resolveTenant(), employeeNamespace);
         boolean overwritten;
         try {
             overwritten = namespaceStorage.exists(destination);
@@ -422,7 +422,7 @@ public class DshExecController {
             return null;
         }
         try {
-            Namespace namespaceStorage = namespaceFactory.of(execution.getTenantId(), DshEmployeeNamespace.of(sub), storageInterface);
+            Namespace namespaceStorage = namespaceFactory.of(execution.getTenantId(), DshEmployeeNamespace.of(sub));
             Path path = Path.of("/sessions/" + sessionId + "/" + filename);
             if (!namespaceStorage.exists(path)) {
                 return null;

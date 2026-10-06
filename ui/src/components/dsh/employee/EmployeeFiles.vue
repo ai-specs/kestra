@@ -22,10 +22,10 @@
                         ref="treeRef"
                         :data="visibleNodes"
                         nodeKey="path"
-                        :default-expanded-keys="defaultExpanded"
-                        :default-expand-all="!!filter"
-                        highlight-current
-                        expand-on-click-node
+                        :defaultExpandedKeys="defaultExpanded"
+                        :defaultExpandAll="!!filter"
+                        highlightCurrent
+                        expandOnClickNode
                         @node-click="onNodeClick"
                     >
                         <template #default="{data}">

@@ -1,6 +1,8 @@
 import NProgress from "nprogress"
 import type {Router} from "vue-router"
 import {configureClient, useClient, asProblem, type ProblemDetail} from "@kestra-io/kestra-sdk"
+import {markServerReachable, markServerUnreachable} from "../composables/useServerReachability"
+import {isReauthOpen, recheckReauth} from "../composables/useReauthDialog"
 import {idpLogin, isOidcAuthEnabled, refreshSession} from "./basicAuth"
 import {getCsrfToken} from "./csrf"
 
@@ -9,6 +11,20 @@ let requestsTotal = 0
 let requestsCompleted = 0
 
 const SKIP_PROGRESS = "__kestraSkipProgress"
+
+const GATEWAY_STATUSES = new Set([502, 503, 504])
+
+function isKestraApiRequest(request?: Request): boolean {
+    return Boolean(request?.url) && new URL(request!.url, window.location.href).pathname.includes("/api/v1/")
+}
+
+function isSameOrigin(request: Request): boolean {
+    return new URL(request.url, window.location.href).origin === window.location.origin
+}
+
+function skipProgress(opts: unknown): boolean {
+    return Boolean((opts as Record<string, unknown> | undefined)?.[SKIP_PROGRESS])
+}
 
 function progressComplete() {
     pendingRoute = false
@@ -171,6 +187,7 @@ export function setupKestraHttp(
         // refresh in-flight dedup this makes the 401 → refresh → retry cycle terminate even
         // when several raced requests 401 back-to-back during a boot.
         const run = async (retried: boolean, ...args: Parameters<F>) => {
+            const wasLoggedIn = isLoggedIn()
             try {
                 return await fn(...args)
             } catch (error) {
@@ -179,9 +196,14 @@ export function setupKestraHttp(
                 if (isOidcAuthEnabled()) {
                     // OIDC single-credential model: a 401 first tries one sliding refresh
                     // (rotated JWT) and retries the request — an actively-used session is
-                    // renewed transparently. Only a refresh that fails (truly expired or
-                    // invalid) falls through to the login redirect — never a stuck state.
+                    // renewed transparently. A login that completed mid-flight (the request
+                    // left signed-out but the session is now valid) replays once without the
+                    // login redirect, mirroring upstream OSS semantics. Only a refresh that
+                    // fails on an already-expired session falls through to the login redirect.
                     if (!retried && await refreshSession()) {
+                        return run(true, ...args)
+                    }
+                    if (!wasLoggedIn && isLoggedIn()) {
                         return run(true, ...args)
                     }
                     const shouldRetry = await onUnauthorized(navigateToLogin, kestraError)
@@ -192,6 +214,9 @@ export function setupKestraHttp(
                 if (!isLoggedIn()) {
                     const shouldRetry = await onUnauthorized(navigateToLogin, kestraError)
                     if (shouldRetry) return run(true, ...args)
+                } else if (!wasLoggedIn) {
+                    // upstream: a login completed mid-flight — retry once on the now-valid session.
+                    return run(true, ...args)
                 }
                 throw error
             }
@@ -208,41 +233,46 @@ export function setupKestraHttp(
     }
 
     client.interceptors.request.use((request, opts: unknown) => {
-        if (typeof document !== "undefined" && !(opts as Record<string, unknown>)?.[SKIP_PROGRESS]) initProgress()
+        if (typeof document !== "undefined" && !skipProgress(opts)) initProgress()
         // dsh: OIDC cookie 认证下，所有非安全写方法须携带后端签发的 CSRF token
         // （页面 meta[name="csrf-token"]，与 csrfToken cookie 同值，后端 CsrfTokenFilter 校验）。
         // 缺少该 header 时 cookie 认证的 POST/PATCH/DELETE 会被 403 拒绝。
-        if (typeof document !== "undefined") {
-            const method = String(request?.method ?? "").toUpperCase()
-            if (method && !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
-                const csrf = getCsrfToken()
-                if (csrf) {
-                    const headers = (request as {headers?: Headers | Record<string, string>}).headers ?? {}
-                    if (headers instanceof Headers) {
-                        if (!headers.has("X-CSRF-TOKEN")) headers.set("X-CSRF-TOKEN", csrf)
-                    } else if (!headers["X-CSRF-TOKEN"]) {
-                        headers["X-CSRF-TOKEN"] = csrf
-                        ;(request as {headers?: Headers | Record<string, string>}).headers = headers
-                    }
+        if (isSameOrigin(request)) {
+            const headers = new Headers(request.headers)
+            headers.set("X-Requested-With", "XMLHttpRequest")
+            if (typeof document !== "undefined") {
+                const method = String(request?.method ?? "").toUpperCase()
+                if (method && !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
+                    const csrf = getCsrfToken()
+                    if (csrf && !headers.has("X-CSRF-TOKEN")) headers.set("X-CSRF-TOKEN", csrf)
                 }
             }
+            return new Request(request, {headers})
         }
         return request
     })
 
-    client.interceptors.response.use((response, _request, opts) => {
+    client.interceptors.response.use((response, request, opts) => {
         // dsh: 与 request 钩子一致——跳过 NProgress 的请求（stream/SSE 等）也不推进进度条
-        const responseOpts = opts as unknown as Record<string, unknown> | undefined
-        if (!responseOpts?.[SKIP_PROGRESS]) increaseProgress()
+        if (isKestraApiRequest(request)) {
+            markServerReachable()
+            if (isReauthOpen()) void recheckReauth()
+        }
+        if (!skipProgress(opts)) increaseProgress()
         return response
     })
 
     client.interceptors.error.use((error, response, request, opts) => {
         const kestraError = error as KestraHttpError
         if (!response) {
-            const errorOpts = opts as unknown as Record<string, unknown> | undefined
-            if (!errorOpts?.[SKIP_PROGRESS]) increaseProgress()
+            const aborted = request?.signal?.aborted || kestraError.name === "AbortError"
+            if (!aborted && isKestraApiRequest(request)) markServerUnreachable()
+            if (!skipProgress(opts)) increaseProgress()
             return kestraError
+        }
+        if (isKestraApiRequest(request)) {
+            if (GATEWAY_STATUSES.has(response.status)) markServerUnreachable()
+            else markServerReachable()
         }
 
         // An API error is a problem document, and `response.data` IS that document — the same value the

@@ -130,7 +130,7 @@ public class AppRouterController {
         }
 
         try {
-            Namespace ns = namespaceFactory.of(tenant, flow.getNamespace(), storageInterface);
+            Namespace ns = namespaceFactory.of(tenant, flow.getNamespace());
             try (InputStream in = ns.getFileContent(java.nio.file.Path.of(uri.getPath()), null)) {
                 String schema = new String(in.readAllBytes(), StandardCharsets.UTF_8);
                 return HttpResponse.ok(schema).contentType(MediaType.APPLICATION_JSON_TYPE);

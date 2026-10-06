@@ -293,7 +293,7 @@ public class AppsFileController {
 
 
     private Namespace namespace(String tenant) {
-        return namespaceFactory.of(tenant, appsFiles.getRootNamespace(), storageInterface);
+        return namespaceFactory.of(tenant, appsFiles.getRootNamespace());
     }
 
     

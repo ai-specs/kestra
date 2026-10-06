@@ -67,7 +67,7 @@
                         data-test="project-view"
                         :tooltip="$t('dsh.project.view')"
                         placement="left"
-                        @click.stop="goToDetail(row)"
+                        @click.stop="goToDetail(row as ProjectRow)"
                     >
                         <Eye />
                     </KsIconButton>
@@ -145,7 +145,7 @@
     }
 
     function onRowClick(row: ProjectRow) {
-        goToDetail(row)
+        goToDetail(row as ProjectRow)
     }
 
     function goToDetail(row: ProjectRow) {

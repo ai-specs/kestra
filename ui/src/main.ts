@@ -1,5 +1,5 @@
 import {createApp} from "vue"
-import type {Router, RouteLocationNormalized} from "vue-router"
+import type {NavigationGuardReturn, Router, RouteLocationNormalized} from "vue-router"
 
 import "./utils/monacoEnvironment"
 import {setupPreloadErrorReloadHandler} from "./utils/preloadErrorReload"
@@ -14,6 +14,7 @@ import routes from "./routes/routes"
 import en from "./translations/en.json"
 import {setupTenantRouter, tenantGuard} from "./composables/useTenant"
 import * as BasicAuth from "./utils/basicAuth"
+import {isReauthOpen, requestReauth} from "./composables/useReauthDialog"
 import {getCsrfToken} from "./utils/csrf"
 import {useCoreStore} from "./stores/core"
 import {useLayoutStore} from "./stores/layout"
@@ -73,13 +74,30 @@ function setupAxios(router: Router) {
         // Central 401 handling. Under OIDC the SPA login route is a dead end (no Basic Auth
         // endpoint behind it), so the re-login happens at the IdP — keeping the current path
         // as the deep link. The default (OSS) behavior routes to the SPA login page.
-        onUnauthorized: (navigate) => {
-            beforeLogout()
+        onUnauthorized: async (navigateToLogin, error) => {
             if (BasicAuth.isOidcAuthEnabled()) {
+                beforeLogout()
                 BasicAuth.idpLogin(window.location.pathname + window.location.search)
-            } else {
-                navigate()
+                return false
             }
+            const isLoginRequest = Boolean(error.config?.url?.endsWith("/login"))
+            if (isLoginRequest && isReauthOpen()) return false
+
+            if (isLoginRequest || router.currentRoute.value.meta.anonymous) {
+                beforeLogout()
+                navigateToLogin()
+                return false
+            }
+
+            const reauthenticated = await requestReauth({
+                signIn: BasicAuth.signIn,
+                confirm: async () => {
+                    if (!BasicAuth.isLoggedIn()) throw new Error("The basic-auth session is not back yet.")
+                },
+            })
+            if (reauthenticated) return true
+            beforeLogout()
+            navigateToLogin()
             return false
         },
     })
@@ -97,7 +115,7 @@ function setupAxios(router: Router) {
     return useClient()
 }
 
-async function beforeResolve(router: Router, to: RouteLocationNormalized, from: RouteLocationNormalized): Promise<unknown> {
+async function beforeResolve(router: Router, to: RouteLocationNormalized, from: RouteLocationNormalized): Promise<NavigationGuardReturn> {
     if(to.path === from.path && to.query === from.query) {
         return // Prevent navigation if the path and query are the same
     }
@@ -186,8 +204,8 @@ async function beforeResolve(router: Router, to: RouteLocationNormalized, from: 
 }
 
 initApp(app, routes, null, en as Record<string, unknown>, {}, {
-    beforeEach: tenantGuard as (...args: unknown[]) => unknown,
-    beforeResolve: beforeResolve as (...args: unknown[]) => unknown,
+    beforeEach: tenantGuard,
+    beforeResolve,
 }).then(({router, piniaStore}) => {
     setupTenantRouter(router, app)
 
